@@ -1117,8 +1117,8 @@
             if (savedSize) {
                 try {
                     const parsed = JSON.parse(savedSize);
-                    if (parsed.width && parsed.width >= 480) modalCard.style.width = parsed.width + 'px';
-                    if (parsed.height && parsed.height >= 380) modalCard.style.height = parsed.height + 'px';
+                    if (parsed.width && parsed.width >= 320) modalCard.style.width = Math.min(parsed.width, window.innerWidth * 0.98) + 'px';
+                    if (parsed.height && parsed.height >= 180) modalCard.style.height = Math.min(parsed.height, window.innerHeight * 0.96) + 'px';
                 } catch (_) {}
             }
 
@@ -1128,7 +1128,7 @@
                 let resizeTimer;
                 const ro = new ResizeObserver(entries => {
                     for (let entry of entries) {
-                        if (entry.contentRect && entry.contentRect.width > 300 && entry.contentRect.height > 200) {
+                        if (entry.contentRect && entry.contentRect.width > 240 && entry.contentRect.height > 140) {
                             clearTimeout(resizeTimer);
                             resizeTimer = setTimeout(() => {
                                 if (modalCard.offsetWidth && modalCard.offsetHeight) {
@@ -1875,21 +1875,53 @@
             });
         }
 
-        // --- OPML Import & Dropzone ---
-        const importOpmlBtn = document.getElementById('btn-import-opml');
-        const opmlFileInput = document.getElementById('input-opml-file');
-        const dropzoneOpml = document.getElementById('dropzone-opml');
-
-        if (importOpmlBtn && opmlFileInput) {
-            importOpmlBtn.addEventListener('click', () => {
-                opmlFileInput.click();
-            });
+        // --- Dynamic File Picker Helpers (No HTML input elements needed) ---
+        function openOpmlFilePicker() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.opml,.xml';
+            input.style.position = 'fixed';
+            input.style.top = '-9999px';
+            input.style.left = '-9999px';
+            input.style.opacity = '0';
+            input.onchange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    processOpmlFile(e.target.files[0]);
+                }
+                input.remove();
+            };
+            document.body.appendChild(input);
+            input.click();
         }
 
-        if (dropzoneOpml && opmlFileInput) {
-            dropzoneOpml.addEventListener('click', () => {
-                opmlFileInput.click();
-            });
+        function openJsonFilePicker() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.style.position = 'fixed';
+            input.style.top = '-9999px';
+            input.style.left = '-9999px';
+            input.style.opacity = '0';
+            input.onchange = (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    processJsonFile(e.target.files[0]);
+                }
+                input.remove();
+            };
+            document.body.appendChild(input);
+            input.click();
+        }
+
+        // --- OPML Import & Dropzone ---
+        const importOpmlBtn = document.getElementById('btn-import-opml');
+        const dropzoneOpml = document.getElementById('dropzone-opml');
+
+        if (importOpmlBtn) {
+            importOpmlBtn.addEventListener('click', openOpmlFilePicker);
+        }
+
+        if (dropzoneOpml) {
+            dropzoneOpml.addEventListener('click', openOpmlFilePicker);
             dropzoneOpml.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 dropzoneOpml.classList.add('dragover');
@@ -1902,15 +1934,6 @@
                 dropzoneOpml.classList.remove('dragover');
                 if (e.dataTransfer.files && e.dataTransfer.files[0]) {
                     processOpmlFile(e.dataTransfer.files[0]);
-                }
-            });
-        }
-
-        if (opmlFileInput) {
-            opmlFileInput.addEventListener('change', (e) => {
-                if (e.target.files && e.target.files[0]) {
-                    processOpmlFile(e.target.files[0]);
-                    opmlFileInput.value = '';
                 }
             });
         }
@@ -1990,19 +2013,14 @@
 
         // --- JSON Restore & Dropzone ---
         const restoreJsonBtn = document.getElementById('btn-restore-json');
-        const jsonFileInput = document.getElementById('input-json-file');
         const dropzoneJson = document.getElementById('dropzone-json');
 
-        if (restoreJsonBtn && jsonFileInput) {
-            restoreJsonBtn.addEventListener('click', () => {
-                jsonFileInput.click();
-            });
+        if (restoreJsonBtn) {
+            restoreJsonBtn.addEventListener('click', openJsonFilePicker);
         }
 
-        if (dropzoneJson && jsonFileInput) {
-            dropzoneJson.addEventListener('click', () => {
-                jsonFileInput.click();
-            });
+        if (dropzoneJson) {
+            dropzoneJson.addEventListener('click', openJsonFilePicker);
             dropzoneJson.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 dropzoneJson.classList.add('dragover');
@@ -2015,15 +2033,6 @@
                 dropzoneJson.classList.remove('dragover');
                 if (e.dataTransfer.files && e.dataTransfer.files[0]) {
                     processJsonFile(e.dataTransfer.files[0]);
-                }
-            });
-        }
-
-        if (jsonFileInput) {
-            jsonFileInput.addEventListener('change', (e) => {
-                if (e.target.files && e.target.files[0]) {
-                    processJsonFile(e.target.files[0]);
-                    jsonFileInput.value = '';
                 }
             });
         }
