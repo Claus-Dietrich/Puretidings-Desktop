@@ -162,19 +162,47 @@
 }
 
 .dark-mode button.edit-btn {
-  background-color: var(--edit-button-bg-color);
+  background-color: var(--edit-button-bg-color, #3c5c8b) !important;
+  color: #fff !important;
+  border: 1px solid #4a6fa5 !important;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .dark-mode button.edit-btn:hover {
-  background-color: var(--edit-button-hover-bg-color);
+  background-color: var(--edit-button-hover-bg-color, #4e6e9e) !important;
 }
 
 .dark-mode button.delete-btn,
 .dark-mode .delete-btn {
-  background-color: var(--delete-bg-color);
+  background-color: var(--delete-bg-color, #5c2a2a) !important;
+  color: #fff !important;
+  border: 1px solid #7c3a3a !important;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .dark-mode button.delete-btn:hover,
 .dark-mode .delete-btn:hover {
-  background-color: var(--delete-hover-bg-color);
+  background-color: var(--delete-hover-bg-color, #7c3a3a) !important;
+}
+
+.dark-mode button.secondary-btn {
+  background-color: var(--button-bg-color, #3c4043) !important;
+  color: var(--text-color, #e8eaed) !important;
+  border: 1px solid var(--border-color, #4a4a4a) !important;
+  border-radius: 4px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dark-mode button.secondary-btn:hover {
+  background-color: var(--button-hover-bg-color, #4a4a4a) !important;
 }
 
 /* Input-Anpassungen */

@@ -128,13 +128,18 @@
     }
     #settings-modal.desktop-modal-overlay {
       display: none;
-      align-items: center;
-      justify-content: center;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
       overflow: hidden;
-      padding: 10px;
+      padding: 0;
       box-sizing: border-box;
+      z-index: 9999;
     }
     #settings-modal .desktop-modal-card {
+      position: absolute;
       width: 820px;
       height: 680px;
       min-width: 320px;
@@ -147,7 +152,6 @@
       flex-direction: column;
       padding: 0;
       box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
-      position: relative;
     }
     .settings-modal-header {
       flex-shrink: 0;
@@ -160,6 +164,8 @@
       position: sticky;
       top: 0;
       z-index: 20;
+      cursor: move;
+      user-select: none;
     }
     #settings-modal .tabs-nav {
       position: sticky;
@@ -640,6 +646,17 @@
                 <button type="button" id="new-rule-add-btn" style="padding: 6px 14px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Add Rule</button>
               </div>
             </div>
+          </div>
+
+          <!-- Bulk Actions Section -->
+          <div class="global-actions" style="margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 18px;">
+            <h3 id="actions-title" style="margin: 0 0 8px 0; font-size: 16px;">Bulk Actions</h3>
+            <p class="settings-description" style="margin: 0 0 12px 0; font-size: 13px; color: var(--secondary-text-color);">Quickly update read status for all articles across all subscribed feeds.</p>
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="mark-all-read-button" class="secondary-btn">Mark all as read</button>
+              <button type="button" id="mark-all-unread-button" class="secondary-btn">Mark all as unread</button>
+            </div>
+            <p id="mark-all-read-status" class="status-message-inline" style="font-size: 13px; margin: 8px 0 0 0; font-weight: 600;"></p>
           </div>
         </div>
 

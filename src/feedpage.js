@@ -511,7 +511,7 @@ function renderTreeView(postsByFeed) {
         const isCollapsed = collapsedFolders.has(node.id);
         const toggleText = isCollapsed ? '[+]' : '[-]';
 
-        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${folderCountSpan}</span></div>`;
+        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${folderCountSpan}</span><button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="Refresh all feeds in this folder">🔄</button></div>`;
         
         const ul = document.createElement('ul');
         ul.className = 'folder-children' + (isCollapsed ? ' hidden' : '');
@@ -540,7 +540,7 @@ function renderTreeView(postsByFeed) {
         const isExpanded = expandedFeeds.has(node.id);
         const toggleText = isExpanded ? '[-]' : '[+]';
 
-        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><img src="${faviconUrl}" class="feed-favicon" alt="icon" onerror="this.src='128.png'"><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${feedCountSpan}</span></div>`;
+        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><img src="${faviconUrl}" class="feed-favicon" alt="icon" onerror="this.src='128.png'"><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${feedCountSpan}</span><button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="Refresh this feed">🔄</button></div>`;
 
         const postUl = document.createElement('ul');
         if (!isExpanded) postUl.classList.add('hidden');
@@ -1031,6 +1031,47 @@ function addSummaryBtnListener(element, post) {
 // --- EVENT HANDLER HELPERS ---
 
 function handleTreeToggle(event) {
+  const refreshBtn = event.target.closest('.feed-single-refresh-btn');
+  if (refreshBtn) {
+    event.stopPropagation();
+    event.preventDefault();
+    const nodeId = refreshBtn.dataset.id;
+    if (!nodeId) return;
+
+    refreshBtn.classList.add('spinning');
+    (async () => {
+      try {
+        if (refreshBtn.classList.contains('folder-refresh-btn')) {
+          const feedIds = [];
+          function findFolderFeeds(nodes) {
+            for (const n of nodes) {
+              if (n.id === nodeId && n.type === 'folder') {
+                function collect(item) {
+                  if (item.type === 'feed') feedIds.push(item.id);
+                  else if (item.children) item.children.forEach(collect);
+                }
+                collect(n);
+                return;
+              }
+              if (n.children) findFolderFeeds(n.children);
+            }
+          }
+          findFolderFeeds(currentFeedTree);
+          if (window.refreshSingleFeedNative) {
+            await Promise.all(feedIds.map(fId => window.refreshSingleFeedNative(fId)));
+          }
+        } else {
+          if (window.refreshSingleFeedNative) {
+            await window.refreshSingleFeedNative(nodeId);
+          }
+        }
+      } finally {
+        refreshBtn.classList.remove('spinning');
+      }
+    })();
+    return;
+  }
+
   const toggle = event.target.closest('.tree-toggle');
   if (!toggle) return;
   const parentLi = toggle.closest('li');

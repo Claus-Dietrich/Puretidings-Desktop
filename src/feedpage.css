@@ -561,6 +561,36 @@ main {
   margin-left: 8px;
 }
 
+.feed-single-refresh-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  margin-left: 8px;
+  opacity: 0.6;
+  transition: opacity 0.2s, transform 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-color);
+}
+.tree-node-content:hover .feed-single-refresh-btn,
+.feed-single-refresh-btn:hover {
+  opacity: 1;
+  background: var(--hover-bg, rgba(255, 255, 255, 0.1));
+}
+.feed-single-refresh-btn.spinning {
+  animation: pt-spin 1s linear infinite;
+  pointer-events: none;
+  opacity: 1;
+}
+@keyframes pt-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .tree-node-content .post-item {
   border: none;
   margin: 0;

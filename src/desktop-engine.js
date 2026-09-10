@@ -640,6 +640,169 @@
     }
     window.refreshAllFeedsNative = refreshAllFeedsNative;
 
+    async function refreshSingleFeedNative(targetFeedId) {
+        if (!targetFeedId) return;
+        try {
+            const { feedTree = [], allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
+            const { rules = [] } = await chrome.storage.sync.get(['rules']);
+            const readLinksSet = new Set(readLinks || []);
+
+            let targetFeed = null;
+            function findFeed(nodes) {
+                for (const n of (nodes || [])) {
+                    if (n.type === 'feed' && n.id === targetFeedId) {
+                        targetFeed = n;
+                        return;
+                    } else if (n.type === 'folder' && n.children) {
+                        findFeed(n.children);
+                    }
+                }
+            }
+            findFeed(feedTree);
+
+            if (!targetFeed || !targetFeed.url) {
+                console.warn(`[PureTidings Desktop] Feed not found: ${targetFeedId}`);
+                return;
+            }
+
+            // Cache previously fetched images
+            const existingImageMap = new Map();
+            if (Array.isArray(allPosts[targetFeedId])) {
+                allPosts[targetFeedId].forEach(p => {
+                    if (p.link && p.featuredImage) {
+                        existingImageMap.set(p.link, p.featuredImage);
+                    }
+                });
+            }
+
+            const xml = await tauriInvoke('fetch_url', { url: targetFeed.url });
+            const posts = parseFeedXml(xml, targetFeed);
+            if (posts && posts.length > 0) {
+                posts.forEach(p => {
+                    if (!p.featuredImage && existingImageMap.has(p.link)) {
+                        p.featuredImage = existingImageMap.get(p.link);
+                    }
+                    if (typeof applyRulesToPost === 'function') {
+                        applyRulesToPost(p, rules, readLinksSet);
+                    }
+                });
+                const newAllPosts = { ...allPosts, [targetFeedId]: posts };
+
+                let count = 0;
+                posts.forEach(p => {
+                    if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                });
+
+                const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
+                const newUnreadCounts = { ...unreadCounts, [targetFeedId]: count };
+
+                await chrome.storage.local.set({
+                    allPosts: newAllPosts,
+                    unreadCounts: newUnreadCounts
+                });
+
+                // Background scrape missing og:images
+                const missingImages = posts.filter(p => !p.featuredImage && p.link && p.link.startsWith('http')).slice(0, 10);
+                if (missingImages.length > 0) {
+                    (async () => {
+                        let anyFound = false;
+                        await Promise.all(missingImages.map(async (p) => {
+                            try {
+                                const og = await findOgImage(p.link);
+                                if (og) {
+                                    p.featuredImage = og;
+                                    anyFound = true;
+                                }
+                            } catch (_) {}
+                        }));
+                        if (anyFound) {
+                            const cur = await chrome.storage.local.get('allPosts');
+                            const updatedPosts = cur.allPosts || {};
+                            updatedPosts[targetFeedId] = posts;
+                            await chrome.storage.local.set({ allPosts: { ...updatedPosts } });
+                        }
+                    })();
+                }
+
+                if (typeof showInAppToast === 'function') {
+                    showInAppToast('Feed Updated', `${targetFeed.name}: ${posts.length} articles`);
+                }
+            }
+        } catch (err) {
+            console.error(`[PureTidings Desktop] Error refreshing single feed ${targetFeedId}:`, err);
+            if (typeof showInAppToast === 'function') {
+                showInAppToast('Feed Refresh Failed', `${err.message || err}`);
+            }
+        }
+    }
+    window.refreshSingleFeedNative = refreshSingleFeedNative;
+
+    async function markAllAsReadNative(feedId = null) {
+        const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+        const readLinksSet = new Set(readLinks || []);
+        if (feedId) {
+            const feedPosts = allPosts[feedId] || [];
+            feedPosts.forEach(p => { if (p.link) readLinksSet.add(p.link); });
+        } else {
+            Object.values(allPosts).flat().forEach(p => { if (p.link) readLinksSet.add(p.link); });
+        }
+
+        const newReadLinks = Array.from(readLinksSet);
+        const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
+        const newUnreadCounts = { ...unreadCounts };
+
+        if (feedId) {
+            newUnreadCounts[feedId] = 0;
+        } else {
+            for (const fId in allPosts) {
+                newUnreadCounts[fId] = 0;
+            }
+        }
+
+        await chrome.storage.local.set({
+            readLinks: newReadLinks,
+            unreadCounts: newUnreadCounts
+        });
+    }
+    window.markAllAsReadNative = markAllAsReadNative;
+
+    async function markAllAsUnreadNative(feedId = null) {
+        const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+        let readLinksSet = new Set(readLinks || []);
+        if (feedId) {
+            const feedPosts = allPosts[feedId] || [];
+            feedPosts.forEach(p => { if (p.link) readLinksSet.delete(p.link); });
+        } else {
+            readLinksSet.clear();
+        }
+
+        const newReadLinks = Array.from(readLinksSet);
+        const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
+        const newUnreadCounts = { ...unreadCounts };
+
+        if (feedId) {
+            let count = 0;
+            (allPosts[feedId] || []).forEach(p => {
+                if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+            });
+            newUnreadCounts[feedId] = count;
+        } else {
+            for (const fId in allPosts) {
+                let count = 0;
+                (allPosts[fId] || []).forEach(p => {
+                    if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                });
+                newUnreadCounts[fId] = count;
+            }
+        }
+
+        await chrome.storage.local.set({
+            readLinks: newReadLinks,
+            unreadCounts: newUnreadCounts
+        });
+    }
+    window.markAllAsUnreadNative = markAllAsUnreadNative;
+
     // ==========================================
     // 6. Gemini AI Helper
     // ==========================================
@@ -1108,18 +1271,117 @@
         closeAllModals();
         const modal = document.getElementById('settings-modal');
         if (!modal) return;
-        modal.style.display = 'flex';
+        modal.style.display = 'block';
 
-        // Restore custom modal dimensions
+        // Restore custom modal dimensions & coordinates
         const modalCard = document.getElementById('settings-modal-card');
         if (modalCard) {
-            const savedSize = localStorage.getItem('puretidings_settings_size');
-            if (savedSize) {
+            let savedGeo = null;
+            try {
+                savedGeo = JSON.parse(localStorage.getItem('puretidings_settings_geometry') || localStorage.getItem('puretidings_settings_size') || 'null');
+            } catch (_) {}
+
+            const maxW = Math.max(320, window.innerWidth - 20);
+            const maxH = Math.max(180, window.innerHeight - 20);
+            let w = (savedGeo && savedGeo.width) ? Math.max(320, Math.min(savedGeo.width, maxW)) : Math.min(840, maxW);
+            let h = (savedGeo && savedGeo.height) ? Math.max(180, Math.min(savedGeo.height, maxH)) : Math.min(680, maxH);
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (window.innerWidth - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (window.innerHeight - h) / 2));
+
+            // Keep inside screen bounds
+            left = Math.max(0, Math.min(left, window.innerWidth - 80));
+            top = Math.max(0, Math.min(top, window.innerHeight - 50));
+
+            modalCard.style.width = w + 'px';
+            modalCard.style.height = h + 'px';
+            modalCard.style.left = left + 'px';
+            modalCard.style.top = top + 'px';
+
+            function saveSettingsGeometry() {
+                if (!modalCard) return;
+                const geo = {
+                    left: Math.round(modalCard.offsetLeft),
+                    top: Math.round(modalCard.offsetTop),
+                    width: Math.round(modalCard.offsetWidth),
+                    height: Math.round(modalCard.offsetHeight)
+                };
                 try {
-                    const parsed = JSON.parse(savedSize);
-                    if (parsed.width && parsed.width >= 320) modalCard.style.width = Math.min(parsed.width, window.innerWidth * 0.98) + 'px';
-                    if (parsed.height && parsed.height >= 180) modalCard.style.height = Math.min(parsed.height, window.innerHeight * 0.96) + 'px';
+                    localStorage.setItem('puretidings_settings_geometry', JSON.stringify(geo));
+                    localStorage.setItem('puretidings_settings_size', JSON.stringify({ width: geo.width, height: geo.height }));
                 } catch (_) {}
+            }
+
+            // Draggable by header
+            const header = modalCard.querySelector('.settings-modal-header');
+            if (header && !header._dragAttached) {
+                header._dragAttached = true;
+                header.style.cursor = 'move';
+                header.style.userSelect = 'none';
+
+                header.addEventListener('mousedown', (e) => {
+                    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a')) return;
+                    e.preventDefault();
+
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const initialLeft = modalCard.offsetLeft;
+                    const initialTop = modalCard.offsetTop;
+
+                    function onDrag(ev) {
+                        ev.preventDefault();
+                        const dx = ev.clientX - startX;
+                        const dy = ev.clientY - startY;
+                        let nLeft = initialLeft + dx;
+                        let nTop = initialTop + dy;
+
+                        nLeft = Math.max(0, Math.min(nLeft, window.innerWidth - 80));
+                        nTop = Math.max(0, Math.min(nTop, window.innerHeight - 50));
+
+                        modalCard.style.left = nLeft + 'px';
+                        modalCard.style.top = nTop + 'px';
+                    }
+
+                    function stopDrag() {
+                        window.removeEventListener('mousemove', onDrag);
+                        window.removeEventListener('mouseup', stopDrag);
+                        saveSettingsGeometry();
+                    }
+
+                    window.addEventListener('mousemove', onDrag);
+                    window.addEventListener('mouseup', stopDrag);
+                });
+            }
+
+            // Custom resize grip handle
+            const resizeHandle = modalCard.querySelector('.modal-resize-handle');
+            if (resizeHandle && !resizeHandle._resizeAttached) {
+                resizeHandle._resizeAttached = true;
+                resizeHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const startW = modalCard.offsetWidth;
+                    const startH = modalCard.offsetHeight;
+
+                    function onGripResize(ev) {
+                        ev.preventDefault();
+                        const nW = Math.max(320, Math.min(startW + (ev.clientX - startX), window.innerWidth - modalCard.offsetLeft));
+                        const nH = Math.max(180, Math.min(startH + (ev.clientY - startY), window.innerHeight - modalCard.offsetTop));
+                        modalCard.style.width = nW + 'px';
+                        modalCard.style.height = nH + 'px';
+                    }
+
+                    function stopGripResize() {
+                        window.removeEventListener('mousemove', onGripResize);
+                        window.removeEventListener('mouseup', stopGripResize);
+                        saveSettingsGeometry();
+                    }
+
+                    window.addEventListener('mousemove', onGripResize);
+                    window.addEventListener('mouseup', stopGripResize);
+                });
             }
 
             // Attach ResizeObserver to remember resized size across app restarts
@@ -1131,12 +1393,7 @@
                         if (entry.contentRect && entry.contentRect.width > 240 && entry.contentRect.height > 140) {
                             clearTimeout(resizeTimer);
                             resizeTimer = setTimeout(() => {
-                                if (modalCard.offsetWidth && modalCard.offsetHeight) {
-                                    localStorage.setItem('puretidings_settings_size', JSON.stringify({
-                                        width: Math.round(modalCard.offsetWidth),
-                                        height: Math.round(modalCard.offsetHeight)
-                                    }));
-                                }
+                                saveSettingsGeometry();
                             }, 250);
                         }
                     }
@@ -1278,9 +1535,9 @@
         function renderList(nodes, parentEl, level = 0, parentId = '') {
             nodes.forEach(node => {
                 const li = document.createElement('li');
-                li.style.padding = '8px 10px';
-                li.style.borderBottom = '1px solid var(--border-color)';
-                li.style.paddingLeft = `${level * 20 + 10}px`;
+                li.className = 'feed-item-row';
+                li.dataset.id = node.id;
+                li.style.paddingLeft = `${level * 20 + 12}px`;
 
                 const isFolder = node.type === 'folder';
                 const isEditing = editingNodeId === node.id;
@@ -1288,7 +1545,7 @@
                 if (isEditing) {
                     li.style.background = 'var(--hover-bg)';
                     li.innerHTML = `
-                        <div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 0;">
+                        <div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 0; width: 100%;">
                             <div>
                                 <label style="font-size: 11px; font-weight: bold; color: var(--text-color-darker); display: block; margin-bottom: 2px;">Title / Name:</label>
                                 <input type="text" id="edit-node-name-${node.id}" value="${escapeHTML(node.name)}" style="width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
@@ -1307,23 +1564,42 @@
                             </div>
                             ` : ''}
                             <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;">
-                                <button type="button" class="btn-cancel-node-edit" style="padding: 5px 12px; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Cancel</button>
-                                <button type="button" class="btn-save-node-edit" data-id="${node.id}" style="padding: 5px 14px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save</button>
+                                <button type="button" class="btn-cancel-node-edit secondary-btn" style="padding: 4px 14px;">Cancel</button>
+                                <button type="button" class="btn-save-node-edit" data-id="${node.id}" style="padding: 4px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save</button>
                             </div>
                         </div>
                     `;
-                } else {
-                    li.style.display = 'flex';
-                    li.style.justifyContent = 'space-between';
-                    li.style.alignItems = 'center';
+                } else if (isFolder) {
+                    li.classList.add('folder-item-row');
                     li.innerHTML = `
-                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">
-                            ${isFolder ? '📁 ' : '📄 '}<strong>${escapeHTML(node.name)}</strong> 
-                            ${node.url ? `<small style="color:var(--text-color-darker); margin-left:8px;">(${escapeHTML(node.url)})</small>` : ''}
-                        </span>
-                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                            <button class="node-edit-btn" data-id="${node.id}" title="Edit" style="background:transparent; border:none; cursor:pointer; font-size:14px; padding:2px 4px;">✏️</button>
-                            <button class="node-del-btn" data-id="${node.id}" title="Delete" style="background:transparent; border:none; color:#d93025; cursor:pointer; font-weight:bold; font-size:18px; padding:2px 4px;">&times;</button>
+                        <div class="drag-handle"></div>
+                        <div class="feed-info">
+                            <span style="font-size: 16px; flex-shrink: 0;">📁</span>
+                            <div class="feed-info-text">
+                                <span class="folder-name">${escapeHTML(decodeHTML(node.name))}</span>
+                            </div>
+                        </div>
+                        <div class="folder-actions feed-actions">
+                            <button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="Refresh all feeds in this folder">🔄</button>
+                            <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
+                            <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
+                        </div>
+                    `;
+                } else {
+                    const faviconUrl = typeof getFaviconUrl === 'function' ? getFaviconUrl(node.url) : '128.png';
+                    li.innerHTML = `
+                        <div class="drag-handle"></div>
+                        <div class="feed-info">
+                            <img src="${faviconUrl}" class="feed-favicon" alt="" onerror="this.src='128.png'">
+                            <div class="feed-info-text">
+                                <span class="feed-name">${escapeHTML(decodeHTML(node.name))}</span>
+                                <span class="feed-url">${escapeHTML(node.url)}</span>
+                            </div>
+                        </div>
+                        <div class="feed-actions">
+                            <button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="Refresh this feed">🔄</button>
+                            <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
+                            <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
                         </div>
                     `;
                 }
@@ -1338,8 +1614,9 @@
         renderList(feedTree, list, 0, '');
 
         // Wire Edit buttons
-        list.querySelectorAll('.node-edit-btn').forEach(btn => {
+        list.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 editingNodeId = e.currentTarget.dataset.id;
                 renderSettingsFeeds();
             });
@@ -1347,7 +1624,8 @@
 
         // Wire Cancel edit
         list.querySelectorAll('.btn-cancel-node-edit').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 editingNodeId = null;
                 renderSettingsFeeds();
             });
@@ -1356,6 +1634,7 @@
         // Wire Save edit
         list.querySelectorAll('.btn-save-node-edit').forEach(btn => {
             btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
                 const nameInput = document.getElementById(`edit-node-name-${id}`);
                 const urlInput = document.getElementById(`edit-node-url-${id}`);
@@ -1430,13 +1709,14 @@
                 await chrome.storage.local.set({ feedTree });
                 editingNodeId = null;
                 renderSettingsFeeds();
-                refreshAllFeedsNative();
+                refreshSingleFeedNative(id);
             });
         });
 
         // Wire Delete buttons
-        list.querySelectorAll('.node-del-btn').forEach(btn => {
+        list.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
                 if (!confirm("Are you sure you want to remove this item?")) return;
 
@@ -1451,6 +1731,41 @@
                 const updated = removeNode(feedTree);
                 await chrome.storage.local.set({ feedTree: updated });
                 renderSettingsFeeds();
+            });
+        });
+
+        // Wire Single / Folder Refresh buttons in Settings
+        list.querySelectorAll('.feed-single-refresh-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const id = e.currentTarget.dataset.id;
+                btn.classList.add('spinning');
+                try {
+                    function findNode(nodes) {
+                        for (const n of nodes) {
+                            if (n.id === id) return n;
+                            if (n.children) {
+                                const f = findNode(n.children);
+                                if (f) return f;
+                            }
+                        }
+                        return null;
+                    }
+                    const node = findNode(feedTree);
+                    if (node && node.type === 'folder') {
+                        const feedIds = [];
+                        function collect(n) {
+                            if (n.type === 'feed') feedIds.push(n.id);
+                            else if (n.children) n.children.forEach(collect);
+                        }
+                        collect(node);
+                        await Promise.all(feedIds.map(fId => refreshSingleFeedNative(fId)));
+                    } else {
+                        await refreshSingleFeedNative(id);
+                    }
+                } finally {
+                    btn.classList.remove('spinning');
+                }
             });
         });
     }
@@ -1758,6 +2073,57 @@
             });
         }
 
+        // Bulk Actions
+        const markAllReadBtn = document.getElementById('mark-all-read-button');
+        const markAllUnreadBtn = document.getElementById('mark-all-unread-button');
+        const markAllStatus = document.getElementById('mark-all-read-status');
+
+        if (markAllReadBtn) {
+            markAllReadBtn.addEventListener('click', async () => {
+                if (markAllStatus) {
+                    markAllStatus.textContent = "Marking all articles as read...";
+                    markAllStatus.style.color = "var(--primary-color, #8ab4f8)";
+                }
+                try {
+                    await markAllAsReadNative();
+                    if (markAllStatus) {
+                        markAllStatus.textContent = "All articles marked as read!";
+                        markAllStatus.style.color = "#28a745";
+                        setTimeout(() => { if (markAllStatus) markAllStatus.textContent = ''; }, 3500);
+                    }
+                    showInAppToast('Bulk Action', 'All articles marked as read.');
+                } catch (err) {
+                    if (markAllStatus) {
+                        markAllStatus.textContent = "Error: " + (err.message || err);
+                        markAllStatus.style.color = "#dc3545";
+                    }
+                }
+            });
+        }
+
+        if (markAllUnreadBtn) {
+            markAllUnreadBtn.addEventListener('click', async () => {
+                if (markAllStatus) {
+                    markAllStatus.textContent = "Marking all articles as unread...";
+                    markAllStatus.style.color = "var(--primary-color, #8ab4f8)";
+                }
+                try {
+                    await markAllAsUnreadNative();
+                    if (markAllStatus) {
+                        markAllStatus.textContent = "All articles marked as unread!";
+                        markAllStatus.style.color = "#28a745";
+                        setTimeout(() => { if (markAllStatus) markAllStatus.textContent = ''; }, 3500);
+                    }
+                    showInAppToast('Bulk Action', 'All articles marked as unread.');
+                } catch (err) {
+                    if (markAllStatus) {
+                        markAllStatus.textContent = "Error: " + (err.message || err);
+                        markAllStatus.style.color = "#dc3545";
+                    }
+                }
+            });
+        }
+
         // Add Feed Form in Settings
         const addFeedBtn = document.getElementById('btn-add-feed');
         if (addFeedBtn) {
@@ -1801,7 +2167,7 @@
                 document.getElementById('new-feed-name').value = '';
                 document.getElementById('new-feed-url').value = '';
                 renderSettingsFeeds();
-                refreshAllFeedsNative();
+                refreshSingleFeedNative(newFeed.id);
             });
         }
 
