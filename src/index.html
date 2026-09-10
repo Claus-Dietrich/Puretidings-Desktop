@@ -346,6 +346,68 @@
       animation: pt-spin 1s linear infinite;
       margin: 20px auto;
     }
+    input, textarea, select, [contenteditable] {
+      user-select: text !important;
+      -webkit-user-select: text !important;
+    }
+    .desktop-context-menu {
+      position: fixed;
+      z-index: 100000;
+      background: var(--bg-color-secondary, #2d2e30);
+      color: var(--text-color, #e8eaed);
+      border: 1px solid var(--border-color, #5f6368);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      padding: 4px 0;
+      min-width: 140px;
+      user-select: none;
+    }
+    .context-menu-item {
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .context-menu-item:hover {
+      background: var(--hover-bg, rgba(255,255,255,0.1));
+      color: var(--accent-color, #8ab4f8);
+    }
+    .context-menu-divider {
+      height: 1px;
+      background: var(--border-color, #5f6368);
+      margin: 4px 0;
+    }
+    #reader-modal .desktop-modal-card.reader-container {
+      position: relative;
+      max-width: 960px;
+      width: 95%;
+      max-height: 92vh;
+      padding: 24px 32px;
+    }
+    #reader-video-info {
+      width: 100%;
+      margin: 15px 0 20px 0;
+    }
+    .reader-video-wrapper {
+      position: relative;
+      width: 100%;
+      padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+      height: 0;
+      overflow: hidden;
+      border-radius: 8px;
+      background: #000;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    }
+    .reader-video-wrapper iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
   </style>
 </head>
 <body>
@@ -463,7 +525,10 @@
         Enter any website URL (e.g. <code>techcrunch.com</code>), YouTube channel, or RSS feed link. PureTidings will automatically discover the feed and subscribe.
       </p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <input type="url" id="quick-feed-url-input" placeholder="https://example.com or RSS URL" style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+        <div style="display: flex; gap: 8px;">
+          <input type="url" id="quick-feed-url-input" placeholder="https://example.com or RSS URL" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+          <button type="button" id="quick-feed-paste-btn" class="secondary-btn" style="padding: 0 12px; height: 40px;" title="Paste URL from clipboard">📋 Paste</button>
+        </div>
         <div style="display: flex; gap: 10px; align-items: center;">
           <select id="quick-feed-folder-select" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 13px; outline: none;">
             <option value="">Root (No Folder)</option>
@@ -484,7 +549,10 @@
         Paste any article link or YouTube video URL. PureTidings will extract the full content or transcript and generate an instant AI summary.
       </p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <input type="url" id="quick-summarize-url-input" placeholder="https://... (article or YouTube video)" style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+        <div style="display: flex; gap: 8px;">
+          <input type="url" id="quick-summarize-url-input" placeholder="https://... (article or YouTube video)" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+          <button type="button" id="quick-summarize-paste-btn" class="secondary-btn" style="padding: 0 12px; height: 40px;" title="Paste URL from clipboard">📋 Paste</button>
+        </div>
         <button type="button" id="quick-summarize-submit-btn" style="padding: 10px 20px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;">Generate AI Summary</button>
         <p id="quick-summarize-status" style="font-size: 12px; margin: 5px 0 0 0; color: var(--link-color); font-weight: bold;"></p>
       </div>
@@ -517,7 +585,10 @@
             <h4 style="font-size: 13px; margin-bottom: 8px;">Add New Feed</h4>
             <div style="display: flex; flex-direction: column; gap: 8px;">
               <input type="text" id="new-feed-name" placeholder="Feed Name (e.g. Ars Technica)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
-              <input type="url" id="new-feed-url" placeholder="Feed URL (RSS / Atom / YouTube channel)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+              <div style="display: flex; gap: 8px;">
+                <input type="url" id="new-feed-url" placeholder="Feed URL (RSS / Atom / YouTube channel)" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+                <button type="button" id="new-feed-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste URL from clipboard">📋 Paste</button>
+              </div>
               <div style="display: flex; gap: 10px; align-items: center;">
                 <select id="new-feed-folder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);"></select>
                 <button type="button" id="btn-add-feed" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Add Feed</button>
@@ -604,7 +675,10 @@
           <h3 style="margin-top: 0;">AI Features (BYOK)</h3>
           <div style="margin-bottom: 15px;">
             <label for="settings-gemini-key" style="display: block; font-size: 13px; font-weight: bold; margin-bottom: 6px;">Google Gemini API Key:</label>
-            <input type="password" id="settings-gemini-key" placeholder="AIzaSy..." style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); box-sizing: border-box;">
+            <div style="display: flex; gap: 8px;">
+              <input type="password" id="settings-gemini-key" placeholder="AIzaSy..." style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); box-sizing: border-box;">
+              <button type="button" id="settings-gemini-key-paste-btn" class="secondary-btn" style="padding: 0 12px;" title="Paste API Key from clipboard">📋 Paste</button>
+            </div>
             <p style="font-size: 12px; color: var(--secondary-text-color, #777); margin-top: 6px;">
               Get your free API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #007bff;">Google AI Studio</a>. Saved exclusively in your local storage.
             </p>
@@ -639,7 +713,10 @@
                   <option value="equals">equals</option>
                 </select>
               </div>
-              <input type="text" id="new-rule-value" placeholder="Keywords (+ AND, , OR, - NOT)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="new-rule-value" placeholder="Keywords (+ AND, , OR, - NOT)" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+                <button type="button" id="new-rule-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste from clipboard">📋 Paste</button>
+              </div>
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                   <span>THEN</span>
@@ -711,9 +788,56 @@
 
   <!-- Reader Mode Modal Overlay -->
   <div id="reader-modal" class="desktop-modal-overlay">
-    <div class="desktop-modal-card reader-container" style="position: relative; max-width: 800px; width: 100%; padding: 30px;">
+    <div class="desktop-modal-card reader-container" style="position: relative; max-width: 960px; width: 95%; padding: 24px 30px;">
       <button id="reader-modal-close" class="modal-close-btn" title="Close Reader">&times;</button>
       
+      <!-- Reader Mode Top Toolbar -->
+      <div id="reader-toolbar" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <select id="reader-export-format" style="padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); font-size: 13px;">
+            <option value="txt">TXT</option>
+            <option value="markdown">Markdown</option>
+            <option value="html">HTML</option>
+          </select>
+          <button type="button" id="reader-copy-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;">Copy</button>
+          <button type="button" id="reader-save-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;">Save</button>
+          <button type="button" id="reader-star-btn" class="secondary-btn" title="Add to favorites" style="padding: 6px 12px; font-size: 14px;">&#9734;</button>
+          <button type="button" id="reader-summary-btn" class="secondary-btn" title="Add to summary cart" style="padding: 6px 12px; font-size: 14px;">&#128203;</button>
+          <span id="reader-copy-status" style="font-size: 12px; color: var(--link-color); font-weight: bold;"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" id="reader-generate-ai-btn" class="secondary-btn" style="display: none; padding: 6px 14px; font-size: 13px; font-weight: bold; background: #3c5c8b; color: white; border: none; border-radius: 4px; cursor: pointer;">🤖 AI Summary</button>
+          <button type="button" id="reader-generate-yt-ai-btn" class="secondary-btn" style="display: none; padding: 6px 14px; font-size: 13px; font-weight: bold; background: #c0392b; color: white; border: none; border-radius: 4px; cursor: pointer;">🎥 AI Video Summary</button>
+        </div>
+      </div>
+
+      <!-- Reader AI Container -->
+      <div id="reader-ai-container" style="display: none; margin-bottom: 20px; padding: 18px; background: var(--hover-bg, rgba(255,255,255,0.05)); border-radius: 8px; border: 1px solid var(--border-color);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+          <h3 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 6px;"><span id="reader-ai-header-title">🤖 AI Summary</span></h3>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <select id="reader-export-ai-format" style="padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); font-size: 12px;">
+              <option value="markdown">Markdown</option>
+              <option value="txt">TXT</option>
+              <option value="html">HTML</option>
+            </select>
+            <button type="button" id="reader-copy-ai-btn" class="secondary-btn" style="padding: 5px 10px; font-size: 12px;">Copy</button>
+            <button type="button" id="reader-save-ai-btn" class="secondary-btn" style="padding: 5px 10px; font-size: 12px;">Save</button>
+            <button type="button" id="reader-close-ai-btn" class="secondary-btn" style="padding: 5px 10px; font-size: 12px; margin-left: 6px;">Close</button>
+          </div>
+        </div>
+
+        <div id="reader-ai-prompt-editor" style="margin-bottom: 14px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+          <label for="reader-ai-prompt-input" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 6px;">Customize Prompt for this Summary:</label>
+          <div style="display: flex; gap: 8px; align-items: flex-end;">
+            <textarea id="reader-ai-prompt-input" rows="2" style="flex: 1; padding: 8px; background: var(--input-bg); color: var(--input-color); border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical; outline: none;"></textarea>
+            <button type="button" id="reader-ai-generate-btn" style="height: 38px; padding: 0 16px; font-weight: bold; background: #3c5c8b; color: white; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap;">Generate 🤖</button>
+          </div>
+        </div>
+
+        <div id="reader-ai-content" style="line-height: 1.6; font-size: 14px; min-height: 40px; white-space: pre-wrap;"></div>
+      </div>
+
       <div id="reader-loading" class="hidden" style="text-align: center; padding: 40px 0;">
         <h2>Loading article...</h2>
         <div class="spinner"></div>
@@ -730,6 +854,15 @@
         <div id="reader-article-body" style="line-height: 1.7; font-size: 16px;"></div>
       </article>
     </div>
+  </div>
+
+  <!-- Desktop Context Menu for Input / Textarea -->
+  <div id="desktop-context-menu" class="desktop-context-menu" style="display: none;">
+    <div class="context-menu-item" id="ctx-paste">📋 Paste</div>
+    <div class="context-menu-item" id="ctx-copy">📄 Copy</div>
+    <div class="context-menu-item" id="ctx-cut">✂️ Cut</div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" id="ctx-select-all">Select All</div>
   </div>
 
   <!-- Toast Notification Container -->

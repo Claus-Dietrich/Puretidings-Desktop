@@ -1793,6 +1793,113 @@
         });
     }
 
+    // ==========================================
+    // Reader Mode Controller & Toolbar Helpers
+    // ==========================================
+    let currentReaderArticle = null;
+    let currentReaderVideoId = null;
+    let currentReaderAiMarkdown = '';
+
+    function downloadTextFile(filename, content, mimeType = 'text/plain') {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 100);
+    }
+
+    function htmlToMarkdownSimple(html) {
+        if (!html) return '';
+        let md = html;
+        md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n');
+        md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n');
+        md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n');
+        md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n');
+        md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
+        md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
+        md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
+        md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
+        md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)');
+        md = md.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
+        md = md.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n');
+        md = md.replace(/<br\s*[\/]?>/gi, '\n');
+        md = md.replace(/<[^>]+>/g, '');
+        md = md.replace(/\n{3,}/g, '\n\n');
+        return md.trim();
+    }
+
+    function extractYoutubeVideoId(url = '', html = '', doc = null) {
+        // 1. Direct URL check
+        if (url) {
+            const urlMatch = url.match(/(?:v=|shorts\/|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/);
+            if (urlMatch) return urlMatch[1];
+        }
+
+        // 2. DOM inspection if doc is provided
+        if (doc) {
+            // OpenGraph video meta tags
+            const ogVideo = doc.querySelector('meta[property="og:video"], meta[property="og:video:url"], meta[property="og:video:secure_url"]');
+            if (ogVideo && ogVideo.content) {
+                const ogMatch = ogVideo.content.match(/(?:v=|embed\/|v\/|watch\?v=)([a-zA-Z0-9_-]{11})/);
+                if (ogMatch) return ogMatch[1];
+            }
+
+            // WP YouTube Lyte divs (e.g. <div id="lyte_z8P7AU14Bp8">)
+            const lyteDiv = doc.querySelector('div[id^="lyte_"]');
+            if (lyteDiv && lyteDiv.id) {
+                const lyteMatch = lyteDiv.id.match(/lyte_([a-zA-Z0-9_-]{11})/);
+                if (lyteMatch) return lyteMatch[1];
+            }
+
+            // Embedded iframes
+            const iframes = doc.querySelectorAll('iframe[src*="youtube.com"], iframe[src*="youtu.be"], iframe[data-src*="youtube.com"], iframe[data-src*="youtu.be"]');
+            for (const iframe of iframes) {
+                const src = iframe.getAttribute('src') || iframe.getAttribute('data-src') || '';
+                const m = src.match(/(?:embed\/|v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+                if (m) return m[1];
+            }
+        }
+
+        // 3. Fallback regex on raw HTML string
+        if (html) {
+            const lyteHtmlMatch = html.match(/id="lyte_([a-zA-Z0-9_-]{11})/);
+            if (lyteHtmlMatch) return lyteHtmlMatch[1];
+
+            const ogHtmlMatch = html.match(/property="og:video"(?:[^>]+content="([^"]+)")?/i);
+            if (ogHtmlMatch && ogHtmlMatch[1]) {
+                const m = ogHtmlMatch[1].match(/(?:v=|embed\/|v\/|watch\?v=)([a-zA-Z0-9_-]{11})/);
+                if (m) return m[1];
+            }
+
+            const embedHtmlMatch = html.match(/(?:youtube\.com\/(?:embed\/|v\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+            if (embedHtmlMatch) return embedHtmlMatch[1];
+        }
+
+        return null;
+    }
+
+    function renderReaderVideoPlayer(videoId) {
+        const videoEl = document.getElementById('reader-video-info');
+        if (!videoEl) return;
+        if (videoId) {
+            videoEl.classList.remove('hidden');
+            videoEl.innerHTML = `
+                <div class="reader-video-wrapper">
+                    <iframe src="https://www.youtube-nocookie.com/embed/${videoId}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+                </div>
+            `;
+        } else {
+            videoEl.classList.add('hidden');
+            videoEl.innerHTML = '';
+        }
+    }
+
     // Reader Mode Controller
     async function openReaderModal(data) {
         closeAllModals();
@@ -1800,22 +1907,33 @@
         if (!modal) return;
         modal.style.display = 'flex';
 
+        currentReaderArticle = data;
+        currentReaderAiMarkdown = '';
+        currentReaderVideoId = extractYoutubeVideoId(data.url || '', '', null);
+
         const titleEl = document.getElementById('reader-title');
         const bylineEl = document.getElementById('reader-byline');
         const bodyEl = document.getElementById('reader-article-body');
-        const videoEl = document.getElementById('reader-video-info');
         const thumbEl = document.getElementById('reader-thumbnail');
         const loadingEl = document.getElementById('reader-loading');
         const contentEl = document.getElementById('reader-content');
 
+        // Hide AI Container on initial open
+        const aiContainer = document.getElementById('reader-ai-container');
+        if (aiContainer) {
+            aiContainer.style.display = 'none';
+            const aiContent = document.getElementById('reader-ai-content');
+            if (aiContent) aiContent.innerHTML = '';
+        }
+
         if (titleEl) titleEl.textContent = data.title || 'Untitled Article';
         if (bylineEl) {
             const metaParts = [];
-            if (data.source) metaParts.push(escapeHTML(data.source));
-            if (data.author) metaParts.push(escapeHTML(data.author));
+            if (data.source) metaParts.push(escapeHtml(data.source));
+            if (data.author) metaParts.push(escapeHtml(data.author));
             const prefix = metaParts.length > 0 ? metaParts.join(' | ') + ' | ' : '';
             if (data.url) {
-                bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="Open original article in browser">${escapeHTML(data.url)}</a>`;
+                bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="Open original article in browser">${escapeHtml(data.url)}</a>`;
                 const origLink = document.getElementById('reader-original-link');
                 if (origLink) {
                     origLink.addEventListener('click', (e) => {
@@ -1837,21 +1955,46 @@
             }
         }
 
-        // Check if YouTube
-        if (videoEl) {
-            const ytMatch = (data.url || '').match(/(?:v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-            if (ytMatch) {
-                videoEl.classList.remove('hidden');
-                videoEl.innerHTML = `
-                    <div style="position:relative; padding-bottom:56.25%; height:0; overflow:hidden; border-radius:8px; margin:20px 0;">
-                        <iframe src="https://www.youtube-nocookie.com/embed/${ytMatch[1]}" style="position:absolute; top:0; left:0; width:100%; height:100%; border:0;" allowfullscreen></iframe>
-                    </div>
-                `;
-            } else {
-                videoEl.classList.add('hidden');
-                videoEl.innerHTML = '';
-            }
+        // Render video if known immediately from URL
+        renderReaderVideoPlayer(currentReaderVideoId);
+
+        // Update toolbar action states (Favorite & Summary)
+        const starBtn = document.getElementById('reader-star-btn');
+        if (starBtn && data.url) {
+            chrome.storage.local.get('favoritedLinks').then(({ favoritedLinks = [] }) => {
+                if (favoritedLinks.includes(data.url)) {
+                    starBtn.style.color = '#f5b301';
+                    starBtn.innerHTML = '&#9733;';
+                    starBtn.title = 'Remove from favorites';
+                } else {
+                    starBtn.style.color = '';
+                    starBtn.innerHTML = '&#9734;';
+                    starBtn.title = 'Add to favorites';
+                }
+            });
         }
+
+        const summaryBtn = document.getElementById('reader-summary-btn');
+        if (summaryBtn && data.url) {
+            chrome.storage.local.get('summaryLinks').then(({ summaryLinks = [] }) => {
+                if (summaryLinks.includes(data.url)) {
+                    summaryBtn.style.borderColor = '#28a745';
+                    summaryBtn.style.color = '#28a745';
+                    summaryBtn.title = 'Remove from summary cart';
+                } else {
+                    summaryBtn.style.borderColor = '';
+                    summaryBtn.style.color = '';
+                    summaryBtn.title = 'Add to summary cart';
+                }
+            });
+        }
+
+        // Configure AI buttons initial visibility
+        const isPureYt = (data.url || '').match(/(?:youtube\.com|youtu\.be)/);
+        const aiBtn = document.getElementById('reader-generate-ai-btn');
+        const ytAiBtn = document.getElementById('reader-generate-yt-ai-btn');
+        if (aiBtn) aiBtn.style.display = isPureYt ? 'none' : 'inline-block';
+        if (ytAiBtn) ytAiBtn.style.display = currentReaderVideoId ? 'inline-block' : 'none';
 
         // Intercept link clicks inside article body
         if (bodyEl && !bodyEl.dataset.linkDelegated) {
@@ -1881,6 +2024,18 @@
                     const html = await tauriInvoke('fetch_url', { url: data.url });
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(html, "text/html");
+
+                    // Check for embedded YouTube video (e.g. finanzmarktwelt.de wp-youtube-lyte)
+                    const embeddedVideoId = extractYoutubeVideoId(data.url, html, doc);
+                    if (embeddedVideoId) {
+                        currentReaderVideoId = embeddedVideoId;
+                        renderReaderVideoPlayer(embeddedVideoId);
+                        if (ytAiBtn) ytAiBtn.style.display = 'inline-block';
+                    }
+
+                    if (typeof preprocessDOM === 'function') {
+                        preprocessDOM(doc, data.url);
+                    }
                     const reader = new Readability(doc);
                     const article = reader.parse();
                     bodyEl.innerHTML = article ? article.content : (data.description || '<p>Could not extract full text.</p>');
@@ -1903,10 +2058,472 @@
         if (modal) modal.style.display = 'none';
         const videoEl = document.getElementById('reader-video-info');
         if (videoEl) videoEl.innerHTML = '';
+        const aiContainer = document.getElementById('reader-ai-container');
+        if (aiContainer) aiContainer.style.display = 'none';
+        currentReaderArticle = null;
+        currentReaderVideoId = null;
+        currentReaderAiMarkdown = '';
     }
 
     window.openReaderModal = openReaderModal;
     window.closeReaderModal = closeReaderModal;
+
+    // Setup Reader Toolbar Events
+    function setupReaderToolbar() {
+        // Copy Article
+        const copyBtn = document.getElementById('reader-copy-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', async () => {
+                if (!currentReaderArticle) return;
+                const format = document.getElementById('reader-export-format')?.value || 'txt';
+                const title = currentReaderArticle.title || 'Untitled';
+                const byline = document.getElementById('reader-byline')?.innerText || '';
+                const bodyEl = document.getElementById('reader-article-body');
+                let textToCopy = '';
+
+                if (format === 'markdown') {
+                    textToCopy = `# ${title}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+                } else if (format === 'html') {
+                    textToCopy = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title></head><body><h1>${escapeHtml(title)}</h1><p><em>${escapeHtml(byline)}</em></p><hr>${bodyEl?.innerHTML || ''}</body></html>`;
+                } else {
+                    textToCopy = `${title}\n\n${byline ? byline + '\n\n' : ''}${bodyEl?.innerText || ''}`;
+                }
+
+                try {
+                    await navigator.clipboard.writeText(textToCopy);
+                    const statusEl = document.getElementById('reader-copy-status');
+                    if (statusEl) {
+                        statusEl.textContent = 'Copied!';
+                        setTimeout(() => { statusEl.textContent = ''; }, 2000);
+                    }
+                } catch (e) {
+                    console.error('Failed to copy reader text:', e);
+                }
+            });
+        }
+
+        // Save Article
+        const saveBtn = document.getElementById('reader-save-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                if (!currentReaderArticle) return;
+                const format = document.getElementById('reader-export-format')?.value || 'txt';
+                const title = (currentReaderArticle.title || 'article').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+                const byline = document.getElementById('reader-byline')?.innerText || '';
+                const bodyEl = document.getElementById('reader-article-body');
+
+                if (format === 'markdown') {
+                    const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+                    downloadTextFile(`${title}.md`, md, 'text/markdown');
+                } else if (format === 'html') {
+                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(currentReaderArticle.title || 'Untitled')}</title></head><body><h1>${escapeHtml(currentReaderArticle.title || 'Untitled')}</h1><p><em>${escapeHtml(byline)}</em></p><hr>${bodyEl?.innerHTML || ''}</body></html>`;
+                    downloadTextFile(`${title}.html`, html, 'text/html');
+                } else {
+                    const txt = `${currentReaderArticle.title || 'Untitled'}\n\n${byline ? byline + '\n\n' : ''}${bodyEl?.innerText || ''}`;
+                    downloadTextFile(`${title}.txt`, txt, 'text/plain');
+                }
+            });
+        }
+
+        // Star / Favorite
+        const starBtn = document.getElementById('reader-star-btn');
+        if (starBtn) {
+            starBtn.addEventListener('click', async () => {
+                if (!currentReaderArticle || !currentReaderArticle.url) return;
+                const url = currentReaderArticle.url;
+                const { favoritedLinks = [] } = await chrome.storage.local.get('favoritedLinks');
+                const isFav = favoritedLinks.includes(url);
+                const newFavs = isFav ? favoritedLinks.filter(u => u !== url) : [...favoritedLinks, url];
+                await chrome.storage.local.set({ favoritedLinks: newFavs });
+
+                if (newFavs.includes(url)) {
+                    starBtn.style.color = '#f5b301';
+                    starBtn.innerHTML = '&#9733;';
+                    starBtn.title = 'Remove from favorites';
+                    showInAppToast('Favorites', 'Article added to favorites');
+                } else {
+                    starBtn.style.color = '';
+                    starBtn.innerHTML = '&#9734;';
+                    starBtn.title = 'Add to favorites';
+                    showInAppToast('Favorites', 'Article removed from favorites');
+                }
+                if (typeof updateFavoritesView === 'function') updateFavoritesView();
+            });
+        }
+
+        // Summary Cart
+        const summaryBtn = document.getElementById('reader-summary-btn');
+        if (summaryBtn) {
+            summaryBtn.addEventListener('click', async () => {
+                if (!currentReaderArticle || !currentReaderArticle.url) return;
+                const url = currentReaderArticle.url;
+                const { summaryLinks = [] } = await chrome.storage.local.get('summaryLinks');
+                const isSum = summaryLinks.includes(url);
+                const newSums = isSum ? summaryLinks.filter(u => u !== url) : [...summaryLinks, url];
+                await chrome.storage.local.set({ summaryLinks: newSums });
+
+                if (newSums.includes(url)) {
+                    summaryBtn.style.borderColor = '#28a745';
+                    summaryBtn.style.color = '#28a745';
+                    summaryBtn.title = 'Remove from summary cart';
+                    showInAppToast('Summary Cart', 'Article added to summary cart');
+                } else {
+                    summaryBtn.style.borderColor = '';
+                    summaryBtn.style.color = '';
+                    summaryBtn.title = 'Add to summary cart';
+                    showInAppToast('Summary Cart', 'Article removed from summary cart');
+                }
+                if (typeof updateSummaryView === 'function') updateSummaryView();
+            });
+        }
+
+        // AI Summary Button
+        const aiBtn = document.getElementById('reader-generate-ai-btn');
+        if (aiBtn) {
+            aiBtn.addEventListener('click', async () => {
+                const container = document.getElementById('reader-ai-container');
+                if (!container) return;
+                container.style.display = 'block';
+                const headerTitle = document.getElementById('reader-ai-header-title');
+                if (headerTitle) headerTitle.textContent = '🤖 AI Article Summary';
+
+                const { aiReportPrompt } = await chrome.storage.sync.get('aiReportPrompt');
+                const promptInput = document.getElementById('reader-ai-prompt-input');
+                if (promptInput) {
+                    promptInput.value = aiReportPrompt && aiReportPrompt.trim() !== ''
+                        ? aiReportPrompt.trim()
+                        : "Provide a concise summary and highlight the key takeaways of the following article in Markdown format.";
+                }
+
+                const genBtn = document.getElementById('reader-ai-generate-btn');
+                if (genBtn) genBtn.dataset.type = 'article';
+
+                const contentEl = document.getElementById('reader-ai-content');
+                if (contentEl) contentEl.innerHTML = '<p style="color: var(--text-color); font-style: italic; margin: 0;">Customize the prompt above if needed and click "Generate 🤖" to start the summary analysis.</p>';
+
+                container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        }
+
+        // AI Video Summary Button
+        const ytAiBtn = document.getElementById('reader-generate-yt-ai-btn');
+        if (ytAiBtn) {
+            ytAiBtn.addEventListener('click', async () => {
+                const container = document.getElementById('reader-ai-container');
+                if (!container) return;
+                container.style.display = 'block';
+                const headerTitle = document.getElementById('reader-ai-header-title');
+                if (headerTitle) headerTitle.textContent = '🎥 AI Video Summary';
+
+                const { youtubeAiPrompt } = await chrome.storage.sync.get('youtubeAiPrompt');
+                const defaultYtPrompt = "You are an assistant that summarizes YouTube videos. Generate a response in English that is clearly divided into two distinct sections using these exact Markdown headings:\n\n### 📝 Summary from Video Description\n[Provide a concise summary of the video's description text here]\n\n### 🎥 Summary from Video Script\n[Provide a concise summary and 3-5 key takeaways in bullet points based on the transcript (script) of the video here]\n\nIf both description and transcript are provided, you MUST show both sections. If the transcript could not be loaded, still display both headers but under the script header write: 'No video script (transcript) available. Summary is based only on the description.' Ignore advertisements or sponsor mentions in the text.\n\n";
+
+                const promptInput = document.getElementById('reader-ai-prompt-input');
+                if (promptInput) {
+                    promptInput.value = youtubeAiPrompt && youtubeAiPrompt.trim() !== ''
+                        ? youtubeAiPrompt.trim()
+                        : defaultYtPrompt;
+                }
+
+                const genBtn = document.getElementById('reader-ai-generate-btn');
+                if (genBtn) genBtn.dataset.type = 'youtube';
+
+                const contentEl = document.getElementById('reader-ai-content');
+                if (contentEl) contentEl.innerHTML = '<p style="color: var(--text-color); font-style: italic; margin: 0;">Customize the prompt above if needed and click "Generate 🤖" to start the video summary analysis.</p>';
+
+                container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        }
+
+        // Generate AI Button
+        const genBtn = document.getElementById('reader-ai-generate-btn');
+        if (genBtn) {
+            genBtn.addEventListener('click', async () => {
+                const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
+                if (!geminiApiKey || !geminiApiKey.trim()) {
+                    alert("Please set your Google Gemini API Key in Settings > AI Features first to generate AI summaries.");
+                    return;
+                }
+
+                const contentEl = document.getElementById('reader-ai-content');
+                if (contentEl) {
+                    contentEl.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 12px; padding: 15px 0;">
+                            <div class="spinner" style="width: 22px; height: 22px; border: 3px solid rgba(255,255,255,0.2); border-top-color: var(--accent-color, #1a73e8); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <span style="font-weight: 500;">Analyzing and generating AI summary with Gemini...</span>
+                        </div>
+                    `;
+                }
+
+                genBtn.disabled = true;
+                const origText = genBtn.textContent;
+                genBtn.textContent = 'Generating...';
+
+                const prompt = (document.getElementById('reader-ai-prompt-input')?.value || '').trim();
+                const type = genBtn.dataset.type;
+
+                try {
+                    let aiResult = '';
+                    if (type === 'youtube' && currentReaderVideoId) {
+                        // Fetch transcript
+                        let transcriptText = '';
+                        try {
+                            const res = await chrome.runtime.sendMessage({ action: 'fetchYoutubeTranscript', videoId: currentReaderVideoId });
+                            if (res && res.xml) {
+                                const parser = new DOMParser();
+                                const doc = parser.parseFromString(res.xml, "text/xml");
+                                const texts = doc.getElementsByTagName("text");
+                                for (let i = 0; i < texts.length; i++) {
+                                    transcriptText += texts[i].textContent + " ";
+                                }
+                            }
+                        } catch (te) {
+                            console.warn("Could not load transcript:", te);
+                        }
+
+                        const descText = currentReaderArticle?.description || '';
+                        const contentPayload = `Video Title: ${currentReaderArticle?.title || ''}\n\nVideo Description:\n${descText}\n\nVideo Script / Transcript:\n${transcriptText || 'No video script (transcript) available.'}`;
+                        aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
+                    } else {
+                        // Regular article
+                        const bodyEl = document.getElementById('reader-article-body');
+                        const bodyText = (bodyEl?.innerText || currentReaderArticle?.description || '').trim();
+                        const contentPayload = `Article Title: ${currentReaderArticle?.title || ''}\n\nArticle Content:\n${bodyText.substring(0, 30000)}`;
+                        aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
+                    }
+
+                    currentReaderAiMarkdown = aiResult;
+                    if (contentEl) {
+                        contentEl.innerHTML = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(aiResult) : escapeHtml(aiResult).replace(/\n/g, '<br>');
+                    }
+                } catch (err) {
+                    if (contentEl) {
+                        contentEl.innerHTML = `<p style="color: #ff5252; font-weight: bold;">Error generating AI summary: ${escapeHtml(err.message)}</p>`;
+                    }
+                } finally {
+                    genBtn.disabled = false;
+                    genBtn.textContent = origText;
+                }
+            });
+        }
+
+        // Copy AI Result
+        const copyAiBtn = document.getElementById('reader-copy-ai-btn');
+        if (copyAiBtn) {
+            copyAiBtn.addEventListener('click', async () => {
+                if (!currentReaderAiMarkdown) return;
+                const format = document.getElementById('reader-export-ai-format')?.value || 'markdown';
+                let textToCopy = '';
+
+                if (format === 'markdown') {
+                    textToCopy = currentReaderAiMarkdown;
+                } else if (format === 'html') {
+                    textToCopy = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(currentReaderAiMarkdown) : currentReaderAiMarkdown;
+                } else {
+                    textToCopy = currentReaderAiMarkdown
+                        .replace(/^#+\s+/gim, '')
+                        .replace(/\*\*([^\n]+?)\*\*/g, '$1')
+                        .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
+                        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                        .replace(/<[^>]+>/g, "");
+                }
+
+                try {
+                    await navigator.clipboard.writeText(textToCopy);
+                    const originalText = copyAiBtn.textContent;
+                    copyAiBtn.textContent = 'Copied!';
+                    setTimeout(() => { copyAiBtn.textContent = originalText; }, 2000);
+                } catch (e) {
+                    console.error('Failed to copy AI summary:', e);
+                }
+            });
+        }
+
+        // Save AI Result
+        const saveAiBtn = document.getElementById('reader-save-ai-btn');
+        if (saveAiBtn) {
+            saveAiBtn.addEventListener('click', () => {
+                if (!currentReaderAiMarkdown) return;
+                const format = document.getElementById('reader-export-ai-format')?.value || 'markdown';
+                const title = ((currentReaderArticle?.title || 'ai_summary') + '_summary').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+
+                if (format === 'markdown') {
+                    downloadTextFile(`${title}.md`, currentReaderAiMarkdown, 'text/markdown');
+                } else if (format === 'html') {
+                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AI Summary</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;}</style></head><body><h1>AI Summary</h1><hr>${typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(currentReaderAiMarkdown) : currentReaderAiMarkdown}</body></html>`;
+                    downloadTextFile(`${title}.html`, html, 'text/html');
+                } else {
+                    const txt = currentReaderAiMarkdown
+                        .replace(/^#+\s+/gim, '')
+                        .replace(/\*\*([^\n]+?)\*\*/g, '$1')
+                        .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
+                        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+                        .replace(/<[^>]+>/g, "");
+                    downloadTextFile(`${title}.txt`, txt, 'text/plain');
+                }
+            });
+        }
+
+        // Close AI Result
+        const closeAiBtn = document.getElementById('reader-close-ai-btn');
+        if (closeAiBtn) {
+            closeAiBtn.addEventListener('click', () => {
+                const container = document.getElementById('reader-ai-container');
+                if (container) container.style.display = 'none';
+            });
+        }
+    }
+
+    // ==========================================
+    // Clipboard & Desktop Context Menu Handling
+    // ==========================================
+    function setupClipboardAndContextMenu() {
+        // 1. Dedicated Paste Buttons
+        const pasteMappings = [
+            { btnId: 'quick-feed-paste-btn', inputId: 'quick-feed-url-input' },
+            { btnId: 'quick-summarize-paste-btn', inputId: 'quick-summarize-url-input' },
+            { btnId: 'settings-gemini-key-paste-btn', inputId: 'settings-gemini-key' },
+            { btnId: 'new-rule-paste-btn', inputId: 'new-rule-value' },
+            { btnId: 'new-feed-paste-btn', inputId: 'new-feed-url' }
+        ];
+
+        pasteMappings.forEach(({ btnId, inputId }) => {
+            const btn = document.getElementById(btnId);
+            const input = document.getElementById(inputId);
+            if (btn && input) {
+                btn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        if (text) {
+                            input.value = text.trim();
+                            input.focus();
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            showInAppToast('Clipboard', 'Pasted from clipboard');
+                        }
+                    } catch (err) {
+                        console.warn('Clipboard read error:', err);
+                        const manual = prompt('Paste content here:');
+                        if (manual !== null) {
+                            input.value = manual.trim();
+                            input.focus();
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                });
+            }
+        });
+
+        // 2. Desktop Context Menu for Input / Textarea
+        const menu = document.getElementById('desktop-context-menu');
+        let activeTarget = null;
+
+        document.addEventListener('contextmenu', (e) => {
+            const target = e.target;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+                e.preventDefault();
+                activeTarget = target;
+                if (!menu) return;
+
+                menu.style.display = 'block';
+                const menuWidth = menu.offsetWidth || 150;
+                const menuHeight = menu.offsetHeight || 140;
+                let left = e.clientX;
+                let top = e.clientY;
+
+                if (left + menuWidth > window.innerWidth) left = window.innerWidth - menuWidth - 10;
+                if (top + menuHeight > window.innerHeight) top = window.innerHeight - menuHeight - 10;
+
+                menu.style.left = left + 'px';
+                menu.style.top = top + 'px';
+            } else {
+                if (menu) menu.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (menu && !menu.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && menu && menu.style.display !== 'none') {
+                menu.style.display = 'none';
+            }
+        });
+
+        // Context Menu Actions
+        const ctxPaste = document.getElementById('ctx-paste');
+        if (ctxPaste) {
+            ctxPaste.addEventListener('click', async () => {
+                if (!activeTarget) return;
+                menu.style.display = 'none';
+                try {
+                    const text = await navigator.clipboard.readText();
+                    if (text !== undefined) {
+                        const start = activeTarget.selectionStart ?? activeTarget.value.length;
+                        const end = activeTarget.selectionEnd ?? activeTarget.value.length;
+                        const val = activeTarget.value;
+                        activeTarget.value = val.substring(0, start) + text + val.substring(end);
+                        activeTarget.selectionStart = activeTarget.selectionEnd = start + text.length;
+                        activeTarget.focus();
+                        activeTarget.dispatchEvent(new Event('input', { bubbles: true }));
+                        activeTarget.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                } catch (err) {
+                    console.warn('Context menu paste failed:', err);
+                }
+            });
+        }
+
+        const ctxCopy = document.getElementById('ctx-copy');
+        if (ctxCopy) {
+            ctxCopy.addEventListener('click', async () => {
+                if (!activeTarget) return;
+                menu.style.display = 'none';
+                const start = activeTarget.selectionStart;
+                const end = activeTarget.selectionEnd;
+                const text = (start !== undefined && end !== undefined && start !== end)
+                    ? activeTarget.value.substring(start, end)
+                    : activeTarget.value;
+                if (text) {
+                    await navigator.clipboard.writeText(text);
+                }
+            });
+        }
+
+        const ctxCut = document.getElementById('ctx-cut');
+        if (ctxCut) {
+            ctxCut.addEventListener('click', async () => {
+                if (!activeTarget) return;
+                menu.style.display = 'none';
+                const start = activeTarget.selectionStart;
+                const end = activeTarget.selectionEnd;
+                if (start !== undefined && end !== undefined && start !== end) {
+                    const text = activeTarget.value.substring(start, end);
+                    await navigator.clipboard.writeText(text);
+                    activeTarget.value = activeTarget.value.substring(0, start) + activeTarget.value.substring(end);
+                    activeTarget.selectionStart = activeTarget.selectionEnd = start;
+                    activeTarget.focus();
+                    activeTarget.dispatchEvent(new Event('input', { bubbles: true }));
+                    activeTarget.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            });
+        }
+
+        const ctxSelectAll = document.getElementById('ctx-select-all');
+        if (ctxSelectAll) {
+            ctxSelectAll.addEventListener('click', () => {
+                if (!activeTarget) return;
+                menu.style.display = 'none';
+                activeTarget.focus();
+                activeTarget.select();
+            });
+        }
+    }
 
     // ==========================================
     // 10. DOM Initialization & Event Wiring
@@ -2029,6 +2646,10 @@
 
         const readerCloseBtn = document.getElementById('reader-modal-close');
         if (readerCloseBtn) readerCloseBtn.addEventListener('click', closeReaderModal);
+
+        // Initialize Reader Toolbar & Context Menu
+        setupReaderToolbar();
+        setupClipboardAndContextMenu();
 
         // Settings Tabs
         document.querySelectorAll('.settings-tab-btn').forEach(btn => {
