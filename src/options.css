@@ -21,7 +21,7 @@ body {
   background-color: var(--body-bg);
   color: var(--text-color);
   margin: 0;
-  padding: 20px;
+  padding: 0;
 }
 .container {
   max-width: 650px;
@@ -525,3 +525,4 @@ hr.danger-zone-divider {
   text-align: right;
   font-weight: bold;
 }
+

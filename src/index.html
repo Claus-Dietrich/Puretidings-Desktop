@@ -1,258 +1,350 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PureTidings Desktop</title>
-    <link rel="icon" type="image/png" sizes="16x16" href="16.png">
-    <link rel="icon" type="image/png" sizes="48x48" href="48.png">
-    <link rel="icon" type="image/png" sizes="128x128" href="128.png">
-    <link rel="stylesheet" href="feedpage.css">
-    <link rel="stylesheet" href="dark-theme.css">
-    <link rel="stylesheet" href="options.css">
-    <script src="theme-loader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="Readability.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PureTidings</title>
+  <link rel="icon" type="image/png" sizes="16x16" href="16.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="48.png">
+  <link rel="icon" type="image/png" sizes="128x128" href="128.png">
+  
+  <link rel="stylesheet" href="feedpage.css">
+  <link rel="stylesheet" href="dark-theme.css">
+  <link rel="stylesheet" href="options.css">
+  <link rel="stylesheet" href="reader.css">
 
-    <style>
-        :root { --primary-orange: #ff9800; }
-        body { margin: 0; font-family: sans-serif; background: var(--body-bg); color: var(--text-color); overflow: hidden; height: 100vh; display: flex; flex-direction: column; user-select: none; }
-        #app-container { display: flex; height: 100vh; flex-direction: column; flex: 1; }
-        #web-header { background: var(--header-bg); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); -webkit-user-select: none; }
-        .hidden { display: none !important; }
-        #reader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; display: none; overflow-y: auto; padding: 40px 20px; box-sizing: border-box; }
-        #reader-wrapper { position: relative; max-width: 850px; margin: 0 auto; width: 100%; }
-        #reader-content { background: var(--header-bg); padding: 40px; border-radius: 12px; line-height: 1.7; color: var(--text-color); border: 1px solid var(--border-color); user-select: text; }
-        #reader-close { position: absolute; top: 0; right: -60px; background: var(--button-bg-color); color: var(--text-color); border: 1px solid var(--border-color); width: 44px; height: 44px; border-radius: 50%; cursor: pointer; font-size: 28px; display: flex; align-items: center; justify-content: center; }
-        @media (max-width: 1000px) { #reader-close { right: 10px; top: 10px; background: rgba(0,0,0,0.6); } }
-        .spinner { border: 3px solid rgba(255,255,255,0.1); width: 30px; height: 30px; border-radius: 50%; border-left-color: var(--primary-orange); animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .post-row { display: flex; padding: 12px 15px; border-bottom: 1px solid var(--border-color); gap: 15px; align-items: center; transition: background 0.1s; cursor: pointer; user-select: text; }
-        .post-row:hover { background: var(--hover-bg); }
-        .post-thumbnail { width: 90px; height: 60px; object-fit: cover; border-radius: 4px; background: var(--body-bg); flex-shrink: 0; border: 1px solid var(--border-color); background-size: cover; background-position: center; }
-        .post-info { flex: 1; min-width: 0; }
-        .post-title { font-size: 14px; font-weight: 600; color: var(--text-color); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .post-meta { font-size: 11px; color: var(--text-color-darker); display: flex; align-items: center; justify-content: space-between; }
-        .action-btn { background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color) !important; width: 34px; height: 34px; border-radius: 4px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
-        .action-btn:hover { background: var(--hover-bg); border-color: var(--primary-orange); }
-        .feed-header { background: var(--sidebar-bg); padding: 10px 15px; font-size: 12px; font-weight: 700; color: var(--text-color-darker); border-bottom: 1px solid var(--border-color); text-transform: uppercase; letter-spacing: 1px; }
-        @media (min-width: 769px) {
-            #feed-tree-container.collapsed {
-                width: 0 !important;
-                min-width: 0 !important;
-                border-right: none !important;
-                overflow: hidden !important;
-            }
-            #sidebar-resizer.collapsed {
-                display: none !important;
-            }
-        }
-        /* Mobile-Friendly Adjustments */
-        @media (max-width: 768px) {
-            #menu-toggle-btn {
-                display: block !important;
-            }
-            #feed-tree-container {
-                position: absolute !important;
-                top: 55px;
-                left: -280px;
-                width: 260px !important;
-                height: calc(100vh - 55px) !important;
-                z-index: 1000 !important;
-                transition: left 0.3s ease !important;
-                box-shadow: 4px 0 15px rgba(0,0,0,0.4) !important;
-            }
-            #feed-tree-container.active {
-                left: 0 !important;
-            }
-            #sidebar-resizer {
-                display: none !important;
-            }
-            #web-header {
-                padding: 10px !important;
-                gap: 8px !important;
-            }
-            #web-header strong {
-                font-size: 14px !important;
-            }
-            #search-input {
-                font-size: 11px !important;
-                padding: 6px 25px 6px 10px !important;
-            }
-            #search-clear-btn {
-                right: 8px !important;
-                font-size: 12px !important;
-            }
-            #theme-toggle-btn, #settings-btn {
-                padding: 4px 6px !important;
-                font-size: 11px !important;
-            }
-            #summary-toolbar {
-                flex-direction: column !important;
-                align-items: stretch !important;
-                gap: 8px !important;
-                padding: 10px !important;
-            }
-            .summary-toolbar-section {
-                width: 100% !important;
-                justify-content: flex-start !important;
-                flex-wrap: wrap !important;
-            }
-            .summary-toolbar-section button, .summary-toolbar-section select {
-                flex: 1 !important;
-                min-width: 80px !important;
-            }
-            #reader-overlay {
-                padding: 10px !important;
-            }
-            #reader-content {
-                padding: 15px !important;
-            }
-            #reader-toolbar {
-                gap: 4px !important;
-            }
-            #reader-toolbar button, #reader-toolbar select {
-                font-size: 10px !important;
-                padding: 0 6px !important;
-                height: 24px !important;
-            }
-            .post-row {
-                padding: 10px !important;
-                gap: 10px !important;
-            }
-            .post-thumbnail {
-                width: 60px !important;
-                height: 45px !important;
-            }
-            .post-title {
-                font-size: 12px !important;
-            }
-            .post-meta {
-                font-size: 10px !important;
-            }
-            .post-actions button, .post-actions a {
-                width: 28px !important;
-                height: 28px !important;
-                font-size: 14px !important;
-            }
-        }
-    </style>
+  <script src="desktop-engine.js"></script>
+  <script src="theme-loader.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100vh;
+      user-select: none;
+    }
+    .desktop-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(3px);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      overflow-y: auto;
+      padding: 25px 15px;
+      box-sizing: border-box;
+    }
+    .desktop-modal-card {
+      background: var(--bg-color, #fff);
+      color: var(--text-color, #222);
+      border: 1px solid var(--border-color, #ddd);
+      border-radius: 8px;
+      max-height: 90vh;
+      overflow-y: auto;
+      position: relative;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+      box-sizing: border-box;
+      user-select: text;
+    }
+    .modal-close-btn {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      font-size: 26px;
+      line-height: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-color);
+      cursor: pointer;
+      opacity: 0.65;
+      z-index: 10;
+      transition: opacity 0.2s, color 0.2s;
+    }
+    .modal-close-btn:hover {
+      opacity: 1;
+      color: #d93025;
+    }
+    .spinning {
+      animation: pt-spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes pt-spin {
+      100% { transform: rotate(360deg); }
+    }
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.15);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border-left-color: var(--link-color, #0066cc);
+      animation: pt-spin 1s linear infinite;
+      margin: 20px auto;
+    }
+  </style>
 </head>
 <body>
-    <div id="reader-overlay">
-        <div id="reader-wrapper">
-            <button id="reader-close" onclick="closeReader()">&times;</button>
-            <div id="reader-content">
-                <div id="reader-loading"></div>
-                <div id="reader-body"></div>
-            </div>
+  <div class="page-layout">
+    <aside class="sidebar">
+      <h1 class="sidebar-title">PureTidings</h1>
+      <nav class="sidebar-nav">
+        <ul>
+          <li><a href="#" id="nav-all" class="active">All Posts</a></li>
+          <li><a href="#" id="nav-unread">Unread Posts</a></li>
+          <li><a href="#" id="nav-favorites">Favorites</a></li>
+          <li><a href="#" id="nav-keywords">Keyword Matches</a></li>
+          <li><a href="#" id="nav-summary">Summary Cart</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-top" style="display: flex; gap: 14px; align-items: center; margin-bottom: 10px;">
+          <a href="#" id="sidebar-settings-btn" title="Settings"></a>
+          <a href="#" id="sidebar-refresh-btn" title="Refresh Feeds" style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; text-decoration: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.75; transition: opacity 0.2s;">🔄</a>
+          <a href="#" id="theme-toggle-btn" title="Toggle Light/Dark Theme" style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; text-decoration: none; font-size: 16px; cursor: pointer; color: var(--text-color); opacity: 0.75; transition: opacity 0.2s;">🌙</a>
         </div>
-    </div>
+        <input type="search" id="search-box" placeholder="Search... (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone">
+      </div>
+    </aside>
 
-    <div id="app-container">
-        <header id="web-header">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <button id="menu-toggle-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color); font-size:18px; padding:4px 8px; border-radius:4px; cursor:pointer; display:inline-block; line-height: 1; outline: none;" title="Toggle Menu">☰</button>
-                <strong>PureTidings</strong>
-                <span id="user-badge" style="font-size:11px; padding:2px 6px; border-radius:10px; background:var(--button-bg-color); color:var(--text-color-darker); border:1px solid var(--border-color);">Desktop</span>
+    <div class="main-content">
+      <header class="main-header">
+        <h2 id="page-title">All Posts</h2> 
+        <div id="summary-toolbar" class="hidden">
+          <div class="summary-toolbar-section">
+            <select id="summary-date-filter">
+              <option value="all">All Dates</option>
+              <option value="today">Today</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+              <option value="custom">Custom Range...</option>
+            </select>
+            <div id="custom-range-container" class="hidden">
+              <input type="date" id="filter-date-from" title="Start Date">
+              <input type="time" id="filter-time-from" title="Start Time">
+              <span class="range-separator">to</span>
+              <input type="date" id="filter-date-to" title="End Date">
+              <input type="time" id="filter-time-to" title="End Time">
             </div>
-            <div style="flex:1; max-width:400px; margin:0 20px; position:relative; display:flex; align-items:center;">
-                <input type="text" id="search-input" placeholder="Search... (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone" style="width:100%; padding:6px 30px 6px 15px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:20px; color:var(--input-color); font-size:13px; outline:none;">
-                <span id="search-clear-btn" style="position:absolute; right:12px; cursor:pointer; color:var(--text-color-darker); font-size:14px; display:none; user-select:none; font-family: sans-serif;" title="Clear Search">✖</span>
-            </div>
-            <div style="display:flex; gap:10px; align-items:center;">
-                <button id="theme-toggle-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color-darker); padding:4px 10px; border-radius:4px; cursor:pointer; font-size:13px;" title="Toggle Light/Dark Theme">🌙</button>
-                <button id="settings-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color-darker); padding:4px 10px; border-radius:4px; cursor:pointer; font-size:13px;" title="Open Settings">⚙️</button>
-            </div>
-        </header>
-        <div style="display:flex; flex:1; overflow:hidden;">
-            <div id="feed-tree-container" style="width:260px; min-width: 150px; border-right:1px solid var(--border-color); overflow-y:auto; background:var(--sidebar-bg);"></div>
-            <div id="sidebar-resizer" style="width: 5px; cursor: col-resize; background: var(--border-color); z-index: 10;"></div>
-            <div id="posts-container" style="flex:1; overflow-y:auto; background:var(--body-bg);"></div>
+          </div>
+          
+          <div class="summary-toolbar-section">
+            <select id="export-format" title="Export Format">
+              <option value="txt">TXT</option>
+              <option value="markdown">Markdown</option>
+              <option value="html">HTML</option>
+            </select>
+            <button id="copy-summary-btn" class="secondary-btn">Copy</button>
+            <button id="download-summary-btn" class="secondary-btn">Save</button>
+          </div>
+
+          <div class="summary-toolbar-section">
+            <button id="generate-ai-report-btn" class="secondary-btn hidden">AI Report</button>
+            <button id="full-view-summary-btn" class="secondary-btn">Full Report View</button>
+            <button id="clear-summary-btn" class="delete-btn">Clear All</button>
+          </div>
+          <p id="copy-status" class="status-message-inline"></p>
         </div>
-    </div>
-
-    <!-- Hidden file inputs for import -->
-    <input type="file" id="import-opml-input" accept=".opml,.xml" style="display:none;">
-    <input type="file" id="import-json-input" accept=".json" style="display:none;">
-
-    <div id="settings-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2100; display: none; align-items: center; justify-content: center;">
-        <div style="background: var(--header-bg); padding: 30px; border-radius: 12px; max-width: 480px; width: 90%; border: 1px solid var(--border-color); position: relative; color: var(--text-color); max-height: 90vh; overflow-y: auto;">
-            <button id="settings-close" style="position: absolute; top: 15px; right: 15px; background: transparent; border: none; color: var(--text-color-darker); cursor: pointer; font-size: 24px; line-height: 1;">&times;</button>
-            <h2 style="color: #ff9800; margin: 0 0 20px 0; font-size: 20px; font-weight: bold;">Settings</h2>
-            
-            <div style="margin-bottom: 20px;">
-                <label for="settings-gemini-key" style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 8px;">Google Gemini API Key (for AI summaries):</label>
-                <input type="password" id="settings-gemini-key" placeholder="AIzaSy..." style="width: 100%; padding: 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--input-color); border-radius: 6px; box-sizing: border-box; font-size: 13px; outline: none;">
-                <p style="font-size: 11px; color: var(--text-color-darker); margin-top: 8px; line-height: 1.4;">
-                    Use your own free API key (Bring Your Own Key - BYOK) from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color: #ff9800; text-decoration: underline;">Google AI Studio</a> to activate AI summaries.
-                </p>
-            </div>
-            <div style="margin-bottom: 15px;">
-                <label for="settings-ai-prompt" style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 6px;">AI Summary Prompt (Articles):</label>
-                <textarea id="settings-ai-prompt" rows="3" placeholder="Default prompt..." style="width: 100%; padding: 8px 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--input-color); border-radius: 6px; box-sizing: border-box; font-size: 12px; outline: none; resize: vertical; font-family: inherit;"></textarea>
-            </div>
-            <div style="margin-bottom: 20px;">
-                <label for="settings-yt-prompt" style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 6px;">AI Summary Prompt (YouTube Videos):</label>
-                <textarea id="settings-yt-prompt" rows="3" placeholder="Default prompt..." style="width: 100%; padding: 8px 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--input-color); border-radius: 6px; box-sizing: border-box; font-size: 12px; outline: none; resize: vertical; font-family: inherit;"></textarea>
+      </header>
+      <main id="main-area" style="padding: 0;">
+        <div id="ai-report-container" class="hidden" style="margin-bottom: 20px; padding: 20px; background: var(--hover-bg, #eee); border-radius: 8px; border: 1px solid var(--border-color);">
+            <div class="ai-report-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0;">AI Generated Report</h3>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <select id="export-ai-format" title="Export Format" style="padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                      <option value="txt">TXT</option>
+                      <option value="markdown">Markdown</option>
+                      <option value="html">HTML</option>
+                    </select>
+                    <button id="copy-ai-report-btn" class="secondary-btn">Copy</button>
+                    <button id="download-ai-report-btn" class="secondary-btn">Save</button>
+                    <button id="close-ai-report-btn" class="secondary-btn" style="margin-left: 10px;">Close</button>
+                </div>
             </div>
             
-            <!-- Rules Engine Section -->
-            <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
-                <label style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 10px; font-weight: bold;">Article Filtering Rules (Rules Engine):</label>
-                <div id="settings-rules-list" style="margin-bottom: 15px; font-size: 12px;"></div>
-                
-                <div style="background: var(--input-bg); padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 12px;">
-                    <div style="font-weight: bold; margin-bottom: 8px;">Add New Rule:</div>
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
-                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                            <span>IF field</span>
-                            <select id="new-rule-field" style="padding: 4px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none; cursor: pointer;">
-                                <option value="title">Title</option>
-                                <option value="author">Author</option>
-                                <option value="desc">Description/Content</option>
-                            </select>
-                            <select id="new-rule-condition" style="padding: 4px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none; cursor: pointer;">
-                                <option value="contains">contains</option>
-                                <option value="not-contains">does not contain</option>
-                                <option value="equals">equals</option>
-                            </select>
-                        </div>
-                        <div style="display: flex; gap: 6px; align-items: center; width: 100%;">
-                            <input type="text" id="new-rule-value" placeholder="Keyword (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone" style="flex: 1; padding: 6px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none;">
-                        </div>
-                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: space-between;">
-                            <div>
-                                <span>THEN</span>
-                                <select id="new-rule-action" style="padding: 4px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none; cursor: pointer;">
-                                    <option value="notify">Mark / Match</option>
-                                    <option value="markAsRead">Mark as read</option>
-                                    <option value="hide">Hide article</option>
-                                </select>
-                            </div>
-                            <button type="button" id="new-rule-add-btn" style="padding: 6px 12px; background: #ff9800; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; font-size: 11px; width: auto; margin: 0;">Add Rule</button>
-                        </div>
+            <div id="ai-prompt-editor-section" style="margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <label for="ai-custom-prompt-val" style="font-size: 0.9em; font-weight: bold; color: var(--text-color);">Customize Prompt for this Summary:</label>
+                    <div style="display: flex; gap: 10px; align-items: flex-end;">
+                        <textarea id="ai-custom-prompt-val" rows="2" style="flex: 1; padding: 8px; background: var(--bg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical; outline: none;"></textarea>
+                        <button id="ai-generate-with-prompt-btn" class="secondary-btn" style="height: 38px; padding: 0 15px; font-weight: bold; background: #3c5c8b; color: white; border: none; border-radius: 4px; cursor: pointer;">Generate 🤖</button>
                     </div>
                 </div>
             </div>
 
-            <!-- Backup & OPML Section -->
-            <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
-                <label style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 10px; font-weight: bold;">Feeds & Data Backup:</label>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
-                    <button type="button" id="export-opml-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Export OPML</button>
-                    <button type="button" id="import-opml-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Import OPML</button>
-                </div>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <button type="button" id="backup-json-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Backup All Data (JSON)</button>
-                    <button type="button" id="restore-json-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Restore Backup (JSON)</button>
-                </div>
-            </div>
-
-            <button id="settings-save-btn" style="width: 100%; padding: 12px; background: #ff9800; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 14px;">Save Settings</button>
+            <div id="ai-report-content" class="ai-report-body" style="line-height: 1.6; font-size: 1.1em; white-space: pre-wrap;"></div>
         </div>
+        <div id="loading-spinner"></div>
+        <p id="empty-message" class="hidden">No feeds configured or no posts found.</p>
+        <div id="all-feeds-container">
+            <!-- Feed sections inserted here via feedpage.js -->
+        </div>
+      </main>
     </div>
+  </div>
 
-    <script src="app.js"></script>
+  <!-- Settings Modal Overlay -->
+  <div id="settings-modal" class="desktop-modal-overlay">
+    <div class="desktop-modal-card container" style="position: relative; max-width: 680px; width: 100%; padding: 25px;">
+      <button id="settings-modal-close" class="modal-close-btn" title="Close">&times;</button>
+      <h1 style="margin-top: 0;">Settings</h1>
+
+      <!-- Tabs Navigation -->
+      <div class="tabs-nav">
+        <button class="tab-btn settings-tab-btn active" data-tab="tab-feeds">Feeds</button>
+        <button class="tab-btn settings-tab-btn" data-tab="tab-ai">AI Features</button>
+        <button class="tab-btn settings-tab-btn" data-tab="tab-rules">Rules & Filters</button>
+        <button class="tab-btn settings-tab-btn" data-tab="tab-backup">Backup & OPML</button>
+      </div>
+
+      <!-- Tab: Feeds & Folders -->
+      <div id="tab-feeds" class="tab-content settings-tab-pane">
+        <h2>Manage Feeds</h2>
+        <div style="margin-bottom: 20px;">
+          <h3 style="font-size: 14px; margin-bottom: 8px;">Add New Feed</h3>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <input type="text" id="new-feed-name" placeholder="Feed Name (e.g. Ars Technica)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+            <input type="url" id="new-feed-url" placeholder="Feed URL (RSS / Atom / YouTube channel)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <select id="new-feed-folder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);"></select>
+              <button type="button" id="btn-add-feed" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Add Feed</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+          <h3 style="font-size: 14px; margin-bottom: 8px;">Add New Folder</h3>
+          <div style="display: flex; gap: 10px;">
+            <input type="text" id="new-folder-name" placeholder="Folder Name (e.g. News)" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+            <button type="button" id="btn-add-folder" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Add Folder</button>
+          </div>
+        </div>
+
+        <div>
+          <h3 style="font-size: 14px; margin-bottom: 8px;">Configured Feeds</h3>
+          <ul id="settings-feed-list" style="list-style: none; padding: 0; margin: 0; border: 1px solid var(--border-color); border-radius: 4px; max-height: 250px; overflow-y: auto;"></ul>
+        </div>
+      </div>
+
+      <!-- Tab: AI Features -->
+      <div id="tab-ai" class="tab-content settings-tab-pane hidden">
+        <h2>AI Features (BYOK)</h2>
+        <div style="margin-bottom: 15px;">
+          <label for="settings-gemini-key" style="display: block; font-size: 13px; font-weight: bold; margin-bottom: 6px;">Google Gemini API Key:</label>
+          <input type="password" id="settings-gemini-key" placeholder="AIzaSy..." style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); box-sizing: border-box;">
+          <p style="font-size: 12px; color: var(--secondary-text-color, #777); margin-top: 6px;">
+            Get your free API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #007bff;">Google AI Studio</a>. Saved exclusively in your local storage.
+          </p>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label for="settings-ai-prompt" style="display: block; font-size: 13px; font-weight: bold; margin-bottom: 6px;">AI Summary Prompt (Articles):</label>
+          <textarea id="settings-ai-prompt" rows="3" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); box-sizing: border-box; resize: vertical; font-family: inherit; font-size: 12px;"></textarea>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label for="settings-yt-prompt" style="display: block; font-size: 13px; font-weight: bold; margin-bottom: 6px;">AI Summary Prompt (YouTube):</label>
+          <textarea id="settings-yt-prompt" rows="3" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); box-sizing: border-box; resize: vertical; font-family: inherit; font-size: 12px;"></textarea>
+        </div>
+      </div>
+
+      <!-- Tab: Rules Engine -->
+      <div id="tab-rules" class="tab-content settings-tab-pane hidden">
+        <h2>Article Filtering Rules</h2>
+        <div id="settings-rules-list" style="margin-bottom: 15px;"></div>
+        <div style="background: var(--body-bg); padding: 12px; border: 1px solid var(--border-color); border-radius: 6px;">
+          <h4 style="margin: 0 0 8px 0;">Add New Rule</h4>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <span>IF field</span>
+              <select id="new-rule-field" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+                <option value="title">Title</option>
+                <option value="author">Author</option>
+                <option value="desc">Description/Content</option>
+              </select>
+              <select id="new-rule-condition" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+                <option value="contains">contains</option>
+                <option value="not-contains">does not contain</option>
+                <option value="equals">equals</option>
+              </select>
+            </div>
+            <input type="text" id="new-rule-value" placeholder="Keywords (+ AND, , OR, - NOT)" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span>THEN</span>
+                <select id="new-rule-action" style="padding: 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); margin-left: 6px;">
+                  <option value="notify">Mark / Match</option>
+                  <option value="markAsRead">Mark as read</option>
+                  <option value="hide">Hide article</option>
+                </select>
+              </div>
+              <button type="button" id="new-rule-add-btn" style="padding: 6px 14px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Add Rule</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Backup & OPML -->
+      <div id="tab-backup" class="tab-content settings-tab-pane hidden">
+        <h2>Feeds & Data Backup</h2>
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;">
+          <div>
+            <h4 style="margin: 0 0 6px 0;">OPML (Feeds & Folders)</h4>
+            <div style="display: flex; gap: 10px;">
+              <button type="button" id="btn-export-opml" class="secondary-btn" style="flex: 1; padding: 10px; cursor: pointer;">Export OPML</button>
+              <button type="button" onclick="document.getElementById('input-opml-file').click()" class="secondary-btn" style="flex: 1; padding: 10px; cursor: pointer;">Import OPML</button>
+            </div>
+          </div>
+          <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <h4 style="margin: 0 0 6px 0;">Full Backup (JSON)</h4>
+            <div style="display: flex; gap: 10px;">
+              <button type="button" id="btn-backup-json" class="secondary-btn" style="flex: 1; padding: 10px; cursor: pointer;">Backup All Data (JSON)</button>
+              <button type="button" onclick="document.getElementById('input-json-file').click()" class="secondary-btn" style="flex: 1; padding: 10px; cursor: pointer;">Restore Backup (JSON)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 15px; display: flex; justify-content: flex-end;">
+        <button id="settings-save-btn" style="padding: 10px 24px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;">Save & Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden File Inputs for OPML/JSON -->
+  <input type="file" id="input-opml-file" accept=".opml,.xml" style="display: none;">
+  <input type="file" id="input-json-file" accept=".json" style="display: none;">
+
+  <!-- Reader Mode Modal Overlay -->
+  <div id="reader-modal" class="desktop-modal-overlay">
+    <div class="desktop-modal-card reader-container" style="position: relative; max-width: 800px; width: 100%; padding: 30px;">
+      <button id="reader-modal-close" class="modal-close-btn" title="Close Reader">&times;</button>
+      
+      <div id="reader-loading" class="hidden" style="text-align: center; padding: 40px 0;">
+        <h2>Loading article...</h2>
+        <div class="spinner"></div>
+      </div>
+
+      <article id="reader-content">
+        <div id="reader-header">
+          <img id="reader-thumbnail" class="hidden" style="max-height: 250px; width: 100%; object-fit: cover; border-radius: 6px; margin-bottom: 15px;">
+          <h1 id="reader-title" style="margin-top: 0;"></h1>
+        </div>
+        <div id="reader-video-info" class="hidden"></div>
+        <p id="reader-byline" style="color: var(--secondary-text-color, #777); font-size: 12px; margin-bottom: 15px;"></p>
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin-bottom: 20px;">
+        <div id="reader-article-body" style="line-height: 1.7; font-size: 16px;"></div>
+      </article>
+    </div>
+  </div>
+
+  <button id="scroll-to-top" class="hidden" title="Go to top">&uarr;</button>
+
+  <script src="utils.js"></script>
+  <script src="feed-tree-utils.js"></script>
+  <script src="Readability.js"></script>
+  <script src="feedpage.js"></script>
 </body>
 </html>
