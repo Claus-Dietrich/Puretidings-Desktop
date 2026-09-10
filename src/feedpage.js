@@ -435,8 +435,8 @@ function renderUnreadView() {
  */
 function renderTreeView(postsByFeed) {
   // Preserve scroll position
-  const mainContent = document.querySelector('.main-content');
-  const scrollPos = mainContent ? mainContent.scrollTop : 0;
+  const scrollEl = document.getElementById('main-area') || document.querySelector('.main-content');
+  const scrollPos = scrollEl ? scrollEl.scrollTop : 0;
 
   container.innerHTML = ''; 
 
@@ -447,8 +447,16 @@ function renderTreeView(postsByFeed) {
     return;
   }
 
+  const isDateFiltered = summaryDateFilter && summaryDateFilter.value !== 'all';
+
   if (currentViewMode === 'unread' && !hasAnyPosts) {
     emptyMessage.textContent = "No unread posts.";
+    emptyMessage.classList.remove('hidden');
+    return;
+  }
+
+  if (currentViewMode === 'all' && isDateFiltered && !hasAnyPosts) {
+    emptyMessage.textContent = "No posts found matching the selected date filter.";
     emptyMessage.classList.remove('hidden');
     return;
   }
@@ -459,7 +467,7 @@ function renderTreeView(postsByFeed) {
   treeContainer.className = 'tree-container';
 
   function hasVisibleChildren(folderNode) {
-    if (currentViewMode === 'all') {
+    if (currentViewMode === 'all' && !isDateFiltered) {
       return folderNode.children && folderNode.children.length > 0;
     }
     return folderNode.children.some(child => {
@@ -476,21 +484,28 @@ function renderTreeView(postsByFeed) {
   function renderNodes(nodes, parentUl, level = 0) {
     nodes.forEach(node => {
       if (node.type === 'folder' && hasVisibleChildren(node)) {
-        let folderUnreadCount = 0;
-        function calculateFolderUnread(folderNode) {
+        let folderCount = 0;
+        function calculateFolderCount(folderNode) {
           let count = 0;
           folderNode.children.forEach(child => {
-            if (child.type === 'feed') count += unreadCounts[child.id] || 0;
-            else if (child.type === 'folder') count += calculateFolderUnread(child);
+            if (child.type === 'feed') {
+              if (isDateFiltered && currentViewMode === 'all') {
+                count += (postsByFeed[child.id] || []).length;
+              } else {
+                count += unreadCounts[child.id] || 0;
+              }
+            } else if (child.type === 'folder') {
+              count += calculateFolderCount(child);
+            }
           });
           return count;
         }
-        folderUnreadCount = calculateFolderUnread(node);
+        folderCount = calculateFolderCount(node);
 
         const li = document.createElement('li');
         li.style.paddingLeft = `${level * 20}px`;
         li.dataset.id = node.id;
-        const folderCountSpan = folderUnreadCount > 0 ? `<span class="unread-count">${folderUnreadCount}</span>` : '';
+        const folderCountSpan = folderCount > 0 ? `<span class="unread-count">${folderCount}</span>` : '';
         li.className = 'folder-item';
         
         const isCollapsed = collapsedFolders.has(node.id);
@@ -506,12 +521,15 @@ function renderTreeView(postsByFeed) {
       
       } else if (node.type === 'feed') {
         const posts = postsByFeed[node.id] || [];
-        if (currentViewMode === 'unread' && posts.length === 0) {
-          return; // Skip empty feeds in unread mode
+        if ((currentViewMode === 'unread' || isDateFiltered) && posts.length === 0) {
+          return; // Skip empty feeds in unread mode or when date filter is active
         }
 
-        const feedUnreadCount = unreadCounts[node.id] || 0;
-        const feedCountSpan = feedUnreadCount > 0 ? `<span class="unread-count">${feedUnreadCount}</span>` : '';
+        let feedDisplayCount = unreadCounts[node.id] || 0;
+        if (isDateFiltered && currentViewMode === 'all') {
+          feedDisplayCount = posts.length;
+        }
+        const feedCountSpan = feedDisplayCount > 0 ? `<span class="unread-count">${feedDisplayCount}</span>` : '';
         const faviconUrl = getFaviconUrl(node.url);
 
         const li = document.createElement('li');
@@ -551,19 +569,18 @@ function renderTreeView(postsByFeed) {
   container.appendChild(treeContainer);
 
   // Restore scroll position
-  if (mainContent) {
-    mainContent.scrollTop = scrollPos;
+  if (scrollEl) {
+    scrollEl.scrollTop = scrollPos;
   }
 }
-
 
 /**
  * Renders the "Favorites" view
  */
 function renderFavoritesView() {
   // Preserve scroll position
-  const mainContent = document.querySelector('.main-content');
-  const scrollPos = mainContent ? mainContent.scrollTop : 0;
+  const scrollEl = document.getElementById('main-area') || document.querySelector('.main-content');
+  const scrollPos = scrollEl ? scrollEl.scrollTop : 0;
 
   container.innerHTML = '';
   if (favoritedLinksSet.size === 0) {
@@ -587,8 +604,8 @@ function renderFavoritesView() {
   });
   container.appendChild(section);
 
-  if (mainContent) {
-    mainContent.scrollTop = scrollPos;
+  if (scrollEl) {
+    scrollEl.scrollTop = scrollPos;
   }
 }
 
@@ -597,8 +614,8 @@ function renderFavoritesView() {
  */
 async function renderKeywordsView() {
   // Preserve scroll position
-  const mainContent = document.querySelector('.main-content');
-  const scrollPos = mainContent ? mainContent.scrollTop : 0;
+  const scrollEl = document.getElementById('main-area') || document.querySelector('.main-content');
+  const scrollPos = scrollEl ? scrollEl.scrollTop : 0;
 
   container.innerHTML = '';
   const { rules = [] } = await chrome.storage.sync.get('rules');
@@ -654,8 +671,8 @@ async function renderKeywordsView() {
     }
   }
 
-  if (mainContent) {
-    mainContent.scrollTop = scrollPos;
+  if (scrollEl) {
+    scrollEl.scrollTop = scrollPos;
   }
 }
 
@@ -664,8 +681,8 @@ async function renderKeywordsView() {
  */
 function renderSummaryView() {
   // Preserve scroll position
-  const mainContent = document.querySelector('.main-content');
-  const scrollPos = mainContent ? mainContent.scrollTop : 0;
+  const scrollEl = document.getElementById('main-area') || document.querySelector('.main-content');
+  const scrollPos = scrollEl ? scrollEl.scrollTop : 0;
 
   container.innerHTML = '';
   if (summaryLinksSet.size === 0) {
@@ -690,8 +707,8 @@ function renderSummaryView() {
   });
   container.appendChild(section);
 
-  if (mainContent) {
-    mainContent.scrollTop = scrollPos;
+  if (scrollEl) {
+    scrollEl.scrollTop = scrollPos;
   }
 }
 

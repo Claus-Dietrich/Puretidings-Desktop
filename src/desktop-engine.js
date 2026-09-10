@@ -35,6 +35,46 @@
     }
     window.tauriOpenBrowser = tauriOpenBrowser;
 
+    function escapeHTML(str) {
+        if (!str || typeof str !== 'string') return '';
+        return str.replace(/[&<>'"]/g, tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag));
+    }
+    window.escapeHTML = escapeHTML;
+
+    async function findOgImage(url) {
+        if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) return null;
+        if (url.includes('youtube.com') || url.includes('youtu.be')) return null;
+        try {
+            const html = await tauriInvoke('fetch_url', { url });
+            if (!html) return null;
+            const ogMatch = html.match(/<meta\s+[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+                            html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i) ||
+                            html.match(/<meta\s+[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i) ||
+                            html.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*name=["']twitter:image["']/i);
+            if (ogMatch && ogMatch[1]) {
+                let imgUrl = ogMatch[1].trim();
+                imgUrl = imgUrl.replace(/&amp;/g, '&');
+                if (imgUrl.startsWith('//')) {
+                    imgUrl = 'https:' + imgUrl;
+                } else if (imgUrl.startsWith('/')) {
+                    const u = new URL(url);
+                    imgUrl = u.origin + imgUrl;
+                }
+                return imgUrl;
+            }
+        } catch (e) {
+            // Non-critical background thumbnail resolution failure
+        }
+        return null;
+    }
+    window.findOgImage = findOgImage;
+
     // ==========================================
     // 2. Browser-like Zoom (Ctrl + Wheel & Ctrl +/-/0)
     // ==========================================
@@ -292,6 +332,14 @@
                         return { status: 'error', message: e.toString() };
                     }
                 }
+                if (msg.action === 'getOgImage' && msg.url) {
+                    try {
+                        const image = await findOgImage(msg.url);
+                        return { status: 'ok', image };
+                    } catch (e) {
+                        return { status: 'error', message: e.toString() };
+                    }
+                }
                 return { status: 'ok' };
             }
         },
@@ -356,6 +404,9 @@
             };
 
             let title = getText("title") || "Untitled";
+            if (title) {
+                title = title.replace(/<[^>]+>/g, '').trim();
+            }
             let link = "";
             const links = item.getElementsByTagName("link");
             for (let j = 0; j < links.length; j++) {
@@ -371,6 +422,15 @@
             }
             if (!link && item.getElementsByTagName("id")[0]) {
                 link = item.getElementsByTagName("id")[0].textContent.trim();
+            }
+            if (link && link.includes('google.com/url?') && link.includes('url=')) {
+                try {
+                    const parsedUrl = new URL(link);
+                    const actualUrl = parsedUrl.searchParams.get('url');
+                    if (actualUrl) {
+                        link = actualUrl;
+                    }
+                } catch (_) {}
             }
 
             let dateRaw = getText("pubDate") || getText("pubdate") || getText("published") || getText("updated") || getText("dc:date");
@@ -423,7 +483,8 @@
             }
 
             if (!featuredImage && description) {
-                const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
+                const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i) ||
+                                 description.match(/&lt;img[^>]+src=(?:&quot;|["'])([^"'&]+)(?:&quot;|["'])/i);
                 if (imgMatch) featuredImage = imgMatch[1];
             }
 
@@ -476,6 +537,18 @@
             const newAllPosts = { ...allPosts };
             const unreadCounts = {};
 
+            // Cache previously fetched images to prevent flickering or losing thumbnails
+            const existingImageMap = new Map();
+            for (const fId in allPosts) {
+                if (Array.isArray(allPosts[fId])) {
+                    allPosts[fId].forEach(p => {
+                        if (p.link && p.featuredImage) {
+                            existingImageMap.set(p.link, p.featuredImage);
+                        }
+                    });
+                }
+            }
+
             // Fetch feeds incrementally so posts appear immediately as each finishes
             await Promise.all(feeds.map(async (feed) => {
                 try {
@@ -483,6 +556,9 @@
                     const posts = parseFeedXml(xml, feed);
                     if (posts && posts.length > 0) {
                         posts.forEach(p => {
+                            if (!p.featuredImage && existingImageMap.has(p.link)) {
+                                p.featuredImage = existingImageMap.get(p.link);
+                            }
                             if (typeof applyRulesToPost === 'function') {
                                 applyRulesToPost(p, rules, readLinksSet);
                             }
@@ -500,6 +576,29 @@
                             allPosts: { ...newAllPosts },
                             unreadCounts: { ...unreadCounts }
                         });
+
+                        // Background fetch missing og:images for newest articles
+                        const missingImages = posts.filter(p => !p.featuredImage && p.link && p.link.startsWith('http')).slice(0, 12);
+                        if (missingImages.length > 0) {
+                            (async () => {
+                                let anyFound = false;
+                                await Promise.all(missingImages.map(async (p) => {
+                                    try {
+                                        const og = await findOgImage(p.link);
+                                        if (og) {
+                                            p.featuredImage = og;
+                                            anyFound = true;
+                                        }
+                                    } catch (_) {}
+                                }));
+                                if (anyFound) {
+                                    const cur = await chrome.storage.local.get('allPosts');
+                                    const updatedPosts = cur.allPosts || {};
+                                    updatedPosts[feed.id] = posts;
+                                    await chrome.storage.local.set({ allPosts: { ...updatedPosts } });
+                                }
+                            })();
+                        }
                     }
                 } catch (err) {
                     console.warn(`[PureTidings Desktop] Error fetching ${feed.name} (${feed.url}):`, err);
@@ -793,6 +892,8 @@
         });
     }
 
+    let editingNodeId = null;
+
     async function renderSettingsFeeds() {
         const list = document.getElementById('settings-feed-list');
         const folderSelect = document.getElementById('new-feed-folder');
@@ -831,34 +932,169 @@
             }
         });
 
-        function renderList(nodes, parentEl, level = 0) {
+        function renderList(nodes, parentEl, level = 0, parentId = '') {
             nodes.forEach(node => {
                 const li = document.createElement('li');
-                li.style.display = 'flex';
-                li.style.justifyContent = 'space-between';
-                li.style.alignItems = 'center';
-                li.style.padding = '6px 10px';
+                li.style.padding = '8px 10px';
                 li.style.borderBottom = '1px solid var(--border-color)';
                 li.style.paddingLeft = `${level * 20 + 10}px`;
 
                 const isFolder = node.type === 'folder';
-                li.innerHTML = `
-                    <span>${isFolder ? '📁 ' : '📄 '}<strong>${node.name}</strong> ${node.url ? `<small style="color:var(--text-color-darker); margin-left:8px;">(${node.url})</small>` : ''}</span>
-                    <button class="node-del-btn" data-id="${node.id}" style="background:transparent; border:none; color:#d93025; cursor:pointer; font-weight:bold; font-size:18px;">&times;</button>
-                `;
+                const isEditing = editingNodeId === node.id;
+
+                if (isEditing) {
+                    li.style.background = 'var(--hover-bg)';
+                    li.innerHTML = `
+                        <div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 0;">
+                            <div>
+                                <label style="font-size: 11px; font-weight: bold; color: var(--text-color-darker); display: block; margin-bottom: 2px;">Title / Name:</label>
+                                <input type="text" id="edit-node-name-${node.id}" value="${escapeHTML(node.name)}" style="width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
+                            </div>
+                            ${!isFolder ? `
+                            <div>
+                                <label style="font-size: 11px; font-weight: bold; color: var(--text-color-darker); display: block; margin-bottom: 2px;">Feed URL:</label>
+                                <input type="text" id="edit-node-url-${node.id}" value="${escapeHTML(node.url || '')}" style="width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; font-weight: bold; color: var(--text-color-darker); display: block; margin-bottom: 2px;">Parent Folder:</label>
+                                <select id="edit-node-folder-${node.id}" style="width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
+                                    <option value="">Root (No Folder)</option>
+                                    ${folders.map(f => `<option value="${f.id}" ${parentId === f.id ? 'selected' : ''}>${escapeHTML(f.name)}</option>`).join('')}
+                                </select>
+                            </div>
+                            ` : ''}
+                            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;">
+                                <button type="button" class="btn-cancel-node-edit" style="padding: 5px 12px; background: transparent; border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Cancel</button>
+                                <button type="button" class="btn-save-node-edit" data-id="${node.id}" style="padding: 5px 14px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    li.style.display = 'flex';
+                    li.style.justifyContent = 'space-between';
+                    li.style.alignItems = 'center';
+                    li.innerHTML = `
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">
+                            ${isFolder ? '📁 ' : '📄 '}<strong>${escapeHTML(node.name)}</strong> 
+                            ${node.url ? `<small style="color:var(--text-color-darker); margin-left:8px;">(${escapeHTML(node.url)})</small>` : ''}
+                        </span>
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                            <button class="node-edit-btn" data-id="${node.id}" title="Edit" style="background:transparent; border:none; cursor:pointer; font-size:14px; padding:2px 4px;">✏️</button>
+                            <button class="node-del-btn" data-id="${node.id}" title="Delete" style="background:transparent; border:none; color:#d93025; cursor:pointer; font-weight:bold; font-size:18px; padding:2px 4px;">&times;</button>
+                        </div>
+                    `;
+                }
                 parentEl.appendChild(li);
 
                 if (node.children && node.children.length > 0) {
-                    renderList(node.children, parentEl, level + 1);
+                    renderList(node.children, parentEl, level + 1, node.id);
                 }
             });
         }
 
-        renderList(feedTree, list);
+        renderList(feedTree, list, 0, '');
 
+        // Wire Edit buttons
+        list.querySelectorAll('.node-edit-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                editingNodeId = e.currentTarget.dataset.id;
+                renderSettingsFeeds();
+            });
+        });
+
+        // Wire Cancel edit
+        list.querySelectorAll('.btn-cancel-node-edit').forEach(btn => {
+            btn.addEventListener('click', () => {
+                editingNodeId = null;
+                renderSettingsFeeds();
+            });
+        });
+
+        // Wire Save edit
+        list.querySelectorAll('.btn-save-node-edit').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = e.currentTarget.dataset.id;
+                const nameInput = document.getElementById(`edit-node-name-${id}`);
+                const urlInput = document.getElementById(`edit-node-url-${id}`);
+                const folderSelect = document.getElementById(`edit-node-folder-${id}`);
+
+                const newName = nameInput ? nameInput.value.trim() : '';
+                if (!newName) {
+                    alert("Name cannot be empty.");
+                    return;
+                }
+
+                function findNodeAndParent(nodes, targetId, currentParent = '') {
+                    for (const n of nodes) {
+                        if (n.id === targetId) return { node: n, parentId: currentParent };
+                        if (n.children) {
+                            const found = findNodeAndParent(n.children, targetId, n.id);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                }
+
+                const result = findNodeAndParent(feedTree, id);
+                if (!result) return;
+
+                result.node.name = newName;
+                if (urlInput) {
+                    const newUrl = urlInput.value.trim();
+                    if (!newUrl) {
+                        alert("URL cannot be empty.");
+                        return;
+                    }
+                    result.node.url = newUrl;
+                }
+
+                const targetFolderId = folderSelect ? folderSelect.value : result.parentId;
+                if (folderSelect && targetFolderId !== result.parentId) {
+                    function extractNode(nodes, targetId) {
+                        for (let i = 0; i < nodes.length; i++) {
+                            if (nodes[i].id === targetId) {
+                                return nodes.splice(i, 1)[0];
+                            }
+                            if (nodes[i].children) {
+                                const ext = extractNode(nodes[i].children, targetId);
+                                if (ext) return ext;
+                            }
+                        }
+                        return null;
+                    }
+
+                    const extracted = extractNode(feedTree, id);
+                    if (extracted) {
+                        if (!targetFolderId) {
+                            feedTree.push(extracted);
+                        } else {
+                            function insertIntoFolder(nodes, fId, item) {
+                                for (const n of nodes) {
+                                    if (n.id === fId && n.type === 'folder') {
+                                        if (!n.children) n.children = [];
+                                        n.children.push(item);
+                                        return true;
+                                    }
+                                    if (n.children && insertIntoFolder(n.children, fId, item)) return true;
+                                }
+                                return false;
+                            }
+                            insertIntoFolder(feedTree, targetFolderId, extracted);
+                        }
+                    }
+                }
+
+                await chrome.storage.local.set({ feedTree });
+                editingNodeId = null;
+                renderSettingsFeeds();
+                refreshAllFeedsNative();
+            });
+        });
+
+        // Wire Delete buttons
         list.querySelectorAll('.node-del-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
-                const id = e.target.dataset.id;
+                const id = e.currentTarget.dataset.id;
                 if (!confirm("Are you sure you want to remove this item?")) return;
 
                 function removeNode(nodes) {
@@ -892,7 +1128,24 @@
         const contentEl = document.getElementById('reader-content');
 
         if (titleEl) titleEl.textContent = data.title || 'Untitled Article';
-        if (bylineEl) bylineEl.textContent = `${data.source ? data.source + ' | ' : ''}${data.author ? data.author + ' | ' : ''}Link: ${data.url}`;
+        if (bylineEl) {
+            const metaParts = [];
+            if (data.source) metaParts.push(escapeHTML(data.source));
+            if (data.author) metaParts.push(escapeHTML(data.author));
+            const prefix = metaParts.length > 0 ? metaParts.join(' | ') + ' | ' : '';
+            if (data.url) {
+                bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="Open original article in browser">${escapeHTML(data.url)}</a>`;
+                const origLink = document.getElementById('reader-original-link');
+                if (origLink) {
+                    origLink.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        tauriOpenBrowser(data.url);
+                    });
+                }
+            } else {
+                bylineEl.textContent = prefix;
+            }
+        }
         
         if (thumbEl) {
             if (data.featuredImage) {
@@ -917,6 +1170,18 @@
                 videoEl.classList.add('hidden');
                 videoEl.innerHTML = '';
             }
+        }
+
+        // Intercept link clicks inside article body
+        if (bodyEl && !bodyEl.dataset.linkDelegated) {
+            bodyEl.dataset.linkDelegated = 'true';
+            bodyEl.addEventListener('click', (e) => {
+                const anchor = e.target.closest('a');
+                if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
+                    e.preventDefault();
+                    tauriOpenBrowser(anchor.href);
+                }
+            });
         }
 
         if (bodyEl) {
