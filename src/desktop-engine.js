@@ -1267,6 +1267,25 @@
     }
     window.closeAllModals = closeAllModals;
 
+    function getViewportDimensions() {
+        const zoom = parseFloat(document.documentElement.style.zoom) || 1.0;
+        const w = (window.innerWidth || document.documentElement.clientWidth || 1200) / zoom;
+        const h = (window.innerHeight || document.documentElement.clientHeight || 800) / zoom;
+        return { w, h, zoom };
+    }
+
+    function getBackupTimestamp() {
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const yyyy = now.getFullYear();
+        const mm = pad(now.getMonth() + 1);
+        const dd = pad(now.getDate());
+        const hh = pad(now.getHours());
+        const min = pad(now.getMinutes());
+        const ss = pad(now.getSeconds());
+        return `${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}`;
+    }
+
     function openSettingsModal() {
         closeAllModals();
         const modal = document.getElementById('settings-modal');
@@ -1276,21 +1295,20 @@
         // Restore custom modal dimensions & coordinates
         const modalCard = document.getElementById('settings-modal-card');
         if (modalCard) {
+            const { w: viewW, h: viewH, zoom } = getViewportDimensions();
             let savedGeo = null;
             try {
                 savedGeo = JSON.parse(localStorage.getItem('puretidings_settings_geometry') || localStorage.getItem('puretidings_settings_size') || 'null');
             } catch (_) {}
 
-            const maxW = Math.max(320, window.innerWidth - 20);
-            const maxH = Math.max(180, window.innerHeight - 20);
-            let w = (savedGeo && savedGeo.width) ? Math.max(320, Math.min(savedGeo.width, maxW)) : Math.min(840, maxW);
-            let h = (savedGeo && savedGeo.height) ? Math.max(180, Math.min(savedGeo.height, maxH)) : Math.min(680, maxH);
-            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (window.innerWidth - w) / 2));
-            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (window.innerHeight - h) / 2));
+            let w = (savedGeo && savedGeo.width) ? Math.max(280, savedGeo.width) : Math.min(840, Math.max(320, viewW - 40));
+            let h = (savedGeo && savedGeo.height) ? Math.max(150, savedGeo.height) : Math.min(680, Math.max(200, viewH - 40));
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (viewW - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (viewH - h) / 2));
 
-            // Keep inside screen bounds
-            left = Math.max(0, Math.min(left, window.innerWidth - 80));
-            top = Math.max(0, Math.min(top, window.innerHeight - 50));
+            // Keep header reachable (at least 80px visible horizontally, top at least 0)
+            left = Math.max(-w + 80, Math.min(left, viewW - 80));
+            top = Math.max(0, Math.min(top, viewH - 50));
 
             modalCard.style.width = w + 'px';
             modalCard.style.height = h + 'px';
@@ -1300,10 +1318,10 @@
             function saveSettingsGeometry() {
                 if (!modalCard) return;
                 const geo = {
-                    left: Math.round(modalCard.offsetLeft),
-                    top: Math.round(modalCard.offsetTop),
-                    width: Math.round(modalCard.offsetWidth),
-                    height: Math.round(modalCard.offsetHeight)
+                    left: Math.round(parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0),
+                    top: Math.round(parseFloat(modalCard.style.top) || modalCard.offsetTop || 0),
+                    width: Math.round(parseFloat(modalCard.style.width) || modalCard.offsetWidth || 840),
+                    height: Math.round(parseFloat(modalCard.style.height) || modalCard.offsetHeight || 680)
                 };
                 try {
                     localStorage.setItem('puretidings_settings_geometry', JSON.stringify(geo));
@@ -1319,23 +1337,25 @@
                 header.style.userSelect = 'none';
 
                 header.addEventListener('mousedown', (e) => {
-                    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a')) return;
+                    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('select')) return;
                     e.preventDefault();
 
                     const startX = e.clientX;
                     const startY = e.clientY;
-                    const initialLeft = modalCard.offsetLeft;
-                    const initialTop = modalCard.offsetTop;
+                    const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0;
+                    const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 0;
 
                     function onDrag(ev) {
                         ev.preventDefault();
-                        const dx = ev.clientX - startX;
-                        const dy = ev.clientY - startY;
+                        const { w: curViewW, h: curViewH, zoom: activeZoom } = getViewportDimensions();
+                        const dx = (ev.clientX - startX) / activeZoom;
+                        const dy = (ev.clientY - startY) / activeZoom;
                         let nLeft = initialLeft + dx;
                         let nTop = initialTop + dy;
 
-                        nLeft = Math.max(0, Math.min(nLeft, window.innerWidth - 80));
-                        nTop = Math.max(0, Math.min(nTop, window.innerHeight - 50));
+                        // Allow moving freely across entire screen while keeping header reachable
+                        nLeft = Math.max(-modalCard.offsetWidth + 80, Math.min(nLeft, curViewW - 80));
+                        nTop = Math.max(0, Math.min(nTop, curViewH - 40));
 
                         modalCard.style.left = nLeft + 'px';
                         modalCard.style.top = nTop + 'px';
@@ -1362,13 +1382,16 @@
 
                     const startX = e.clientX;
                     const startY = e.clientY;
-                    const startW = modalCard.offsetWidth;
-                    const startH = modalCard.offsetHeight;
+                    const startW = parseFloat(modalCard.style.width) || modalCard.offsetWidth;
+                    const startH = parseFloat(modalCard.style.height) || modalCard.offsetHeight;
 
                     function onGripResize(ev) {
                         ev.preventDefault();
-                        const nW = Math.max(320, Math.min(startW + (ev.clientX - startX), window.innerWidth - modalCard.offsetLeft));
-                        const nH = Math.max(180, Math.min(startH + (ev.clientY - startY), window.innerHeight - modalCard.offsetTop));
+                        const { zoom: activeZoom } = getViewportDimensions();
+                        const dx = (ev.clientX - startX) / activeZoom;
+                        const dy = (ev.clientY - startY) / activeZoom;
+                        const nW = Math.max(280, startW + dx);
+                        const nH = Math.max(150, startH + dy);
                         modalCard.style.width = nW + 'px';
                         modalCard.style.height = nH + 'px';
                     }
@@ -1390,7 +1413,7 @@
                 let resizeTimer;
                 const ro = new ResizeObserver(entries => {
                     for (let entry of entries) {
-                        if (entry.contentRect && entry.contentRect.width > 240 && entry.contentRect.height > 140) {
+                        if (entry.contentRect && entry.contentRect.width > 200 && entry.contentRect.height > 100) {
                             clearTimeout(resizeTimer);
                             resizeTimer = setTimeout(() => {
                                 saveSettingsGeometry();
@@ -2231,7 +2254,7 @@
                     const blob = new Blob([opml], { type: 'text/xml' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);
-                    a.download = `puretidings-feeds-${new Date().toISOString().split('T')[0]}.opml`;
+                    a.download = `puretidings-feeds-${getBackupTimestamp()}.opml`;
                     a.click();
                     showStatusBadge('opml-status-box', 'success', `✓ Exported ${feedCount} feed(s) successfully!`);
                     showInAppToast('OPML Export', `Exported ${feedCount} feed(s) to OPML file.`);
@@ -2367,7 +2390,7 @@
                     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);
-                    a.download = `puretidings-backup-${new Date().toISOString().split('T')[0]}.json`;
+                    a.download = `puretidings-backup-${getBackupTimestamp()}.json`;
                     a.click();
                     showStatusBadge('backup-json-status-box', 'success', `✓ Full backup downloaded successfully (${feedCount} items)!`);
                     showInAppToast('Full Backup', `JSON backup created successfully.`);
