@@ -220,6 +220,21 @@
         setLocalItem('summaryLinks', []);
         setSyncItem('darkMode', true);
         setSyncItem('rules', []);
+        setSyncItem('checkInterval', 30);
+        setSyncItem('randomizeFetch', false);
+        setSyncItem('showNotification', true);
+        setSyncItem('showSummaryNotification', false);
+        setSyncItem('summaryInterval', 60);
+        const defSchedule = {};
+        for (let d = 0; d < 7; d++) defSchedule[d] = { active: true, from: '00:00', to: '23:59' };
+        setSyncItem('fetchSchedule', defSchedule);
+    }
+    if (getSyncItem('checkInterval') === null) setSyncItem('checkInterval', 30);
+    if (getSyncItem('showNotification') === null) setSyncItem('showNotification', true);
+    if (getSyncItem('fetchSchedule') === null) {
+        const defSchedule = {};
+        for (let d = 0; d < 7; d++) defSchedule[d] = { active: true, from: '00:00', to: '23:59' };
+        setSyncItem('fetchSchedule', defSchedule);
     }
 
     const storageListeners = [];
@@ -817,8 +832,268 @@
     window.summarizeAnyUrl = summarizeAnyUrl;
 
     // ==========================================
-    // 9. Modal Management (Settings, Reader, Quick Add, Summarize)
+    // 9. Modal Management (Settings, Reader, Quick Add, Summarize) & Automation Engine
     // ==========================================
+    function escapeHtml(str) {
+        return (str || '').replace(/[&<>"']/g, m => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[m]);
+    }
+
+    function showInAppToast(title, message, isSummary = false, durationMs = 6000) {
+        const container = document.getElementById('desktop-toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'desktop-toast' + (isSummary ? ' toast-summary' : '');
+        toast.innerHTML = `
+            <div class="desktop-toast-title">
+                <span>${isSummary ? '📋' : '🔔'}</span>
+                <span>${escapeHtml(title)}</span>
+            </div>
+            <div class="desktop-toast-body">${escapeHtml(message).replace(/\n/g, '<br>')}</div>
+        `;
+
+        const dismiss = () => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-10px)';
+            setTimeout(() => {
+                if (toast.parentNode) toast.remove();
+            }, 300);
+        };
+        toast.addEventListener('click', dismiss);
+
+        container.appendChild(toast);
+
+        if (durationMs > 0) {
+            setTimeout(dismiss, durationMs);
+        }
+    }
+    window.showInAppToast = showInAppToast;
+
+    async function showDesktopNotification(title, message) {
+        try {
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    new Notification(title, { body: message, icon: 'icon.png' });
+                } else if (Notification.permission !== 'denied') {
+                    const perm = await Notification.requestPermission();
+                    if (perm === 'granted') {
+                        new Notification(title, { body: message, icon: 'icon.png' });
+                    }
+                }
+            }
+        } catch (err) {
+            console.warn("[PureTidings Desktop] Desktop notification error:", err);
+        }
+    }
+    window.showDesktopNotification = showDesktopNotification;
+
+    function showStatusBadge(boxId, type, message, timeoutMs = 6000) {
+        const box = document.getElementById(boxId);
+        if (!box) return;
+        box.innerHTML = `<div class="status-badge ${type}">${escapeHtml(message)}</div>`;
+        box.style.display = 'block';
+        if (timeoutMs > 0) {
+            setTimeout(() => {
+                if (box.textContent.includes(message)) {
+                    box.style.display = 'none';
+                    box.innerHTML = '';
+                }
+            }, timeoutMs);
+        }
+    }
+    window.showStatusBadge = showStatusBadge;
+
+    function renderDesktopScheduleTable(schedule = {}) {
+        const tableBody = document.querySelector('#desktop-schedule-table tbody');
+        if (!tableBody) return;
+        tableBody.innerHTML = '';
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        days.forEach((day, idx) => {
+            const dIdx = (idx + 1) % 7; // 1=Mon, 2=Tue, ..., 6=Sat, 0=Sun
+            const conf = schedule[dIdx] || { active: true, from: '00:00', to: '23:59' };
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight: 500;">${day}</td>
+                <td style="text-align: center;"><input type="checkbox" class="schedule-active" ${conf.active !== false ? 'checked' : ''} style="cursor: pointer;"></td>
+                <td><input type="time" class="schedule-from" value="${conf.from || '00:00'}" style="padding: 3px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); width: 95%;"></td>
+                <td><input type="time" class="schedule-to" value="${conf.to || '23:59'}" style="padding: 3px 6px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); width: 95%;"></td>
+            `;
+            tableBody.appendChild(tr);
+        });
+    }
+
+    function collectScheduleFromTable() {
+        const tableBody = document.querySelector('#desktop-schedule-table tbody');
+        if (!tableBody) return {};
+        const sch = {};
+        const rows = tableBody.querySelectorAll('tr');
+        rows.forEach((r, idx) => {
+            const dIdx = (idx + 1) % 7;
+            const active = r.querySelector('.schedule-active')?.checked ?? true;
+            const from = r.querySelector('.schedule-from')?.value || '00:00';
+            const to = r.querySelector('.schedule-to')?.value || '23:59';
+            sch[dIdx] = { active, from, to };
+        });
+        return sch;
+    }
+
+    function isScheduleActiveNow(fetchSchedule) {
+        if (!fetchSchedule) return true;
+        const now = new Date();
+        const day = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const config = fetchSchedule[day];
+        if (!config) return true;
+        if (config.active === false) return false;
+        const nowTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        if (config.from && nowTime < config.from) return false;
+        if (config.to && nowTime > config.to) return false;
+        return true;
+    }
+
+    let bgFetchTimeout = null;
+    let bgSummaryTimeout = null;
+
+    async function scheduleNextBackgroundFetch() {
+        if (bgFetchTimeout) clearTimeout(bgFetchTimeout);
+
+        const { checkInterval = 30, randomizeFetch = false } = await chrome.storage.sync.get(['checkInterval', 'randomizeFetch']);
+        const intervalMinutes = parseInt(checkInterval, 10);
+        if (isNaN(intervalMinutes) || intervalMinutes <= 0) {
+            console.log("[PureTidings Desktop] Auto-fetch is OFF (checkInterval = 0).");
+            return;
+        }
+
+        let effectiveMinutes = intervalMinutes;
+        if (randomizeFetch) {
+            const jitter = 0.8 + (Math.random() * 0.4);
+            effectiveMinutes = Math.max(1, intervalMinutes * jitter);
+        }
+
+        const ms = Math.round(effectiveMinutes * 60 * 1000);
+        console.log(`[PureTidings Desktop] Next background check scheduled in ${effectiveMinutes.toFixed(1)} minute(s).`);
+
+        bgFetchTimeout = setTimeout(async () => {
+            await runBackgroundFetchCycle();
+            scheduleNextBackgroundFetch();
+        }, ms);
+    }
+
+    async function runBackgroundFetchCycle() {
+        try {
+            const { fetchSchedule, showNotification = true, rules = [] } = await chrome.storage.sync.get(['fetchSchedule', 'showNotification', 'rules']);
+
+            if (!isScheduleActiveNow(fetchSchedule)) {
+                console.log("[PureTidings Desktop] Outside active fetch schedule hours. Skipping auto-check.");
+                return;
+            }
+
+            const beforeData = await chrome.storage.local.get(['unreadCounts', 'allPosts', 'readLinks']);
+            const beforeReadLinksSet = new Set(beforeData.readLinks || []);
+            const prevTotalUnread = Object.values(beforeData.unreadCounts || {}).reduce((a, b) => a + b, 0);
+
+            let prevKeywordMatches = 0;
+            if (rules.length > 0) {
+                Object.values(beforeData.allPosts || {}).flat().forEach(p => {
+                    if (p && !p.isHidden && !beforeReadLinksSet.has(p.link) && p.matchedRules && p.matchedRules.length > 0) {
+                        prevKeywordMatches++;
+                    }
+                });
+            }
+
+            console.log("[PureTidings Desktop] Executing background feed check...");
+            await refreshAllFeedsNative();
+
+            const afterData = await chrome.storage.local.get(['unreadCounts', 'allPosts', 'readLinks']);
+            const afterReadLinksSet = new Set(afterData.readLinks || []);
+            const newTotalUnread = Object.values(afterData.unreadCounts || {}).reduce((a, b) => a + b, 0);
+
+            let newKeywordMatches = 0;
+            if (rules.length > 0) {
+                Object.values(afterData.allPosts || {}).flat().forEach(p => {
+                    if (p && !p.isHidden && !afterReadLinksSet.has(p.link) && p.matchedRules && p.matchedRules.length > 0) {
+                        newKeywordMatches++;
+                    }
+                });
+            }
+
+            if (showNotification) {
+                if (rules.length > 0 && newKeywordMatches > prevKeywordMatches) {
+                    const diff = newKeywordMatches - prevKeywordMatches;
+                    const title = "PureTidings - Keyword Alert";
+                    const msg = diff === 1
+                        ? "1 new post matches your keyword rules!"
+                        : `${diff} new posts match your keyword rules!`;
+                    showDesktopNotification(title, msg);
+                    showInAppToast(title, msg);
+                } else if (newTotalUnread > prevTotalUnread) {
+                    const diff = newTotalUnread - prevTotalUnread;
+                    const title = "PureTidings - New Articles";
+                    const msg = diff === 1
+                        ? "1 new article has arrived."
+                        : `${diff} new articles have arrived.`;
+                    showDesktopNotification(title, msg);
+                    showInAppToast(title, msg);
+                }
+            }
+        } catch (err) {
+            console.warn("[PureTidings Desktop] Error during background fetch cycle:", err);
+        }
+    }
+
+    async function scheduleNextSummaryNotification() {
+        if (bgSummaryTimeout) clearTimeout(bgSummaryTimeout);
+
+        const { showSummaryNotification = false, summaryInterval = 60 } = await chrome.storage.sync.get(['showSummaryNotification', 'summaryInterval']);
+        if (!showSummaryNotification) return;
+
+        const intervalMinutes = Math.max(1, parseInt(summaryInterval, 10) || 60);
+        const ms = intervalMinutes * 60 * 1000;
+        console.log(`[PureTidings Desktop] Next unread summary reminder in ${intervalMinutes} minute(s).`);
+
+        bgSummaryTimeout = setTimeout(async () => {
+            await runSummaryNotificationCycle();
+            scheduleNextSummaryNotification();
+        }, ms);
+    }
+
+    async function runSummaryNotificationCycle() {
+        try {
+            const { showSummaryNotification = false, fetchSchedule } = await chrome.storage.sync.get(['showSummaryNotification', 'fetchSchedule']);
+            if (!showSummaryNotification) return;
+            if (!isScheduleActiveNow(fetchSchedule)) return;
+
+            const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+            const readLinksSet = new Set(readLinks || []);
+            const unread = Object.values(allPosts)
+                .flat()
+                .filter(p => p && p.link && !p.isHidden && !readLinksSet.has(p.link))
+                .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+            if (unread.length === 0) return;
+
+            const title = `Unread Summary: ${unread.length} article(s) waiting`;
+            const topTitles = unread.slice(0, 3).map(p => `• ${p.title}`).join('\n');
+            const body = unread.length > 3 ? `${topTitles}\n...and ${unread.length - 3} more.` : topTitles;
+
+            showDesktopNotification(title, body);
+            showInAppToast(title, body, true, 8000);
+        } catch (err) {
+            console.warn("[PureTidings Desktop] Error during summary notification cycle:", err);
+        }
+    }
+
+    function startBackgroundScheduler() {
+        scheduleNextBackgroundFetch();
+        scheduleNextSummaryNotification();
+    }
+    window.startBackgroundScheduler = startBackgroundScheduler;
+
     function closeAllModals() {
         ['settings-modal', 'reader-modal', 'quick-add-modal', 'quick-summarize-modal'].forEach(id => {
             const el = document.getElementById(id);
@@ -834,6 +1109,42 @@
         const modal = document.getElementById('settings-modal');
         if (!modal) return;
         modal.style.display = 'flex';
+
+        // Restore custom modal dimensions
+        const modalCard = document.getElementById('settings-modal-card');
+        if (modalCard) {
+            const savedSize = localStorage.getItem('puretidings_settings_size');
+            if (savedSize) {
+                try {
+                    const parsed = JSON.parse(savedSize);
+                    if (parsed.width && parsed.width >= 480) modalCard.style.width = parsed.width + 'px';
+                    if (parsed.height && parsed.height >= 380) modalCard.style.height = parsed.height + 'px';
+                } catch (_) {}
+            }
+
+            // Attach ResizeObserver to remember resized size across app restarts
+            if (window.ResizeObserver && !modalCard._resizeObserverAttached) {
+                modalCard._resizeObserverAttached = true;
+                let resizeTimer;
+                const ro = new ResizeObserver(entries => {
+                    for (let entry of entries) {
+                        if (entry.contentRect && entry.contentRect.width > 300 && entry.contentRect.height > 200) {
+                            clearTimeout(resizeTimer);
+                            resizeTimer = setTimeout(() => {
+                                if (modalCard.offsetWidth && modalCard.offsetHeight) {
+                                    localStorage.setItem('puretidings_settings_size', JSON.stringify({
+                                        width: Math.round(modalCard.offsetWidth),
+                                        height: Math.round(modalCard.offsetHeight)
+                                    }));
+                                }
+                            }, 250);
+                        }
+                    }
+                });
+                ro.observe(modalCard);
+            }
+        }
+
         loadSettingsValues();
     }
 
@@ -846,7 +1157,23 @@
     window.closeSettingsModal = closeSettingsModal;
 
     async function loadSettingsValues() {
-        const { geminiApiKey, aiReportPrompt, youtubeAiPrompt, rules = [] } = await chrome.storage.sync.get(['geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt', 'rules']);
+        const {
+            geminiApiKey,
+            aiReportPrompt,
+            youtubeAiPrompt,
+            rules = [],
+            checkInterval = 30,
+            randomizeFetch = false,
+            fetchSchedule = {},
+            showNotification = true,
+            showSummaryNotification = false,
+            summaryInterval = 60
+        } = await chrome.storage.sync.get([
+            'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt', 'rules',
+            'checkInterval', 'randomizeFetch', 'fetchSchedule',
+            'showNotification', 'showSummaryNotification', 'summaryInterval'
+        ]);
+
         const keyInput = document.getElementById('settings-gemini-key');
         if (keyInput) keyInput.value = geminiApiKey || '';
         const aiPromptInput = document.getElementById('settings-ai-prompt');
@@ -854,6 +1181,22 @@
         const ytPromptInput = document.getElementById('settings-yt-prompt');
         if (ytPromptInput) ytPromptInput.value = youtubeAiPrompt || '';
 
+        const intervalInput = document.getElementById('settings-check-interval');
+        if (intervalInput) intervalInput.value = checkInterval !== undefined ? checkInterval : 30;
+
+        const randomizeInput = document.getElementById('settings-randomize-fetch');
+        if (randomizeInput) randomizeInput.checked = !!randomizeFetch;
+
+        const notifInput = document.getElementById('settings-show-notifications');
+        if (notifInput) notifInput.checked = showNotification !== undefined ? showNotification : true;
+
+        const sumNotifInput = document.getElementById('settings-show-summary-notifications');
+        if (sumNotifInput) sumNotifInput.checked = !!showSummaryNotification;
+
+        const sumIntervalInput = document.getElementById('settings-summary-interval');
+        if (sumIntervalInput) sumIntervalInput.value = summaryInterval || 60;
+
+        renderDesktopScheduleTable(fetchSchedule);
         renderSettingsRules(rules);
         renderSettingsFeeds();
     }
@@ -1368,13 +1711,32 @@
                 const key = document.getElementById('settings-gemini-key')?.value || '';
                 const aiPrompt = document.getElementById('settings-ai-prompt')?.value || '';
                 const ytPrompt = document.getElementById('settings-yt-prompt')?.value || '';
+
+                const checkInterval = parseInt(document.getElementById('settings-check-interval')?.value, 10) || 0;
+                const randomizeFetch = document.getElementById('settings-randomize-fetch')?.checked || false;
+                const showNotification = document.getElementById('settings-show-notifications')?.checked ?? true;
+                const showSummaryNotification = document.getElementById('settings-show-summary-notifications')?.checked || false;
+                const summaryInterval = parseInt(document.getElementById('settings-summary-interval')?.value, 10) || 60;
+                const fetchSchedule = collectScheduleFromTable();
+
                 await chrome.storage.sync.set({
                     geminiApiKey: key.trim(),
                     aiReportPrompt: aiPrompt.trim(),
-                    youtubeAiPrompt: ytPrompt.trim()
+                    youtubeAiPrompt: ytPrompt.trim(),
+                    checkInterval,
+                    randomizeFetch,
+                    showNotification,
+                    showSummaryNotification,
+                    summaryInterval,
+                    fetchSchedule
                 });
+
+                // Re-arm background schedulers immediately with new config
+                scheduleNextBackgroundFetch();
+                scheduleNextSummaryNotification();
+
                 closeSettingsModal();
-                alert("Settings saved successfully!");
+                showInAppToast("Settings Saved", "Your automation schedules and preferences have been updated successfully!");
             });
         }
 
@@ -1463,104 +1825,247 @@
             });
         }
 
-        // Backup / Export
+        // ==========================================
+        // 10. Redesigned Backup, Restore & OPML Engine
+        // ==========================================
+        function escapeXml(str) {
+            return (str || '').replace(/[<>&'"]/g, c => ({
+                '<': '&lt;',
+                '>': '&gt;',
+                '&': '&amp;',
+                "'": '&apos;',
+                '"': '&quot;'
+            })[c]);
+        }
+
+        // --- OPML Export ---
         const exportOpmlBtn = document.getElementById('btn-export-opml');
         if (exportOpmlBtn) {
             exportOpmlBtn.addEventListener('click', async () => {
-                const { feedTree = [] } = await chrome.storage.local.get('feedTree');
-                let opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n<head><title>PureTidings Feeds</title></head>\n<body>\n`;
-                function writeNodes(nodes) {
-                    nodes.forEach(n => {
-                        if (n.type === 'folder') {
-                            opml += `  <outline text="${n.name}">\n`;
-                            if (n.children) writeNodes(n.children);
-                            opml += `  </outline>\n`;
-                        } else if (n.type === 'feed') {
-                            opml += `  <outline type="rss" text="${n.name}" title="${n.name}" xmlUrl="${n.url}" htmlUrl="${n.url}"/>\n`;
-                        }
-                    });
+                showStatusBadge('opml-status-box', 'loading', '⏳ Generating OPML file...', 0);
+                try {
+                    const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+                    let feedCount = 0;
+                    let opml = `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n<head><title>PureTidings Feeds</title></head>\n<body>\n`;
+                    function writeNodes(nodes) {
+                        nodes.forEach(n => {
+                            if (n.type === 'folder') {
+                                opml += `  <outline text="${escapeXml(n.name)}">\n`;
+                                if (n.children) writeNodes(n.children);
+                                opml += `  </outline>\n`;
+                            } else if (n.type === 'feed') {
+                                feedCount++;
+                                opml += `  <outline type="rss" text="${escapeXml(n.name)}" title="${escapeXml(n.name)}" xmlUrl="${escapeXml(n.url)}" htmlUrl="${escapeXml(n.url)}"/>\n`;
+                            }
+                        });
+                    }
+                    writeNodes(feedTree);
+                    opml += `</body>\n</opml>`;
+
+                    const blob = new Blob([opml], { type: 'text/xml' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `puretidings-feeds-${new Date().toISOString().split('T')[0]}.opml`;
+                    a.click();
+                    showStatusBadge('opml-status-box', 'success', `✓ Exported ${feedCount} feed(s) successfully!`);
+                    showInAppToast('OPML Export', `Exported ${feedCount} feed(s) to OPML file.`);
+                } catch (err) {
+                    showStatusBadge('opml-status-box', 'error', `✗ Export failed: ${err.message}`);
                 }
-                writeNodes(feedTree);
-                opml += `</body>\n</opml>`;
-
-                const blob = new Blob([opml], { type: 'text/xml' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `puretidings-feeds-${new Date().toISOString().split('T')[0]}.opml`;
-                a.click();
             });
         }
 
-        const backupJsonBtn = document.getElementById('btn-backup-json');
-        if (backupJsonBtn) {
-            backupJsonBtn.addEventListener('click', async () => {
-                const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks']);
-                const sync = await chrome.storage.sync.get(['rules', 'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt']);
-                const backup = {
-                    version: "1.0",
-                    date: new Date().toISOString(),
-                    local,
-                    sync
-                };
-                const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `puretidings-backup-${new Date().toISOString().split('T')[0]}.json`;
-                a.click();
-            });
-        }
-
-        // Import OPML / JSON
+        // --- OPML Import & Dropzone ---
+        const importOpmlBtn = document.getElementById('btn-import-opml');
         const opmlFileInput = document.getElementById('input-opml-file');
+        const dropzoneOpml = document.getElementById('dropzone-opml');
+
+        if (importOpmlBtn && opmlFileInput) {
+            importOpmlBtn.addEventListener('click', () => {
+                opmlFileInput.click();
+            });
+        }
+
+        if (dropzoneOpml && opmlFileInput) {
+            dropzoneOpml.addEventListener('click', () => {
+                opmlFileInput.click();
+            });
+            dropzoneOpml.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzoneOpml.classList.add('dragover');
+            });
+            dropzoneOpml.addEventListener('dragleave', () => {
+                dropzoneOpml.classList.remove('dragover');
+            });
+            dropzoneOpml.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzoneOpml.classList.remove('dragover');
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    processOpmlFile(e.dataTransfer.files[0]);
+                }
+            });
+        }
+
         if (opmlFileInput) {
-            opmlFileInput.addEventListener('change', async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
+            opmlFileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    processOpmlFile(e.target.files[0]);
+                    opmlFileInput.value = '';
+                }
+            });
+        }
+
+        async function processOpmlFile(file) {
+            if (!file) return;
+            showStatusBadge('opml-status-box', 'loading', `⏳ Reading and importing "${file.name}"...`, 0);
+            try {
                 const text = await file.text();
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(text, "text/xml");
                 const outlines = doc.querySelectorAll('outline[xmlUrl]');
+                if (!outlines || outlines.length === 0) {
+                    showStatusBadge('opml-status-box', 'error', `✗ No RSS feeds found in "${file.name}".`);
+                    return;
+                }
+
                 const { feedTree = [] } = await chrome.storage.local.get('feedTree');
-                
+                let addedCount = 0;
                 outlines.forEach(o => {
                     const url = o.getAttribute('xmlUrl');
                     const name = o.getAttribute('title') || o.getAttribute('text') || url;
                     if (url) {
                         feedTree.push({
-                            id: 'feed-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
-                            name,
-                            url,
+                            id: 'feed-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
+                            name: name.trim(),
+                            url: url.trim(),
                             type: 'feed',
                             fetchOgImage: true
                         });
+                        addedCount++;
                     }
                 });
 
                 await chrome.storage.local.set({ feedTree });
-                alert(`Imported ${outlines.length} feeds successfully!`);
+                showStatusBadge('opml-status-box', 'success', `✓ Successfully imported ${addedCount} feed(s) from "${file.name}"!`);
+                showInAppToast('OPML Import', `Imported ${addedCount} feed(s) successfully!`);
                 renderSettingsFeeds();
                 refreshAllFeedsNative();
-            });
+            } catch (err) {
+                showStatusBadge('opml-status-box', 'error', `✗ Failed to import OPML: ${err.message}`);
+            }
         }
 
-        const jsonFileInput = document.getElementById('input-json-file');
-        if (jsonFileInput) {
-            jsonFileInput.addEventListener('change', async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
+        // --- JSON Full Backup Export ---
+        const backupJsonBtn = document.getElementById('btn-backup-json');
+        if (backupJsonBtn) {
+            backupJsonBtn.addEventListener('click', async () => {
+                showStatusBadge('backup-json-status-box', 'loading', '⏳ Generating full application backup...', 0);
                 try {
-                    const text = await file.text();
-                    const data = JSON.parse(text);
-                    if (data.local) await chrome.storage.local.set(data.local);
-                    if (data.sync) await chrome.storage.sync.set(data.sync);
-                    alert("Backup restored successfully!");
-                    renderSettingsFeeds();
-                    refreshAllFeedsNative();
+                    const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks']);
+                    const sync = await chrome.storage.sync.get([
+                        'rules', 'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt',
+                        'checkInterval', 'randomizeFetch', 'fetchSchedule',
+                        'showNotification', 'showSummaryNotification', 'summaryInterval', 'darkMode'
+                    ]);
+                    const backup = {
+                        version: "1.0",
+                        app: "PureTidings Desktop",
+                        date: new Date().toISOString(),
+                        local,
+                        sync
+                    };
+                    const feedCount = (local.feedTree || []).length;
+                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `puretidings-backup-${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    showStatusBadge('backup-json-status-box', 'success', `✓ Full backup downloaded successfully (${feedCount} items)!`);
+                    showInAppToast('Full Backup', `JSON backup created successfully.`);
                 } catch (err) {
-                    alert("Failed to restore backup: " + err.message);
+                    showStatusBadge('backup-json-status-box', 'error', `✗ Backup failed: ${err.message}`);
                 }
             });
         }
+
+        // --- JSON Restore & Dropzone ---
+        const restoreJsonBtn = document.getElementById('btn-restore-json');
+        const jsonFileInput = document.getElementById('input-json-file');
+        const dropzoneJson = document.getElementById('dropzone-json');
+
+        if (restoreJsonBtn && jsonFileInput) {
+            restoreJsonBtn.addEventListener('click', () => {
+                jsonFileInput.click();
+            });
+        }
+
+        if (dropzoneJson && jsonFileInput) {
+            dropzoneJson.addEventListener('click', () => {
+                jsonFileInput.click();
+            });
+            dropzoneJson.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzoneJson.classList.add('dragover');
+            });
+            dropzoneJson.addEventListener('dragleave', () => {
+                dropzoneJson.classList.remove('dragover');
+            });
+            dropzoneJson.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzoneJson.classList.remove('dragover');
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    processJsonFile(e.dataTransfer.files[0]);
+                }
+            });
+        }
+
+        if (jsonFileInput) {
+            jsonFileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    processJsonFile(e.target.files[0]);
+                    jsonFileInput.value = '';
+                }
+            });
+        }
+
+        async function processJsonFile(file) {
+            if (!file) return;
+            showStatusBadge('backup-json-status-box', 'loading', `⏳ Reading and restoring "${file.name}"...`, 0);
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                if (!data.local && !data.sync && !data.feeds && !data.feedTree) {
+                    showStatusBadge('backup-json-status-box', 'error', `✗ Invalid backup file format.`);
+                    return;
+                }
+
+                if (data.local) await chrome.storage.local.set(data.local);
+                if (data.sync) await chrome.storage.sync.set(data.sync);
+
+                // Chrome Extension backup format compatibility
+                if (data.feedTree && !data.local) {
+                    await chrome.storage.local.set({ feedTree: data.feedTree });
+                }
+                if (data.rules && !data.sync) {
+                    await chrome.storage.sync.set({ rules: data.rules });
+                }
+
+                const feedCount = (data.local?.feedTree || data.feedTree || []).length;
+                showStatusBadge('backup-json-status-box', 'success', `✓ Backup restored successfully (${feedCount} items)!`);
+                showInAppToast('Restore Complete', 'Backup restored successfully!');
+
+                loadSettingsValues();
+                renderSettingsFeeds();
+                refreshAllFeedsNative();
+                scheduleNextBackgroundFetch();
+                scheduleNextSummaryNotification();
+            } catch (err) {
+                showStatusBadge('backup-json-status-box', 'error', `✗ Failed to restore backup: ${err.message}`);
+            }
+        }
+
+        // Start background automation engine
+        startBackgroundScheduler();
 
         // Initial background fetch
         setTimeout(() => {
