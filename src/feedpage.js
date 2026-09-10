@@ -454,7 +454,6 @@ function renderTreeView(postsByFeed) {
     return;
   }
 
-  const hasAnyPosts = Object.keys(postsByFeed).length > 0;
   if (currentViewMode === 'unread' && !hasAnyPosts) {
     emptyMessage.textContent = "No unread posts.";
     emptyMessage.classList.remove('hidden');

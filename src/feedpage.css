@@ -26,7 +26,7 @@ body {
 /* --- New Page Layout --- */
 .page-layout {
   display: flex;
-  height: 100vh;
+  height: 100%;
 }
 
 .sidebar {

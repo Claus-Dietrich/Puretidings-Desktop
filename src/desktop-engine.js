@@ -39,9 +39,30 @@
     // 2. Browser-like Zoom (Ctrl + Wheel & Ctrl +/-/0)
     // ==========================================
     let currentZoom = parseFloat(localStorage.getItem('puretidings_zoom') || '1.0');
+    if (isNaN(currentZoom) || currentZoom < 0.5 || currentZoom > 2.5) {
+        currentZoom = 1.0;
+    }
+
     function applyDesktopZoom(zoom) {
         currentZoom = Math.min(Math.max(zoom, 0.5), 2.5);
+        currentZoom = Math.round(currentZoom * 100) / 100;
         document.documentElement.style.zoom = currentZoom;
+
+        // Ensure html and body expand to cover 100% of physical window
+        const invPercent = (100 / currentZoom) + '%';
+        document.documentElement.style.width = invPercent;
+        document.documentElement.style.height = invPercent;
+
+        if (document.body) {
+            document.body.style.width = '100%';
+            document.body.style.height = '100%';
+        }
+        const pageLayout = document.querySelector('.page-layout');
+        if (pageLayout) {
+            pageLayout.style.width = '100%';
+            pageLayout.style.height = '100%';
+        }
+
         localStorage.setItem('puretidings_zoom', currentZoom.toString());
     }
 
@@ -356,7 +377,13 @@
             }
 
             let dateRaw = getText("pubDate") || getText("pubdate") || getText("published") || getText("updated");
-            let date = dateRaw ? new Date(dateRaw).toISOString() : new Date().toISOString();
+            let date = new Date().toISOString();
+            if (dateRaw) {
+                try {
+                    const parsed = new Date(dateRaw);
+                    if (!isNaN(parsed.getTime())) date = parsed.toISOString();
+                } catch (_) {}
+            }
 
             let description = "";
             const ce = item.getElementsByTagName("content:encoded");
