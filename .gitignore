@@ -1,0 +1,14 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+
+# Tauri & Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

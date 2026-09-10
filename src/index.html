@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PureTidings Desktop</title>
+    <link rel="icon" type="image/png" sizes="16x16" href="16.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="48.png">
+    <link rel="icon" type="image/png" sizes="128x128" href="128.png">
+    <link rel="stylesheet" href="feedpage.css">
+    <link rel="stylesheet" href="dark-theme.css">
+    <link rel="stylesheet" href="options.css">
+    <script src="theme-loader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="Readability.js"></script>
+
+    <style>
+        :root { --primary-orange: #ff9800; }
+        body { margin: 0; font-family: sans-serif; background: var(--body-bg); color: var(--text-color); overflow: hidden; height: 100vh; display: flex; flex-direction: column; user-select: none; }
+        #app-container { display: flex; height: 100vh; flex-direction: column; flex: 1; }
+        #web-header { background: var(--header-bg); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); -webkit-user-select: none; }
+        .hidden { display: none !important; }
+        #reader-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; display: none; overflow-y: auto; padding: 40px 20px; box-sizing: border-box; }
+        #reader-wrapper { position: relative; max-width: 850px; margin: 0 auto; width: 100%; }
+        #reader-content { background: var(--header-bg); padding: 40px; border-radius: 12px; line-height: 1.7; color: var(--text-color); border: 1px solid var(--border-color); user-select: text; }
+        #reader-close { position: absolute; top: 0; right: -60px; background: var(--button-bg-color); color: var(--text-color); border: 1px solid var(--border-color); width: 44px; height: 44px; border-radius: 50%; cursor: pointer; font-size: 28px; display: flex; align-items: center; justify-content: center; }
+        @media (max-width: 1000px) { #reader-close { right: 10px; top: 10px; background: rgba(0,0,0,0.6); } }
+        .spinner { border: 3px solid rgba(255,255,255,0.1); width: 30px; height: 30px; border-radius: 50%; border-left-color: var(--primary-orange); animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .post-row { display: flex; padding: 12px 15px; border-bottom: 1px solid var(--border-color); gap: 15px; align-items: center; transition: background 0.1s; cursor: pointer; user-select: text; }
+        .post-row:hover { background: var(--hover-bg); }
+        .post-thumbnail { width: 90px; height: 60px; object-fit: cover; border-radius: 4px; background: var(--body-bg); flex-shrink: 0; border: 1px solid var(--border-color); background-size: cover; background-position: center; }
+        .post-info { flex: 1; min-width: 0; }
+        .post-title { font-size: 14px; font-weight: 600; color: var(--text-color); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .post-meta { font-size: 11px; color: var(--text-color-darker); display: flex; align-items: center; justify-content: space-between; }
+        .action-btn { background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color) !important; width: 34px; height: 34px; border-radius: 4px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+        .action-btn:hover { background: var(--hover-bg); border-color: var(--primary-orange); }
+        .feed-header { background: var(--sidebar-bg); padding: 10px 15px; font-size: 12px; font-weight: 700; color: var(--text-color-darker); border-bottom: 1px solid var(--border-color); text-transform: uppercase; letter-spacing: 1px; }
+        @media (min-width: 769px) {
+            #feed-tree-container.collapsed {
+                width: 0 !important;
+                min-width: 0 !important;
+                border-right: none !important;
+                overflow: hidden !important;
+            }
+            #sidebar-resizer.collapsed {
+                display: none !important;
+            }
+        }
+        /* Mobile-Friendly Adjustments */
+        @media (max-width: 768px) {
+            #menu-toggle-btn {
+                display: block !important;
+            }
+            #feed-tree-container {
+                position: absolute !important;
+                top: 55px;
+                left: -280px;
+                width: 260px !important;
+                height: calc(100vh - 55px) !important;
+                z-index: 1000 !important;
+                transition: left 0.3s ease !important;
+                box-shadow: 4px 0 15px rgba(0,0,0,0.4) !important;
+            }
+            #feed-tree-container.active {
+                left: 0 !important;
+            }
+            #sidebar-resizer {
+                display: none !important;
+            }
+            #web-header {
+                padding: 10px !important;
+                gap: 8px !important;
+            }
+            #web-header strong {
+                font-size: 14px !important;
+            }
+            #search-input {
+                font-size: 11px !important;
+                padding: 6px 25px 6px 10px !important;
+            }
+            #search-clear-btn {
+                right: 8px !important;
+                font-size: 12px !important;
+            }
+            #theme-toggle-btn, #settings-btn {
+                padding: 4px 6px !important;
+                font-size: 11px !important;
+            }
+            #summary-toolbar {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                gap: 8px !important;
+                padding: 10px !important;
+            }
+            .summary-toolbar-section {
+                width: 100% !important;
+                justify-content: flex-start !important;
+                flex-wrap: wrap !important;
+            }
+            .summary-toolbar-section button, .summary-toolbar-section select {
+                flex: 1 !important;
+                min-width: 80px !important;
+            }
+            #reader-overlay {
+                padding: 10px !important;
+            }
+            #reader-content {
+                padding: 15px !important;
+            }
+            #reader-toolbar {
+                gap: 4px !important;
+            }
+            #reader-toolbar button, #reader-toolbar select {
+                font-size: 10px !important;
+                padding: 0 6px !important;
+                height: 24px !important;
+            }
+            .post-row {
+                padding: 10px !important;
+                gap: 10px !important;
+            }
+            .post-thumbnail {
+                width: 60px !important;
+                height: 45px !important;
+            }
+            .post-title {
+                font-size: 12px !important;
+            }
+            .post-meta {
+                font-size: 10px !important;
+            }
+            .post-actions button, .post-actions a {
+                width: 28px !important;
+                height: 28px !important;
+                font-size: 14px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="reader-overlay">
+        <div id="reader-wrapper">
+            <button id="reader-close" onclick="closeReader()">&times;</button>
+            <div id="reader-content">
+                <div id="reader-loading"></div>
+                <div id="reader-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-container">
+        <header id="web-header">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <button id="menu-toggle-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color); font-size:18px; padding:4px 8px; border-radius:4px; cursor:pointer; display:inline-block; line-height: 1; outline: none;" title="Toggle Menu">☰</button>
+                <strong>PureTidings</strong>
+                <span id="user-badge" style="font-size:11px; padding:2px 6px; border-radius:10px; background:var(--button-bg-color); color:var(--text-color-darker); border:1px solid var(--border-color);">Desktop</span>
+            </div>
+            <div style="flex:1; max-width:400px; margin:0 20px; position:relative; display:flex; align-items:center;">
+                <input type="text" id="search-input" placeholder="Search... (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone" style="width:100%; padding:6px 30px 6px 15px; background:var(--input-bg); border:1px solid var(--border-color); border-radius:20px; color:var(--input-color); font-size:13px; outline:none;">
+                <span id="search-clear-btn" style="position:absolute; right:12px; cursor:pointer; color:var(--text-color-darker); font-size:14px; display:none; user-select:none; font-family: sans-serif;" title="Clear Search">✖</span>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button id="theme-toggle-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color-darker); padding:4px 10px; border-radius:4px; cursor:pointer; font-size:13px;" title="Toggle Light/Dark Theme">🌙</button>
+                <button id="settings-btn" style="background:transparent; border:1px solid var(--border-color); color:var(--text-color-darker); padding:4px 10px; border-radius:4px; cursor:pointer; font-size:13px;" title="Open Settings">⚙️</button>
+            </div>
+        </header>
+        <div style="display:flex; flex:1; overflow:hidden;">
+            <div id="feed-tree-container" style="width:260px; min-width: 150px; border-right:1px solid var(--border-color); overflow-y:auto; background:var(--sidebar-bg);"></div>
+            <div id="sidebar-resizer" style="width: 5px; cursor: col-resize; background: var(--border-color); z-index: 10;"></div>
+            <div id="posts-container" style="flex:1; overflow-y:auto; background:var(--body-bg);"></div>
+        </div>
+    </div>
+
+    <!-- Hidden file inputs for import -->
+    <input type="file" id="import-opml-input" accept=".opml,.xml" style="display:none;">
+    <input type="file" id="import-json-input" accept=".json" style="display:none;">
+
+    <div id="settings-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2100; display: none; align-items: center; justify-content: center;">
+        <div style="background: var(--header-bg); padding: 30px; border-radius: 12px; max-width: 480px; width: 90%; border: 1px solid var(--border-color); position: relative; color: var(--text-color); max-height: 90vh; overflow-y: auto;">
+            <button id="settings-close" style="position: absolute; top: 15px; right: 15px; background: transparent; border: none; color: var(--text-color-darker); cursor: pointer; font-size: 24px; line-height: 1;">&times;</button>
+            <h2 style="color: #ff9800; margin: 0 0 20px 0; font-size: 20px; font-weight: bold;">Settings</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <label for="settings-gemini-key" style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 8px;">Google Gemini API Key (for AI summaries):</label>
+                <input type="password" id="settings-gemini-key" placeholder="AIzaSy..." style="width: 100%; padding: 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--input-color); border-radius: 6px; box-sizing: border-box; font-size: 13px; outline: none;">
+                <p style="font-size: 11px; color: var(--text-color-darker); margin-top: 8px; line-height: 1.4;">
+                    Use your own free API key (Bring Your Own Key - BYOK) from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" style="color: #ff9800; text-decoration: underline;">Google AI Studio</a> to activate AI summaries.
+                </p>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label for="settings-ai-prompt" style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 6px;">AI Summary Prompt (Articles):</label>
+                <textarea id="settings-ai-prompt" rows="3" placeholder="Default prompt..." style="width: 100%; padding: 8px 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--input-color); border-radius: 6px; box-sizing: border-box; font-size: 12px; outline: none; resize: vertical; font-family: inherit;"></textarea>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label for="settings-yt-prompt" style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 6px;">AI Summary Prompt (YouTube Videos):</label>
+                <textarea id="settings-yt-prompt" rows="3" placeholder="Default prompt..." style="width: 100%; padding: 8px 10px; background: var(--input-bg); border: 1px solid var(--border-color); color: var(--input-color); border-radius: 6px; box-sizing: border-box; font-size: 12px; outline: none; resize: vertical; font-family: inherit;"></textarea>
+            </div>
+            
+            <!-- Rules Engine Section -->
+            <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                <label style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 10px; font-weight: bold;">Article Filtering Rules (Rules Engine):</label>
+                <div id="settings-rules-list" style="margin-bottom: 15px; font-size: 12px;"></div>
+                
+                <div style="background: var(--input-bg); padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 12px;">
+                    <div style="font-weight: bold; margin-bottom: 8px;">Add New Rule:</div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <span>IF field</span>
+                            <select id="new-rule-field" style="padding: 4px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none; cursor: pointer;">
+                                <option value="title">Title</option>
+                                <option value="author">Author</option>
+                                <option value="desc">Description/Content</option>
+                            </select>
+                            <select id="new-rule-condition" style="padding: 4px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none; cursor: pointer;">
+                                <option value="contains">contains</option>
+                                <option value="not-contains">does not contain</option>
+                                <option value="equals">equals</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 6px; align-items: center; width: 100%;">
+                            <input type="text" id="new-rule-value" placeholder="Keyword (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone" style="flex: 1; padding: 6px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none;">
+                        </div>
+                        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: space-between;">
+                            <div>
+                                <span>THEN</span>
+                                <select id="new-rule-action" style="padding: 4px; font-size: 12px; background: var(--body-bg); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; outline: none; cursor: pointer;">
+                                    <option value="notify">Mark / Match</option>
+                                    <option value="markAsRead">Mark as read</option>
+                                    <option value="hide">Hide article</option>
+                                </select>
+                            </div>
+                            <button type="button" id="new-rule-add-btn" style="padding: 6px 12px; background: #ff9800; border: none; color: white; font-weight: bold; border-radius: 4px; cursor: pointer; font-size: 11px; width: auto; margin: 0;">Add Rule</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Backup & OPML Section -->
+            <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+                <label style="display: block; font-size: 13px; color: var(--text-color-darker); margin-bottom: 10px; font-weight: bold;">Feeds & Data Backup:</label>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                    <button type="button" id="export-opml-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Export OPML</button>
+                    <button type="button" id="import-opml-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Import OPML</button>
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" id="backup-json-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Backup All Data (JSON)</button>
+                    <button type="button" id="restore-json-btn" style="flex: 1; min-width: 120px; padding: 8px; font-size: 12px; background: var(--button-bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px; cursor: pointer;">Restore Backup (JSON)</button>
+                </div>
+            </div>
+
+            <button id="settings-save-btn" style="width: 100%; padding: 12px; background: #ff9800; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 14px;">Save Settings</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

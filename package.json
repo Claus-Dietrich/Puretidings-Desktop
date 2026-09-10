@@ -1,0 +1,14 @@
+{
+  "name": "puretidings-desktop",
+  "version": "1.0.0",
+  "description": "PureTidings - Standalone RSS & Content Reader Desktop Application",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.3.0"
+  }
+}
