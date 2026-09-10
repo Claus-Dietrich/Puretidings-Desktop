@@ -17,12 +17,41 @@
   <script src="theme-loader.js"></script>
 
   <style>
+    html {
+      background-color: var(--bg-color, #202124);
+      height: 100%;
+      overflow: hidden;
+    }
     body {
+      background-color: var(--bg-color, #202124);
+      color: var(--text-color, #e8eaed);
       margin: 0;
       padding: 0;
       overflow: hidden;
       height: 100vh;
+      width: 100vw;
       user-select: none;
+    }
+    .sidebar-action-btn {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--button-bg-color, #3c4043);
+      color: var(--text-color, #e8eaed);
+      border: 1px solid var(--border-color, #3c4043);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .sidebar-action-btn:hover {
+      background: var(--hover-bg, #383a3d);
+      border-color: var(--link-color, #0066cc);
     }
     .desktop-modal-overlay {
       position: fixed;
@@ -92,6 +121,13 @@
   <div class="page-layout">
     <aside class="sidebar">
       <h1 class="sidebar-title">PureTidings</h1>
+      
+      <!-- Quick Action Buttons for Subscription & Summaries -->
+      <div style="margin-bottom: 15px;">
+        <button id="btn-quick-add-feed" class="sidebar-action-btn" title="Subscribe to any website or feed">➕ Add / Subscribe Feed</button>
+        <button id="btn-quick-summarize" class="sidebar-action-btn" title="Summarize any web page or video with AI">🤖 AI Summarize URL</button>
+      </div>
+
       <nav class="sidebar-nav">
         <ul>
           <li><a href="#" id="nav-all" class="active">All Posts</a></li>
@@ -152,7 +188,7 @@
       </header>
       <main id="main-area" style="padding: 0;">
         <div id="ai-report-container" class="hidden" style="margin-bottom: 20px; padding: 20px; background: var(--hover-bg, #eee); border-radius: 8px; border: 1px solid var(--border-color);">
-            <div class="ai-report-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+            <div class="ai-report-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: gap; gap: 10px;">
                 <h3 style="margin: 0;">AI Generated Report</h3>
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <select id="export-ai-format" title="Export Format" style="padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
@@ -184,6 +220,43 @@
             <!-- Feed sections inserted here via feedpage.js -->
         </div>
       </main>
+    </div>
+  </div>
+
+  <!-- Quick Add Feed Modal Overlay -->
+  <div id="quick-add-modal" class="desktop-modal-overlay">
+    <div class="desktop-modal-card container" style="position: relative; max-width: 540px; width: 100%; padding: 25px;">
+      <button id="quick-add-modal-close" class="modal-close-btn" title="Close">&times;</button>
+      <h2 style="margin-top: 0; color: var(--link-color, #0066cc);">➕ Add / Subscribe Feed</h2>
+      <p style="font-size: 13px; color: var(--secondary-text-color, #777); margin-bottom: 15px; line-height: 1.4;">
+        Enter any website URL (e.g. <code>techcrunch.com</code>), YouTube channel, or RSS feed link. PureTidings will automatically discover the feed and subscribe.
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <input type="url" id="quick-feed-url-input" placeholder="https://example.com or RSS URL" style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <select id="quick-feed-folder-select" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 13px; outline: none;">
+            <option value="">Root (No Folder)</option>
+          </select>
+          <button type="button" id="quick-feed-submit-btn" style="padding: 10px 20px; background: #007bff; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;">Subscribe</button>
+        </div>
+        <p id="quick-feed-status" style="font-size: 12px; margin: 5px 0 0 0; color: var(--link-color); font-weight: bold;"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick AI Summarize Modal Overlay -->
+  <div id="quick-summarize-modal" class="desktop-modal-overlay">
+    <div class="desktop-modal-card container" style="position: relative; max-width: 540px; width: 100%; padding: 25px;">
+      <button id="quick-summarize-modal-close" class="modal-close-btn" title="Close">&times;</button>
+      <h2 style="margin-top: 0; color: #8ab4f8;">🤖 AI Summarize Page or Video</h2>
+      <p style="font-size: 13px; color: var(--secondary-text-color, #777); margin-bottom: 15px; line-height: 1.4;">
+        Paste any article link or YouTube video URL. PureTidings will extract the full content or transcript and generate an instant AI summary.
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <input type="url" id="quick-summarize-url-input" placeholder="https://... (article or YouTube video)" style="padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+        <button type="button" id="quick-summarize-submit-btn" style="padding: 10px 20px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;">Generate AI Summary</button>
+        <p id="quick-summarize-status" style="font-size: 12px; margin: 5px 0 0 0; color: var(--link-color); font-weight: bold;"></p>
+      </div>
     </div>
   </div>
 
@@ -305,6 +378,10 @@
             </div>
           </div>
         </div>
+
+        <!-- Hidden File Inputs safely inside #tab-backup -->
+        <input type="file" id="input-opml-file" accept=".opml,.xml" style="display: none !important;">
+        <input type="file" id="input-json-file" accept=".json" style="display: none !important;">
       </div>
 
       <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 15px; display: flex; justify-content: flex-end;">
@@ -312,10 +389,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Hidden File Inputs for OPML/JSON -->
-  <input type="file" id="input-opml-file" accept=".opml,.xml" style="display: none;">
-  <input type="file" id="input-json-file" accept=".json" style="display: none;">
 
   <!-- Reader Mode Modal Overlay -->
   <div id="reader-modal" class="desktop-modal-overlay">

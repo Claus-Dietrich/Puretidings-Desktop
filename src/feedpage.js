@@ -80,6 +80,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     summaryLinksSet = new Set(storageData.summaryLinks || []);
     unreadCounts = storageData.unreadCounts || {};
 
+    // Expand configured feeds by default on initial launch
+    if (expandedFeeds.size === 0 && currentFeedTree.length > 0) {
+      function expandNodes(nodes) {
+        nodes.forEach(n => {
+          if (n.type === 'feed') expandedFeeds.add(n.id);
+          else if (n.type === 'folder' && n.children) expandNodes(n.children);
+        });
+      }
+      expandNodes(currentFeedTree);
+    }
+
     // NEW: Re-apply rules to existing posts so new rules work immediately
     const rules = syncData.rules || [];
     if (rules.length > 0) {
@@ -437,16 +448,28 @@ function renderTreeView(postsByFeed) {
   container.innerHTML = ''; 
 
   const hasAnyPosts = Object.keys(postsByFeed).length > 0;
-  if (currentFeedTree.length === 0 || !hasAnyPosts) {
-    emptyMessage.textContent = currentViewMode === 'unread' ? "No unread posts." : "No feeds configured or no posts found matching your filters.";
+  if (!currentFeedTree || currentFeedTree.length === 0) {
+    emptyMessage.textContent = "No feeds configured yet. Click [+ Add Feed] to get started.";
     emptyMessage.classList.remove('hidden');
     return;
   }
+
+  const hasAnyPosts = Object.keys(postsByFeed).length > 0;
+  if (currentViewMode === 'unread' && !hasAnyPosts) {
+    emptyMessage.textContent = "No unread posts.";
+    emptyMessage.classList.remove('hidden');
+    return;
+  }
+
+  emptyMessage.classList.add('hidden');
 
   const treeContainer = document.createElement('ul');
   treeContainer.className = 'tree-container';
 
   function hasVisibleChildren(folderNode) {
+    if (currentViewMode === 'all') {
+      return folderNode.children && folderNode.children.length > 0;
+    }
     return folderNode.children.some(child => {
       if (child.type === 'feed') {
         return postsByFeed[child.id] && postsByFeed[child.id].length > 0;
@@ -489,8 +512,12 @@ function renderTreeView(postsByFeed) {
         parentUl.appendChild(li);
         renderNodes(node.children, ul, level + 1);
       
-      } else if (node.type === 'feed' && postsByFeed[node.id] && postsByFeed[node.id].length > 0) {
-        const posts = postsByFeed[node.id];
+      } else if (node.type === 'feed') {
+        const posts = postsByFeed[node.id] || [];
+        if (currentViewMode === 'unread' && posts.length === 0) {
+          return; // Skip empty feeds in unread mode
+        }
+
         const feedUnreadCount = unreadCounts[node.id] || 0;
         const feedCountSpan = feedUnreadCount > 0 ? `<span class="unread-count">${feedUnreadCount}</span>` : '';
         const faviconUrl = getFaviconUrl(node.url);
@@ -508,14 +535,21 @@ function renderTreeView(postsByFeed) {
         const postUl = document.createElement('ul');
         if (!isExpanded) postUl.classList.add('hidden');
 
-        posts.filter(p => !p.isHidden).forEach(post => {
-          const postLi = createPostListItem(post);
-          postUl.appendChild(postLi);
-        });
-        
-        if (postUl.children.length > 0) {
-          li.appendChild(postUl);
+        if (posts.length > 0) {
+          posts.filter(p => !p.isHidden).forEach(post => {
+            const postLi = createPostListItem(post);
+            postUl.appendChild(postLi);
+          });
+        } else if (isExpanded) {
+          const emptyLi = document.createElement('li');
+          emptyLi.style.padding = '8px 15px';
+          emptyLi.style.fontStyle = 'italic';
+          emptyLi.style.color = 'var(--secondary-text-color)';
+          emptyLi.textContent = 'No articles found or fetching...';
+          postUl.appendChild(emptyLi);
         }
+        
+        li.appendChild(postUl);
         parentUl.appendChild(li);
       }
     });

@@ -3,7 +3,40 @@
     console.log("[PureTidings Desktop] Initializing Desktop Native Engine...");
 
     // ==========================================
-    // 1. Browser-like Zoom (Ctrl + Wheel & Ctrl +/-/0)
+    // 1. Unified Tauri IPC Helper
+    // ==========================================
+    async function tauriInvoke(cmd, args = {}) {
+        if (window.__TAURI__?.core?.invoke) {
+            return window.__TAURI__.core.invoke(cmd, args);
+        }
+        if (window.__TAURI__?.invoke) {
+            return window.__TAURI__.invoke(cmd, args);
+        }
+        // Poll briefly if Tauri webview is still initializing
+        for (let i = 0; i < 25; i++) {
+            await new Promise(r => setTimeout(r, 40));
+            if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke(cmd, args);
+            if (window.__TAURI__?.invoke) return window.__TAURI__.invoke(cmd, args);
+        }
+        if (cmd === 'fetch_url') {
+            const res = await fetch(args.url);
+            return res.text();
+        }
+        throw new Error("Tauri IPC invoke not found for " + cmd);
+    }
+    window.tauriInvoke = tauriInvoke;
+
+    async function tauriOpenBrowser(url) {
+        try {
+            await tauriInvoke('open_browser', { url });
+        } catch (e) {
+            window.open(url, '_blank');
+        }
+    }
+    window.tauriOpenBrowser = tauriOpenBrowser;
+
+    // ==========================================
+    // 2. Browser-like Zoom (Ctrl + Wheel & Ctrl +/-/0)
     // ==========================================
     let currentZoom = parseFloat(localStorage.getItem('puretidings_zoom') || '1.0');
     function applyDesktopZoom(zoom) {
@@ -36,13 +69,32 @@
                 applyDesktopZoom(1.0);
             }
         } else if (e.key === 'Escape') {
-            closeSettingsModal();
-            closeReaderModal();
+            closeAllModals();
         }
     });
 
     // ==========================================
-    // 2. Storage Shim (Local & Sync)
+    // 3. Global Theme Management
+    // ==========================================
+    function applyDesktopTheme(isDark) {
+        if (isDark) {
+            document.documentElement.classList.add('dark-mode');
+            if (document.body) document.body.classList.add('dark-mode');
+        } else {
+            document.documentElement.classList.remove('dark-mode');
+            if (document.body) document.body.classList.remove('dark-mode');
+        }
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        if (themeBtn) {
+            themeBtn.textContent = isDark ? '🌙' : '☀️';
+            themeBtn.title = isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+        }
+        setSyncItem('darkMode', isDark);
+    }
+    window.applyDesktopTheme = applyDesktopTheme;
+
+    // ==========================================
+    // 4. Storage Shim (Local & Sync)
     // ==========================================
     const DEFAULT_FEED_TREE = [
         {
@@ -158,6 +210,9 @@
                             const oldVal = getSyncItem(k);
                             setSyncItem(k, items[k]);
                             changes[k] = { oldValue: oldVal, newValue: items[k] };
+                            if (k === 'darkMode') {
+                                applyDesktopTheme(items[k]);
+                            }
                         }
                         storageListeners.forEach(fn => fn(changes, 'sync'));
                         resolve();
@@ -189,7 +244,7 @@
                 }
                 if (msg.action === 'fetchArticle' && msg.url) {
                     try {
-                        const html = await window.__TAURI__.core.invoke('fetch_url', { url: msg.url });
+                        const html = await tauriInvoke('fetch_url', { url: msg.url });
                         return { status: 'ok', html };
                     } catch (e) {
                         return { status: 'error', message: e.toString() };
@@ -202,7 +257,7 @@
                             context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } },
                             videoId: msg.videoId
                         });
-                        const dataStr = await window.__TAURI__.core.invoke('post_url', {
+                        const dataStr = await tauriInvoke('post_url', {
                             url: innerTubeUrl,
                             body,
                             userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
@@ -211,7 +266,7 @@
                         const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
                         if (tracks && tracks.length > 0) {
                             const track = tracks.find(t => t.languageCode === 'en' || t.languageCode === 'de') || tracks[0];
-                            const transcriptXml = await window.__TAURI__.core.invoke('fetch_url', { url: track.baseUrl });
+                            const transcriptXml = await tauriInvoke('fetch_url', { url: track.baseUrl });
                             return { status: 'ok', xml: transcriptXml };
                         }
                         return { status: 'error', message: 'No transcript tracks found.' };
@@ -243,16 +298,14 @@
                         fullContentHtmlText: params.get('fullContentHtmlText') || ''
                     });
                 } else {
-                    window.__TAURI__.core.invoke('open_browser', { url: opts.url }).catch(() => {
-                        window.open(opts.url, '_blank');
-                    });
+                    tauriOpenBrowser(opts.url);
                 }
             }
         }
     };
 
     // ==========================================
-    // 3. Native Feed Fetcher & Parser
+    // 5. Native Feed Fetcher & Parser
     // ==========================================
     function parseFeedXml(xmlString, feed) {
         if (!xmlString || typeof xmlString !== 'string') return [];
@@ -286,9 +339,17 @@
 
             let title = getText("title") || "Untitled";
             let link = "";
-            const linkEl = item.querySelector("link") || item.getElementsByTagName("link")[0];
-            if (linkEl) {
-                link = linkEl.getAttribute("href") || linkEl.textContent.trim() || "";
+            const links = item.getElementsByTagName("link");
+            for (let j = 0; j < links.length; j++) {
+                const l = links[j];
+                const rel = l.getAttribute("rel");
+                if (!rel || rel === "alternate") {
+                    link = l.getAttribute("href") || l.textContent.trim() || "";
+                    if (link) break;
+                }
+            }
+            if (!link && links.length > 0) {
+                link = links[0].getAttribute("href") || links[0].textContent.trim() || "";
             }
             if (!link && item.getElementsByTagName("id")[0]) {
                 link = item.getElementsByTagName("id")[0].textContent.trim();
@@ -309,7 +370,7 @@
             let author = getText("author") || getText("dc:creator") || feed.name;
             let featuredImage = null;
 
-            // Thumbnail extraction
+            // Thumbnail extraction via namespaced tags
             const mediaThumb = item.getElementsByTagName("media:thumbnail");
             if (mediaThumb.length > 0) featuredImage = mediaThumb[0].getAttribute("url");
 
@@ -376,9 +437,10 @@
             const newAllPosts = { ...allPosts };
             const unreadCounts = {};
 
+            // Fetch feeds incrementally so posts appear immediately as each finishes
             await Promise.all(feeds.map(async (feed) => {
                 try {
-                    const xml = await window.__TAURI__.core.invoke('fetch_url', { url: feed.url });
+                    const xml = await tauriInvoke('fetch_url', { url: feed.url });
                     const posts = parseFeedXml(xml, feed);
                     if (posts && posts.length > 0) {
                         posts.forEach(p => {
@@ -387,21 +449,30 @@
                             }
                         });
                         newAllPosts[feed.id] = posts;
+
+                        let count = 0;
+                        posts.forEach(p => {
+                            if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                        });
+                        unreadCounts[feed.id] = count;
+
+                        // Save incrementally to render in UI
+                        await chrome.storage.local.set({
+                            allPosts: { ...newAllPosts },
+                            unreadCounts: { ...unreadCounts }
+                        });
                     }
                 } catch (err) {
-                    console.warn(`[PureTidings Desktop] Error fetching ${feed.name}:`, err);
+                    console.warn(`[PureTidings Desktop] Error fetching ${feed.name} (${feed.url}):`, err);
                 }
             }));
 
-            for (const feedId in newAllPosts) {
-                const posts = newAllPosts[feedId] || [];
-                let count = 0;
-                posts.forEach(p => {
-                    if (!p.isHidden && !readLinksSet.has(p.link)) count++;
-                });
-                unreadCounts[feedId] = count;
+            // Final sync
+            for (const feed of feeds) {
+                if (unreadCounts[feed.id] === undefined) {
+                    unreadCounts[feed.id] = 0;
+                }
             }
-
             await chrome.storage.local.set({
                 allPosts: newAllPosts,
                 unreadCounts: unreadCounts
@@ -414,13 +485,214 @@
             if (refreshBtn) refreshBtn.classList.remove('spinning');
         }
     }
-
     window.refreshAllFeedsNative = refreshAllFeedsNative;
 
     // ==========================================
-    // 4. Modal Controllers (Settings & Reader)
+    // 6. Gemini AI Helper
     // ==========================================
+    async function callGeminiApi(apiKey, systemPrompt, userContent) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const body = JSON.stringify({
+            contents: [
+                {
+                    parts: [
+                        { text: `${systemPrompt}\n\nContent:\n${userContent.substring(0, 30000)}` }
+                    ]
+                }
+            ]
+        });
+        const res = await tauriInvoke('post_url', { url, body, user_agent: null });
+        const data = JSON.parse(res);
+        return data?.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
+    }
+
+    // ==========================================
+    // 7. Feed Discovery & Subscription (Question 4)
+    // ==========================================
+    async function discoverAndSubscribeFeed(inputUrl, targetFolderId = '') {
+        let cleanUrl = inputUrl.trim();
+        if (!cleanUrl) return null;
+        if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+            cleanUrl = 'https://' + cleanUrl;
+        }
+
+        let feedUrl = cleanUrl;
+        let feedName = '';
+
+        // Check if YouTube
+        const ytChannelMatch = cleanUrl.match(/youtube\.com\/channel\/([a-zA-Z0-9_-]+)/);
+        const ytCustomMatch = cleanUrl.match(/youtube\.com\/@([a-zA-Z0-9_-]+)/);
+        const ytVideoMatch = cleanUrl.match(/(?:v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+
+        if (ytChannelMatch) {
+            feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ytChannelMatch[1]}`;
+            feedName = `YouTube Channel`;
+        } else if (ytCustomMatch || ytVideoMatch) {
+            try {
+                const pageHtml = await tauriInvoke('fetch_url', { url: cleanUrl });
+                const rssMatch = pageHtml.match(/https:\/\/www\.youtube\.com\/feeds\/videos\.xml\?channel_id=([a-zA-Z0-9_-]+)/);
+                if (rssMatch) {
+                    feedUrl = rssMatch[0];
+                }
+                const titleMatch = pageHtml.match(/<title>([^<]+)<\/title>/i);
+                if (titleMatch) feedName = titleMatch[1].replace(' - YouTube', '').trim();
+            } catch (e) {
+                console.warn("YouTube discovery error:", e);
+            }
+        } else if (!cleanUrl.endsWith('.xml') && !cleanUrl.endsWith('.rss') && !cleanUrl.includes('/feed') && !cleanUrl.includes('/rss')) {
+            // General website: fetch HTML and search for <link rel="alternate" type="application/rss+xml">
+            try {
+                const pageHtml = await tauriInvoke('fetch_url', { url: cleanUrl });
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(pageHtml, "text/html");
+                const feedLink = doc.querySelector('link[type="application/rss+xml"], link[type="application/atom+xml"]');
+                if (feedLink && feedLink.getAttribute('href')) {
+                    const href = feedLink.getAttribute('href');
+                    feedUrl = new URL(href, cleanUrl).toString();
+                }
+                const titleEl = doc.querySelector('title');
+                if (titleEl) feedName = titleEl.textContent.trim();
+            } catch (e) {
+                console.warn("HTML feed discovery error:", e);
+            }
+        }
+
+        if (!feedName) {
+            try {
+                const u = new URL(cleanUrl);
+                feedName = u.hostname.replace(/^www\./, '');
+            } catch (e) {
+                feedName = cleanUrl;
+            }
+        }
+
+        const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+        const newFeed = {
+            id: 'feed-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+            name: feedName,
+            url: feedUrl,
+            type: 'feed',
+            fetchOgImage: true
+        };
+
+        if (targetFolderId) {
+            function addToFolder(nodes) {
+                for (const n of nodes) {
+                    if (n.id === targetFolderId && n.type === 'folder') {
+                        if (!n.children) n.children = [];
+                        n.children.push(newFeed);
+                        return true;
+                    }
+                    if (n.children && addToFolder(n.children)) return true;
+                }
+                return false;
+            }
+            addToFolder(feedTree);
+        } else {
+            feedTree.push(newFeed);
+        }
+
+        await chrome.storage.local.set({ feedTree });
+        refreshAllFeedsNative();
+        return { name: feedName, url: feedUrl };
+    }
+    window.discoverAndSubscribeFeed = discoverAndSubscribeFeed;
+
+    // ==========================================
+    // 8. AI URL Summarizer (Question 5)
+    // ==========================================
+    async function summarizeAnyUrl(inputUrl) {
+        const cleanUrl = inputUrl.trim();
+        if (!cleanUrl) return;
+
+        openReaderModal({
+            url: cleanUrl,
+            title: 'Analyzing: ' + cleanUrl,
+            description: '<p>Fetching content and preparing AI summary...</p>',
+            source: 'Direct URL'
+        });
+
+        const isYt = cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be');
+        const ytMatch = cleanUrl.match(/(?:v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+
+        if (isYt && ytMatch) {
+            const videoId = ytMatch[1];
+            try {
+                const res = await chrome.runtime.sendMessage({ action: 'fetchYoutubeTranscript', videoId });
+                let transcriptText = "";
+                if (res && res.xml) {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(res.xml, "text/xml");
+                    const texts = doc.getElementsByTagName("text");
+                    for (let i = 0; i < texts.length; i++) {
+                        transcriptText += texts[i].textContent + " ";
+                    }
+                }
+                const { geminiApiKey, youtubeAiPrompt } = await chrome.storage.sync.get(['geminiApiKey', 'youtubeAiPrompt']);
+                if (!geminiApiKey) {
+                    alert("Please set your Google Gemini API Key in Settings first to generate AI summaries.");
+                    return;
+                }
+                const prompt = youtubeAiPrompt || "Create a comprehensive and well-structured summary of this YouTube video with key takeaways and bullet points.";
+                const aiResult = await callGeminiApi(geminiApiKey, prompt, transcriptText || "No transcript available for video " + cleanUrl);
+                
+                openReaderModal({
+                    url: cleanUrl,
+                    title: 'YouTube Video AI Summary',
+                    description: `<div style="background:var(--hover-bg); padding:16px; border-radius:8px; margin-bottom:20px;"><h3 style="margin-top:0;">🤖 AI Video Summary</h3><div style="white-space:pre-wrap; line-height:1.6;">${escapeHTML(aiResult)}</div></div>`,
+                    source: 'YouTube Video'
+                });
+            } catch (err) {
+                alert("Failed to summarize video: " + err.message);
+            }
+        } else {
+            // General Web Article
+            try {
+                const html = await tauriInvoke('fetch_url', { url: cleanUrl });
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, "text/html");
+                const reader = new Readability(doc);
+                const article = reader.parse();
+                const contentText = article ? article.textContent : html.substring(0, 15000);
+                const title = article ? article.title : cleanUrl;
+
+                const { geminiApiKey, aiReportPrompt } = await chrome.storage.sync.get(['geminiApiKey', 'aiReportPrompt']);
+                if (!geminiApiKey) {
+                    alert("Please set your Google Gemini API Key in Settings first to generate AI summaries.");
+                    return;
+                }
+                const prompt = aiReportPrompt || "Create a concise, insightful summary of this article highlighting the core facts and takeaways.";
+                const aiResult = await callGeminiApi(geminiApiKey, prompt, contentText);
+
+                openReaderModal({
+                    url: cleanUrl,
+                    title: title,
+                    featuredImage: '',
+                    description: `<div style="background:var(--hover-bg); padding:16px; border-radius:8px; margin-bottom:20px;"><h3 style="margin-top:0;">🤖 AI Article Summary</h3><div style="white-space:pre-wrap; line-height:1.6;">${escapeHTML(aiResult)}</div></div><hr><h3 style="margin-top:20px;">Full Article Content</h3>` + (article ? article.content : '<p>Original text extracted.</p>'),
+                    source: new URL(cleanUrl).hostname
+                });
+            } catch (err) {
+                alert("Failed to summarize URL: " + err.message);
+            }
+        }
+    }
+    window.summarizeAnyUrl = summarizeAnyUrl;
+
+    // ==========================================
+    // 9. Modal Management (Settings, Reader, Quick Add, Summarize)
+    // ==========================================
+    function closeAllModals() {
+        ['settings-modal', 'reader-modal', 'quick-add-modal', 'quick-summarize-modal'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+        const videoEl = document.getElementById('reader-video-info');
+        if (videoEl) videoEl.innerHTML = '';
+    }
+    window.closeAllModals = closeAllModals;
+
     function openSettingsModal() {
+        closeAllModals();
         const modal = document.getElementById('settings-modal');
         if (!modal) return;
         modal.style.display = 'flex';
@@ -429,8 +701,7 @@
 
     function closeSettingsModal() {
         const modal = document.getElementById('settings-modal');
-        if (!modal) return;
-        modal.style.display = 'none';
+        if (modal) modal.style.display = 'none';
     }
 
     window.openSettingsModal = openSettingsModal;
@@ -486,11 +757,13 @@
     async function renderSettingsFeeds() {
         const list = document.getElementById('settings-feed-list');
         const folderSelect = document.getElementById('new-feed-folder');
-        if (!list || !folderSelect) return;
+        const quickFolderSelect = document.getElementById('quick-feed-folder-select');
+        if (!list) return;
 
         const { feedTree = [] } = await chrome.storage.local.get('feedTree');
         list.innerHTML = '';
-        folderSelect.innerHTML = '<option value="">Root (No Folder)</option>';
+        if (folderSelect) folderSelect.innerHTML = '<option value="">Root (No Folder)</option>';
+        if (quickFolderSelect) quickFolderSelect.innerHTML = '<option value="">Root (No Folder)</option>';
 
         const folders = [];
         function scan(nodes, path = '') {
@@ -505,10 +778,18 @@
         scan(feedTree);
 
         folders.forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f.id;
-            opt.textContent = f.name;
-            folderSelect.appendChild(opt);
+            if (folderSelect) {
+                const opt = document.createElement('option');
+                opt.value = f.id;
+                opt.textContent = f.name;
+                folderSelect.appendChild(opt);
+            }
+            if (quickFolderSelect) {
+                const opt2 = document.createElement('option');
+                opt2.value = f.id;
+                opt2.textContent = f.name;
+                quickFolderSelect.appendChild(opt2);
+            }
         });
 
         function renderList(nodes, parentEl, level = 0) {
@@ -524,7 +805,7 @@
                 const isFolder = node.type === 'folder';
                 li.innerHTML = `
                     <span>${isFolder ? '📁 ' : '📄 '}<strong>${node.name}</strong> ${node.url ? `<small style="color:var(--text-color-darker); margin-left:8px;">(${node.url})</small>` : ''}</span>
-                    <button class="node-del-btn" data-id="${node.id}" style="background:transparent; border:none; color:#d93025; cursor:pointer; font-weight:bold;">&times;</button>
+                    <button class="node-del-btn" data-id="${node.id}" style="background:transparent; border:none; color:#d93025; cursor:pointer; font-weight:bold; font-size:18px;">&times;</button>
                 `;
                 parentEl.appendChild(li);
 
@@ -558,9 +839,10 @@
 
     // Reader Mode Controller
     async function openReaderModal(data) {
+        closeAllModals();
         const modal = document.getElementById('reader-modal');
         if (!modal) return;
-        modal.style.display = 'block';
+        modal.style.display = 'flex';
 
         const titleEl = document.getElementById('reader-title');
         const bylineEl = document.getElementById('reader-byline');
@@ -571,7 +853,7 @@
         const contentEl = document.getElementById('reader-content');
 
         if (titleEl) titleEl.textContent = data.title || 'Untitled Article';
-        if (bylineEl) bylineEl.textContent = `${data.source ? data.source + ' | ' : ''}${data.author ? data.author + ' | ' : ''}Original: ${data.url}`;
+        if (bylineEl) bylineEl.textContent = `${data.source ? data.source + ' | ' : ''}${data.author ? data.author + ' | ' : ''}Link: ${data.url}`;
         
         if (thumbEl) {
             if (data.featuredImage) {
@@ -603,11 +885,15 @@
                 bodyEl.innerHTML = data.fullContentHtmlText;
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
+            } else if (data.description && (data.description.includes('🤖') || data.description.includes('<h3>'))) {
+                bodyEl.innerHTML = data.description;
+                if (loadingEl) loadingEl.classList.add('hidden');
+                if (contentEl) contentEl.classList.remove('hidden');
             } else if (data.url && !data.url.includes('youtube.com')) {
                 if (loadingEl) loadingEl.classList.remove('hidden');
                 if (contentEl) contentEl.classList.add('hidden');
                 try {
-                    const html = await window.__TAURI__.core.invoke('fetch_url', { url: data.url });
+                    const html = await tauriInvoke('fetch_url', { url: data.url });
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(html, "text/html");
                     const reader = new Readability(doc);
@@ -629,8 +915,7 @@
 
     function closeReaderModal() {
         const modal = document.getElementById('reader-modal');
-        if (!modal) return;
-        modal.style.display = 'none';
+        if (modal) modal.style.display = 'none';
         const videoEl = document.getElementById('reader-video-info');
         if (videoEl) videoEl.innerHTML = '';
     }
@@ -639,12 +924,25 @@
     window.closeReaderModal = closeReaderModal;
 
     // ==========================================
-    // 5. DOM Initialization & Event Setup
+    // 10. DOM Initialization & Event Wiring
     // ==========================================
     document.addEventListener('DOMContentLoaded', () => {
         applyDesktopZoom(currentZoom);
+        
+        // Initialize Theme from sync
+        const isDark = getSyncItem('darkMode', true);
+        applyDesktopTheme(isDark);
 
-        // Sidebar settings & refresh buttons
+        // Sidebar actions
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const isCurrentlyDark = document.documentElement.classList.contains('dark-mode') || document.body.classList.contains('dark-mode');
+                applyDesktopTheme(!isCurrentlyDark);
+            });
+        }
+
         const settingsBtn = document.getElementById('sidebar-settings-btn');
         if (settingsBtn) {
             settingsBtn.addEventListener('click', (e) => {
@@ -661,11 +959,82 @@
             });
         }
 
-        const themeBtn = document.getElementById('theme-toggle-btn');
-        if (themeBtn) {
-            themeBtn.addEventListener('click', async () => {
-                const isDark = document.body.classList.toggle('dark-mode');
-                await chrome.storage.sync.set({ darkMode: isDark });
+        // Quick Add Feed button & modal
+        const quickAddBtn = document.getElementById('btn-quick-add-feed');
+        const quickAddModal = document.getElementById('quick-add-modal');
+        const quickAddClose = document.getElementById('quick-add-modal-close');
+        const quickAddSubmit = document.getElementById('quick-feed-submit-btn');
+        const quickAddInput = document.getElementById('quick-feed-url-input');
+        const quickAddStatus = document.getElementById('quick-feed-status');
+
+        if (quickAddBtn && quickAddModal) {
+            quickAddBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                closeAllModals();
+                quickAddModal.style.display = 'flex';
+                renderSettingsFeeds();
+                if (quickAddInput) { quickAddInput.value = ''; quickAddInput.focus(); }
+                if (quickAddStatus) quickAddStatus.textContent = '';
+            });
+        }
+
+        if (quickAddClose) {
+            quickAddClose.addEventListener('click', () => {
+                if (quickAddModal) quickAddModal.style.display = 'none';
+            });
+        }
+
+        if (quickAddSubmit) {
+            quickAddSubmit.addEventListener('click', async () => {
+                const val = quickAddInput?.value?.trim() || '';
+                if (!val) return;
+                const folderId = document.getElementById('quick-feed-folder-select')?.value || '';
+                if (quickAddStatus) quickAddStatus.textContent = "Discovering feed and subscribing...";
+                quickAddSubmit.disabled = true;
+                try {
+                    const res = await discoverAndSubscribeFeed(val, folderId);
+                    if (res) {
+                        if (quickAddStatus) quickAddStatus.textContent = `Subscribed to "${res.name}"!`;
+                        setTimeout(() => {
+                            if (quickAddModal) quickAddModal.style.display = 'none';
+                            quickAddSubmit.disabled = false;
+                        }, 1200);
+                    }
+                } catch (err) {
+                    if (quickAddStatus) quickAddStatus.textContent = "Error: " + err.message;
+                    quickAddSubmit.disabled = false;
+                }
+            });
+        }
+
+        // Quick AI Summarize button & modal
+        const quickSumBtn = document.getElementById('btn-quick-summarize');
+        const quickSumModal = document.getElementById('quick-summarize-modal');
+        const quickSumClose = document.getElementById('quick-summarize-modal-close');
+        const quickSumSubmit = document.getElementById('quick-summarize-submit-btn');
+        const quickSumInput = document.getElementById('quick-summarize-url-input');
+
+        if (quickSumBtn && quickSumModal) {
+            quickSumBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                closeAllModals();
+                quickSumModal.style.display = 'flex';
+                if (quickSumInput) { quickSumInput.value = ''; quickSumInput.focus(); }
+            });
+        }
+
+        if (quickSumClose) {
+            quickSumClose.addEventListener('click', () => {
+                if (quickSumModal) quickSumModal.style.display = 'none';
+            });
+        }
+
+        if (quickSumSubmit) {
+            quickSumSubmit.addEventListener('click', async () => {
+                const val = quickSumInput?.value?.trim() || '';
+                if (!val) return;
+                quickSumModal.style.display = 'none';
+                summarizeAnyUrl(val);
             });
         }
 
@@ -723,7 +1092,7 @@
             });
         }
 
-        // Add Feed Form
+        // Add Feed Form in Settings
         const addFeedBtn = document.getElementById('btn-add-feed');
         if (addFeedBtn) {
             addFeedBtn.addEventListener('click', async () => {
@@ -892,6 +1261,6 @@
         // Initial background fetch
         setTimeout(() => {
             refreshAllFeedsNative();
-        }, 800);
+        }, 500);
     });
 })();
