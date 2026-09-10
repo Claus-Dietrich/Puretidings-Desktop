@@ -47,11 +47,8 @@
         currentZoom = Math.min(Math.max(zoom, 0.5), 2.5);
         currentZoom = Math.round(currentZoom * 100) / 100;
         document.documentElement.style.zoom = currentZoom;
-
-        // Ensure html and body expand to cover 100% of physical window
-        const invPercent = (100 / currentZoom) + '%';
-        document.documentElement.style.width = invPercent;
-        document.documentElement.style.height = invPercent;
+        document.documentElement.style.width = '100%';
+        document.documentElement.style.height = '100%';
 
         if (document.body) {
             document.body.style.width = '100%';

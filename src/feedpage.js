@@ -57,9 +57,13 @@ let reportObserver = null;
 const fetchQueue = [];
 let isFetching = false;
 
-// UI State preservation
+// UI State preservation (persisted so manually opened/collapsed state is kept)
 let expandedFeeds = new Set();
 let collapsedFolders = new Set();
+try {
+  expandedFeeds = new Set(JSON.parse(localStorage.getItem('puretidings_expanded_feeds') || '[]'));
+  collapsedFolders = new Set(JSON.parse(localStorage.getItem('puretidings_collapsed_folders') || '[]'));
+} catch (_) {}
 
 /**
  * Initializes the page on load
@@ -79,17 +83,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     favoritedLinksSet = new Set(storageData.favoritedLinks || []);
     summaryLinksSet = new Set(storageData.summaryLinks || []);
     unreadCounts = storageData.unreadCounts || {};
-
-    // Expand configured feeds by default on initial launch
-    if (expandedFeeds.size === 0 && currentFeedTree.length > 0) {
-      function expandNodes(nodes) {
-        nodes.forEach(n => {
-          if (n.type === 'feed') expandedFeeds.add(n.id);
-          else if (n.type === 'folder' && n.children) expandNodes(n.children);
-        });
-      }
-      expandNodes(currentFeedTree);
-    }
 
     // NEW: Re-apply rules to existing posts so new rules work immediately
     const rules = syncData.rules || [];
@@ -1034,6 +1027,7 @@ function handleTreeToggle(event) {
     if (parentLi.classList.contains('folder-item')) {
         if (isNowHidden) collapsedFolders.add(nodeId);
         else collapsedFolders.delete(nodeId);
+        try { localStorage.setItem('puretidings_collapsed_folders', JSON.stringify(Array.from(collapsedFolders))); } catch (_) {}
     } else {
         if (isNowHidden) expandedFeeds.delete(nodeId);
         else {
@@ -1041,6 +1035,7 @@ function handleTreeToggle(event) {
             // Trigger background refetch of missing OG images when feed is expanded
             chrome.runtime.sendMessage({ action: "refetchOgImages", feedId: nodeId }).catch(() => {});
         }
+        try { localStorage.setItem('puretidings_expanded_feeds', JSON.stringify(Array.from(expandedFeeds))); } catch (_) {}
     }
   }
 }
