@@ -50,6 +50,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_LC_SYS_PREBUILT_NASM: "1"
         with:
           tagName: v__VERSION__
           releaseName: 'PureTidings Desktop v__VERSION__'
