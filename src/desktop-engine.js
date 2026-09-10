@@ -134,7 +134,7 @@
             children: [
                 { id: 'feed-theverge', name: 'The Verge', type: 'feed', url: 'https://www.theverge.com/rss/index.xml', fetchOgImage: true },
                 { id: 'feed-arstechnica', name: 'Ars Technica', type: 'feed', url: 'https://feeds.arstechnica.com/arstechnica/index', fetchOgImage: true },
-                { id: 'feed-mkbhd', name: 'MKBHD (YouTube)', type: 'feed', url: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduPZe6541G3gk22Q', fetchOgImage: true }
+                { id: 'feed-mkbhd', name: 'MKBHD (YouTube)', type: 'feed', url: 'https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ', fetchOgImage: true }
             ]
         }
     ];
@@ -354,7 +354,7 @@
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             const getText = (tag) => {
-                const el = item.querySelector(tag) || item.getElementsByTagName(tag)[0];
+                const el = item.getElementsByTagName(tag)[0];
                 return el ? el.textContent.trim() : "";
             };
 
@@ -376,7 +376,7 @@
                 link = item.getElementsByTagName("id")[0].textContent.trim();
             }
 
-            let dateRaw = getText("pubDate") || getText("pubdate") || getText("published") || getText("updated");
+            let dateRaw = getText("pubDate") || getText("pubdate") || getText("published") || getText("updated") || getText("dc:date");
             let date = new Date().toISOString();
             if (dateRaw) {
                 try {
@@ -392,6 +392,10 @@
                 const cnt = item.getElementsByTagName("content");
                 if (cnt.length > 0) description = cnt[0].textContent;
                 else description = getText("description") || getText("summary");
+            }
+            if (!description) {
+                const mediaDesc = item.getElementsByTagName("media:description");
+                if (mediaDesc.length > 0) description = mediaDesc[0].textContent;
             }
 
             let author = getText("author") || getText("dc:creator") || feed.name;
@@ -453,13 +457,24 @@
             const readLinksSet = new Set(readLinks || []);
 
             const feeds = [];
+            let feedTreeUpdated = false;
             function gather(nodes) {
                 for (const n of (nodes || [])) {
-                    if (n.type === 'feed') feeds.push(n);
-                    else if (n.type === 'folder' && n.children) gather(n.children);
+                    if (n.type === 'feed') {
+                        if (n.url && n.url.includes('UCBJycsmduPZe6541G3gk22Q')) {
+                            n.url = 'https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ';
+                            feedTreeUpdated = true;
+                        }
+                        feeds.push(n);
+                    } else if (n.type === 'folder' && n.children) {
+                        gather(n.children);
+                    }
                 }
             }
             gather(feedTree);
+            if (feedTreeUpdated) {
+                chrome.storage.local.set({ feedTree });
+            }
 
             const newAllPosts = { ...allPosts };
             const unreadCounts = {};
