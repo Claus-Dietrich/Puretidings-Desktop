@@ -27,13 +27,25 @@
     window.tauriInvoke = tauriInvoke;
 
     async function tauriOpenBrowser(url) {
+        if (!url || typeof url !== 'string') return;
         try {
             await tauriInvoke('open_browser', { url });
         } catch (e) {
-            window.open(url, '_blank');
+            console.warn("[PureTidings Desktop] open_browser IPC failed, falling back to window.open:", e);
+            const origOpen = window._nativeWindowOpen || window.open;
+            origOpen.call(window, url, '_blank');
         }
     }
     window.tauriOpenBrowser = tauriOpenBrowser;
+
+    // Route standard window.open through native desktop browser opener
+    if (!window._nativeWindowOpen) {
+        window._nativeWindowOpen = window.open;
+        window.open = function (url) {
+            if (url) tauriOpenBrowser(url);
+            return null;
+        };
+    }
 
     function escapeHTML(str) {
         if (!str || typeof str !== 'string') return '';
@@ -242,17 +254,18 @@
     window.chrome = {
         storage: {
             local: {
-                get: function (keys) {
+                get: function (keys, callback) {
                     return new Promise((resolve) => {
                         const res = {};
                         const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
                         keyList.forEach(k => {
                             res[k] = getLocalItem(k);
                         });
+                        if (typeof callback === 'function') callback(res);
                         resolve(res);
                     });
                 },
-                set: function (items) {
+                set: function (items, callback) {
                     return new Promise((resolve) => {
                         const changes = {};
                         for (const k in items) {
@@ -261,22 +274,24 @@
                             changes[k] = { oldValue: oldVal, newValue: items[k] };
                         }
                         storageListeners.forEach(fn => fn(changes, 'local'));
+                        if (typeof callback === 'function') callback();
                         resolve();
                     });
                 }
             },
             sync: {
-                get: function (keys) {
+                get: function (keys, callback) {
                     return new Promise((resolve) => {
                         const res = {};
                         const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
                         keyList.forEach(k => {
                             res[k] = getSyncItem(k);
                         });
+                        if (typeof callback === 'function') callback(res);
                         resolve(res);
                     });
                 },
-                set: function (items) {
+                set: function (items, callback) {
                     return new Promise((resolve) => {
                         const changes = {};
                         for (const k in items) {
@@ -288,6 +303,7 @@
                             }
                         }
                         storageListeners.forEach(fn => fn(changes, 'sync'));
+                        if (typeof callback === 'function') callback();
                         resolve();
                     });
                 }
@@ -806,20 +822,117 @@
     // ==========================================
     // 6. Gemini AI Helper
     // ==========================================
-    async function callGeminiApi(apiKey, systemPrompt, userContent) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        const body = JSON.stringify({
-            contents: [
-                {
-                    parts: [
-                        { text: `${systemPrompt}\n\nContent:\n${userContent.substring(0, 30000)}` }
-                    ]
+    async function getAvailableGeminiModelsDesktop(apiKey) {
+        if (typeof getAvailableGeminiModels === 'function') {
+            try {
+                const models = await getAvailableGeminiModels(apiKey);
+                if (models && models.length > 0) return models;
+            } catch (e) {
+                console.warn("[PureTidings Desktop] getAvailableGeminiModels failed:", e);
+            }
+        }
+        // Direct fetch from Google API if utils.js isn't available or fails
+        try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+            if (res.ok) {
+                const data = await res.json();
+                const supported = (data.models || [])
+                    .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent') && m.name && m.name.includes('gemini'))
+                    .map(m => m.name.replace('models/', ''));
+                if (supported.length > 0) {
+                    supported.sort((a, b) => {
+                        const aIsFlash = a.includes('flash');
+                        const bIsFlash = b.includes('flash');
+                        const aIsPro = a.includes('pro');
+                        const bIsPro = b.includes('pro');
+                        if (aIsFlash && !bIsFlash) return -1;
+                        if (!aIsFlash && bIsFlash) return 1;
+                        if (aIsPro && !bIsPro) return -1;
+                        if (!aIsPro && bIsPro) return 1;
+                        return b.localeCompare(a);
+                    });
+                    return supported;
                 }
-            ]
-        });
-        const res = await tauriInvoke('post_url', { url, body, user_agent: null });
-        const data = JSON.parse(res);
-        return data?.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
+            }
+        } catch (_) {}
+
+        return [
+            'gemini-2.0-flash',
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-pro',
+            'gemini-pro'
+        ];
+    }
+
+    async function callGeminiApi(apiKey, systemPrompt, userContent) {
+        const cleanApiKey = (apiKey || '').trim();
+        if (!cleanApiKey) {
+            throw new Error("Google Gemini API Key is missing. Please enter your key in Settings > AI Features.");
+        }
+
+        const promptText = `${(systemPrompt || '').trim()}\n\nContent:\n${(userContent || '').trim().substring(0, 30000)}`;
+        const modelsToTry = await getAvailableGeminiModelsDesktop(cleanApiKey);
+        console.log("[PureTidings Desktop] Attempting Gemini models:", modelsToTry);
+
+        let lastErrorMsg = null;
+
+        for (const model of modelsToTry) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`;
+            const bodyStr = JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: promptText
+                    }]
+                }]
+            });
+
+            // 1. Try standard browser fetch first (CORS allowed by Google APIs)
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: bodyStr
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) {
+                        console.log(`[PureTidings Desktop] Successfully generated AI summary using model: ${model}`);
+                        return text;
+                    }
+                } else {
+                    const errData = await res.json().catch(() => null);
+                    lastErrorMsg = errData?.error?.message || `HTTP Error ${res.status} (${res.statusText})`;
+                    console.warn(`[PureTidings Desktop] Model ${model} returned error:`, lastErrorMsg);
+                    continue;
+                }
+            } catch (fetchErr) {
+                console.warn(`[PureTidings Desktop] Direct fetch for model ${model} failed, trying IPC post_url:`, fetchErr);
+            }
+
+            // 2. Native Rust IPC fallback if fetch is blocked
+            try {
+                const resText = await tauriInvoke('post_url', {
+                    url,
+                    body: bodyStr,
+                    userAgent: 'PureTidingsDesktop/1.0'
+                });
+                const data = JSON.parse(resText);
+                const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                    console.log(`[PureTidings Desktop] Successfully generated AI summary via IPC using model: ${model}`);
+                    return text;
+                }
+            } catch (ipcErr) {
+                lastErrorMsg = ipcErr?.message || ipcErr?.toString() || lastErrorMsg;
+                console.warn(`[PureTidings Desktop] Native post_url for model ${model} failed:`, lastErrorMsg);
+            }
+        }
+
+        throw new Error(lastErrorMsg || "AI request failed for all attempted Gemini models.");
     }
 
     // ==========================================
@@ -2561,6 +2674,37 @@
             });
         }
 
+        // F5 Keyboard Shortcut for Feed Refresh
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'F5') {
+                e.preventDefault();
+                console.log("[PureTidings Desktop] F5 pressed -> Refreshing all feeds...");
+                refreshAllFeedsNative();
+            }
+        });
+
+        // Global external link click delegation - opens in system default browser
+        document.addEventListener('click', (e) => {
+            const anchor = e.target.closest('a');
+            if (!anchor || !anchor.href) return;
+            const href = anchor.href;
+            // Only handle standard web links
+            if (!href.startsWith('http://') && !href.startsWith('https://')) return;
+            // Allow post-title in feedpage.js to handle post reading/opening
+            if (anchor.classList.contains('post-title') || anchor.id === 'reader-original-link') return;
+
+            e.preventDefault();
+            tauriOpenBrowser(href);
+        });
+
+        const aiStudioLink = document.getElementById('link-google-ai-studio');
+        if (aiStudioLink) {
+            aiStudioLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                tauriOpenBrowser('https://aistudio.google.com/app/apikey');
+            });
+        }
+
         // Quick Add Feed button & modal
         const quickAddBtn = document.getElementById('btn-quick-add-feed');
         const quickAddModal = document.getElementById('quick-add-modal');
@@ -3083,12 +3227,10 @@
             }
         }
 
-        // Start background automation engine
+        // Start background automation engine (schedules next check based on configured interval & schedule)
         startBackgroundScheduler();
 
-        // Initial background fetch
-        setTimeout(() => {
-            refreshAllFeedsNative();
-        }, 500);
+        // Note: Automatic feed fetch on startup is disabled per user preference.
+        // Feeds are fetched only according to the user's background schedule or upon manual refresh (F5 / 🔄).
     });
 })();

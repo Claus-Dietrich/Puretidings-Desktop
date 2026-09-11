@@ -67,11 +67,11 @@ async fn post_url(url: String, body: String, user_agent: Option<String>) -> Resu
         .map_err(|e| format!("POST request failed: {}", e))?;
 
     let status = res.status();
+    let text = res.text().await.map_err(|e| format!("Failed to read response body: {}", e))?;
     if !status.is_success() {
-        return Err(format!("HTTP Error {}", status));
+        return Err(format!("HTTP Error {}: {}", status, text));
     }
 
-    let text = res.text().await.map_err(|e| format!("Failed to read response body: {}", e))?;
     Ok(text)
 }
 
@@ -79,8 +79,9 @@ async fn post_url(url: String, body: String, user_agent: Option<String>) -> Resu
 fn open_browser(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        let escaped_url = url.replace('^', "^^").replace('&', "^&");
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
+            .args(["/C", "start", "", &escaped_url])
             .spawn()
             .map_err(|e| e.to_string())?;
     }
