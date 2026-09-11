@@ -95,9 +95,14 @@ fn open_browser(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn read_file_text(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![fetch_url, post_url, open_browser])
+        .invoke_handler(tauri::generate_handler![fetch_url, post_url, open_browser, read_file_text])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

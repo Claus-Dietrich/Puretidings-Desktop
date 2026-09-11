@@ -1071,6 +1071,7 @@
                     description: `<div style="background:var(--hover-bg); padding:16px; border-radius:8px; margin-bottom:20px;"><h3 style="margin-top:0;">🤖 AI Video Summary</h3><div style="white-space:pre-wrap; line-height:1.6;">${escapeHTML(aiResult)}</div></div>`,
                     source: 'YouTube Video'
                 });
+                currentReaderAiMarkdown = aiResult;
             } catch (err) {
                 alert("Failed to summarize video: " + err.message);
             }
@@ -1100,6 +1101,7 @@
                     description: `<div style="background:var(--hover-bg); padding:16px; border-radius:8px; margin-bottom:20px;"><h3 style="margin-top:0;">🤖 AI Article Summary</h3><div style="white-space:pre-wrap; line-height:1.6;">${escapeHTML(aiResult)}</div></div><hr><h3 style="margin-top:20px;">Full Article Content</h3>` + (article ? article.content : '<p>Original text extracted.</p>'),
                     source: new URL(cleanUrl).hostname
                 });
+                currentReaderAiMarkdown = aiResult;
             } catch (err) {
                 alert("Failed to summarize URL: " + err.message);
             }
@@ -1919,12 +1921,14 @@
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
+        a.dataset.downloadAnchor = 'true';
+        a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         setTimeout(() => {
-            document.body.removeChild(a);
+            if (a.parentNode) document.body.removeChild(a);
             URL.revokeObjectURL(url);
-        }, 100);
+        }, 1500);
     }
 
     function htmlToMarkdownSimple(html) {
@@ -2456,24 +2460,48 @@
         const saveAiBtn = document.getElementById('reader-save-ai-btn');
         if (saveAiBtn) {
             saveAiBtn.addEventListener('click', () => {
-                if (!currentReaderAiMarkdown) return;
-                const format = document.getElementById('reader-export-ai-format')?.value || 'markdown';
-                const title = ((currentReaderArticle?.title || 'ai_summary') + '_summary').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+                let markdown = (currentReaderAiMarkdown || '').trim();
+                if (!markdown) {
+                    const aiContentEl = document.getElementById('reader-ai-content');
+                    if (aiContentEl && aiContentEl.innerText && !aiContentEl.innerText.includes('Customize the prompt above')) {
+                        markdown = aiContentEl.innerText.trim();
+                    }
+                }
+                if (!markdown && currentReaderArticle?.description && currentReaderArticle.description.includes('🤖')) {
+                    markdown = currentReaderArticle.description.replace(/<[^>]+>/g, '').trim();
+                }
 
+                if (!markdown) {
+                    showInAppToast("No Summary to Save", "Please generate an AI summary first before saving.", false, 4000);
+                    return;
+                }
+
+                const format = document.getElementById('reader-export-ai-format')?.value || 'markdown';
+                const baseTitle = ((currentReaderArticle?.title || 'ai_summary') + '_summary').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+
+                let filename = '';
                 if (format === 'markdown') {
-                    downloadTextFile(`${title}.md`, currentReaderAiMarkdown, 'text/markdown');
+                    filename = `${baseTitle}.md`;
+                    downloadTextFile(filename, markdown, 'text/markdown');
                 } else if (format === 'html') {
-                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AI Summary</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;}</style></head><body><h1>AI Summary</h1><hr>${typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(currentReaderAiMarkdown) : currentReaderAiMarkdown}</body></html>`;
-                    downloadTextFile(`${title}.html`, html, 'text/html');
+                    filename = `${baseTitle}.html`;
+                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AI Summary</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;}hr{border:0;border-top:1px solid #ddd;margin:20px 0;}</style></head><body><h1>AI Summary</h1><hr>${typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(markdown) : markdown}</body></html>`;
+                    downloadTextFile(filename, html, 'text/html');
                 } else {
-                    const txt = currentReaderAiMarkdown
+                    filename = `${baseTitle}.txt`;
+                    const txt = markdown
                         .replace(/^#+\s+/gim, '')
                         .replace(/\*\*([^\n]+?)\*\*/g, '$1')
                         .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
                         .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
                         .replace(/<[^>]+>/g, "");
-                    downloadTextFile(`${title}.txt`, txt, 'text/plain');
+                    downloadTextFile(filename, txt, 'text/plain');
                 }
+
+                showInAppToast("AI Summary Saved", `Saved as ${filename}`);
+                const origText = saveAiBtn.textContent;
+                saveAiBtn.textContent = 'Saved! ✓';
+                setTimeout(() => { saveAiBtn.textContent = origText; }, 2000);
             });
         }
 
@@ -2683,14 +2711,35 @@
             }
         });
 
-        // Global external link click delegation - opens in system default browser
+        // Global external link click delegation - opens ONLY true external web links in system default browser
         document.addEventListener('click', (e) => {
             const anchor = e.target.closest('a');
-            if (!anchor || !anchor.href) return;
+            if (!anchor) return;
+
+            const rawHref = anchor.getAttribute('href') || '';
+            // Ignore in-page hash links (e.g. href="#"), javascript:, or empty href
+            if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:')) return;
+
             const href = anchor.href;
-            // Only handle standard web links
+            if (!href) return;
+
+            // Never intercept download anchors or blob/data URLs
+            if (anchor.hasAttribute('download') || anchor.dataset.downloadAnchor || href.startsWith('blob:') || href.startsWith('data:')) return;
+
+            // Ignore internal Tauri/localhost origins
+            try {
+                const u = new URL(href);
+                if (u.hostname === 'tauri.localhost' || u.hostname === 'localhost' || u.protocol === 'tauri:' || u.protocol === 'asset:') {
+                    return;
+                }
+            } catch (_) {
+                return;
+            }
+
+            // Only handle real external web links (http / https)
             if (!href.startsWith('http://') && !href.startsWith('https://')) return;
-            // Allow post-title in feedpage.js to handle post reading/opening
+
+            // Allow post-title in feedpage.js and reader-original-link to handle their own behaviors
             if (anchor.classList.contains('post-title') || anchor.id === 'reader-original-link') return;
 
             e.preventDefault();
@@ -3016,11 +3065,7 @@
                     writeNodes(feedTree);
                     opml += `</body>\n</opml>`;
 
-                    const blob = new Blob([opml], { type: 'text/xml' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `puretidings-feeds-${getBackupTimestamp()}.opml`;
-                    a.click();
+                    downloadTextFile(`puretidings-feeds-${getBackupTimestamp()}.opml`, opml, 'text/xml');
                     showStatusBadge('opml-status-box', 'success', `✓ Exported ${feedCount} feed(s) successfully!`);
                     showInAppToast('OPML Export', `Exported ${feedCount} feed(s) to OPML file.`);
                 } catch (err) {
@@ -3066,42 +3111,15 @@
             input.click();
         }
 
-        // --- OPML Import & Dropzone ---
-        const importOpmlBtn = document.getElementById('btn-import-opml');
-        const dropzoneOpml = document.getElementById('dropzone-opml');
-
-        if (importOpmlBtn) {
-            importOpmlBtn.addEventListener('click', openOpmlFilePicker);
-        }
-
-        if (dropzoneOpml) {
-            dropzoneOpml.addEventListener('click', openOpmlFilePicker);
-            dropzoneOpml.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropzoneOpml.classList.add('dragover');
-            });
-            dropzoneOpml.addEventListener('dragleave', () => {
-                dropzoneOpml.classList.remove('dragover');
-            });
-            dropzoneOpml.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropzoneOpml.classList.remove('dragover');
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    processOpmlFile(e.dataTransfer.files[0]);
-                }
-            });
-        }
-
-        async function processOpmlFile(file) {
-            if (!file) return;
-            showStatusBadge('opml-status-box', 'loading', `⏳ Reading and importing "${file.name}"...`, 0);
+        // --- Content Parsers & Handlers ---
+        async function importOpmlContent(text, fileName = 'Imported OPML') {
+            showStatusBadge('opml-status-box', 'loading', `⏳ Reading and importing "${fileName}"...`, 0);
             try {
-                const text = await file.text();
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(text, "text/xml");
                 const outlines = doc.querySelectorAll('outline[xmlUrl]');
                 if (!outlines || outlines.length === 0) {
-                    showStatusBadge('opml-status-box', 'error', `✗ No RSS feeds found in "${file.name}".`);
+                    showStatusBadge('opml-status-box', 'error', `✗ No RSS feeds found in "${fileName}".`);
                     return;
                 }
 
@@ -3123,79 +3141,18 @@
                 });
 
                 await chrome.storage.local.set({ feedTree });
-                showStatusBadge('opml-status-box', 'success', `✓ Successfully imported ${addedCount} feed(s) from "${file.name}"!`);
+                showStatusBadge('opml-status-box', 'success', `✓ Successfully imported ${addedCount} feed(s) from "${fileName}"!`);
                 showInAppToast('OPML Import', `Imported ${addedCount} feed(s) successfully!`);
                 renderSettingsFeeds();
                 refreshAllFeedsNative();
             } catch (err) {
-                showStatusBadge('opml-status-box', 'error', `✗ Failed to import OPML: ${err.message}`);
+                showStatusBadge('opml-status-box', 'error', `✗ Failed to import OPML: ${err.message || err}`);
             }
         }
 
-        // --- JSON Full Backup Export ---
-        const backupJsonBtn = document.getElementById('btn-backup-json');
-        if (backupJsonBtn) {
-            backupJsonBtn.addEventListener('click', async () => {
-                showStatusBadge('backup-json-status-box', 'loading', '⏳ Generating full application backup...', 0);
-                try {
-                    const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks']);
-                    const sync = await chrome.storage.sync.get([
-                        'rules', 'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt',
-                        'checkInterval', 'randomizeFetch', 'fetchSchedule',
-                        'showNotification', 'showSummaryNotification', 'summaryInterval', 'darkMode'
-                    ]);
-                    const backup = {
-                        version: "1.0",
-                        app: "PureTidings Desktop",
-                        date: new Date().toISOString(),
-                        local,
-                        sync
-                    };
-                    const feedCount = (local.feedTree || []).length;
-                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `puretidings-backup-${getBackupTimestamp()}.json`;
-                    a.click();
-                    showStatusBadge('backup-json-status-box', 'success', `✓ Full backup downloaded successfully (${feedCount} items)!`);
-                    showInAppToast('Full Backup', `JSON backup created successfully.`);
-                } catch (err) {
-                    showStatusBadge('backup-json-status-box', 'error', `✗ Backup failed: ${err.message}`);
-                }
-            });
-        }
-
-        // --- JSON Restore & Dropzone ---
-        const restoreJsonBtn = document.getElementById('btn-restore-json');
-        const dropzoneJson = document.getElementById('dropzone-json');
-
-        if (restoreJsonBtn) {
-            restoreJsonBtn.addEventListener('click', openJsonFilePicker);
-        }
-
-        if (dropzoneJson) {
-            dropzoneJson.addEventListener('click', openJsonFilePicker);
-            dropzoneJson.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropzoneJson.classList.add('dragover');
-            });
-            dropzoneJson.addEventListener('dragleave', () => {
-                dropzoneJson.classList.remove('dragover');
-            });
-            dropzoneJson.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropzoneJson.classList.remove('dragover');
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    processJsonFile(e.dataTransfer.files[0]);
-                }
-            });
-        }
-
-        async function processJsonFile(file) {
-            if (!file) return;
-            showStatusBadge('backup-json-status-box', 'loading', `⏳ Reading and restoring "${file.name}"...`, 0);
+        async function restoreJsonContent(text, fileName = 'Backup JSON') {
+            showStatusBadge('backup-json-status-box', 'loading', `⏳ Reading and restoring "${fileName}"...`, 0);
             try {
-                const text = await file.text();
                 const data = JSON.parse(text);
                 if (!data.local && !data.sync && !data.feeds && !data.feedTree) {
                     showStatusBadge('backup-json-status-box', 'error', `✗ Invalid backup file format.`);
@@ -3223,7 +3180,183 @@
                 scheduleNextBackgroundFetch();
                 scheduleNextSummaryNotification();
             } catch (err) {
-                showStatusBadge('backup-json-status-box', 'error', `✗ Failed to restore backup: ${err.message}`);
+                showStatusBadge('backup-json-status-box', 'error', `✗ Failed to restore backup: ${err.message || err}`);
+            }
+        }
+
+        async function processOpmlFile(fileOrPath) {
+            if (!fileOrPath) return;
+            if (typeof fileOrPath === 'string') {
+                try {
+                    const fileName = fileOrPath.split(/[/\\]/).pop() || 'file.opml';
+                    const text = await tauriInvoke('read_file_text', { path: fileOrPath });
+                    await importOpmlContent(text, fileName);
+                } catch (err) {
+                    showStatusBadge('opml-status-box', 'error', `✗ Failed to read file: ${err}`);
+                }
+            } else if (fileOrPath.text) {
+                try {
+                    const text = await fileOrPath.text();
+                    await importOpmlContent(text, fileOrPath.name);
+                } catch (err) {
+                    showStatusBadge('opml-status-box', 'error', `✗ Failed to read file: ${err.message || err}`);
+                }
+            }
+        }
+
+        async function processJsonFile(fileOrPath) {
+            if (!fileOrPath) return;
+            if (typeof fileOrPath === 'string') {
+                try {
+                    const fileName = fileOrPath.split(/[/\\]/).pop() || 'backup.json';
+                    const text = await tauriInvoke('read_file_text', { path: fileOrPath });
+                    await restoreJsonContent(text, fileName);
+                } catch (err) {
+                    showStatusBadge('backup-json-status-box', 'error', `✗ Failed to read file: ${err}`);
+                }
+            } else if (fileOrPath.text) {
+                try {
+                    const text = await fileOrPath.text();
+                    await restoreJsonContent(text, fileOrPath.name);
+                } catch (err) {
+                    showStatusBadge('backup-json-status-box', 'error', `✗ Failed to read file: ${err.message || err}`);
+                }
+            }
+        }
+
+        // --- Drag & Drop Wiring ---
+        function setupFileDropZone(el, onFile) {
+            if (!el) return;
+            ['dragenter', 'dragover'].forEach(name => {
+                el.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.dataTransfer) {
+                        e.dataTransfer.dropEffect = 'copy';
+                    }
+                    el.classList.add('dragover');
+                });
+            });
+
+            ['dragleave', 'dragend'].forEach(name => {
+                el.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    el.classList.remove('dragover');
+                });
+            });
+
+            el.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                el.classList.remove('dragover');
+                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    onFile(e.dataTransfer.files[0]);
+                }
+            });
+        }
+
+        // Global dragover & drop prevention prevents WebView2 from discarding or navigating away on file drops
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        }, false);
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+        }, false);
+
+        // --- OPML Import Triggers ---
+        const importOpmlBtn = document.getElementById('btn-import-opml');
+        const dropzoneOpml = document.getElementById('dropzone-opml');
+        if (importOpmlBtn) {
+            importOpmlBtn.addEventListener('click', openOpmlFilePicker);
+        }
+        if (dropzoneOpml) {
+            dropzoneOpml.addEventListener('click', openOpmlFilePicker);
+            setupFileDropZone(dropzoneOpml, processOpmlFile);
+        }
+
+        // --- JSON Full Backup Export ---
+        const backupJsonBtn = document.getElementById('btn-backup-json');
+        if (backupJsonBtn) {
+            backupJsonBtn.addEventListener('click', async () => {
+                showStatusBadge('backup-json-status-box', 'loading', '⏳ Generating full application backup...', 0);
+                try {
+                    const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks']);
+                    const sync = await chrome.storage.sync.get([
+                        'rules', 'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt',
+                        'checkInterval', 'randomizeFetch', 'fetchSchedule',
+                        'showNotification', 'showSummaryNotification', 'summaryInterval', 'darkMode'
+                    ]);
+                    const backup = {
+                        version: "1.0",
+                        app: "PureTidings Desktop",
+                        date: new Date().toISOString(),
+                        local,
+                        sync
+                    };
+                    const feedCount = (local.feedTree || []).length;
+                    downloadTextFile(`puretidings-backup-${getBackupTimestamp()}.json`, JSON.stringify(backup, null, 2), 'application/json');
+                    showStatusBadge('backup-json-status-box', 'success', `✓ Full backup downloaded successfully (${feedCount} items)!`);
+                    showInAppToast('Full Backup', `JSON backup created successfully.`);
+                } catch (err) {
+                    showStatusBadge('backup-json-status-box', 'error', `✗ Backup failed: ${err.message || err}`);
+                }
+            });
+        }
+
+        // --- JSON Restore Triggers ---
+        const restoreJsonBtn = document.getElementById('btn-restore-json');
+        const dropzoneJson = document.getElementById('dropzone-json');
+        if (restoreJsonBtn) {
+            restoreJsonBtn.addEventListener('click', openJsonFilePicker);
+        }
+        if (dropzoneJson) {
+            dropzoneJson.addEventListener('click', openJsonFilePicker);
+            setupFileDropZone(dropzoneJson, processJsonFile);
+        }
+
+        // Generous Backup Tab dropzone handler (if dropped outside the specific dashed box)
+        const tabBackup = document.getElementById('tab-backup');
+        if (tabBackup) {
+            ['dragenter', 'dragover'].forEach(name => {
+                tabBackup.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                });
+            });
+            tabBackup.addEventListener('drop', (e) => {
+                if (e.target.closest('#dropzone-opml') || e.target.closest('#dropzone-json')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const file = e.dataTransfer.files[0];
+                    const lower = (file.name || '').toLowerCase();
+                    if (lower.endsWith('.opml') || lower.endsWith('.xml')) {
+                        processOpmlFile(file);
+                    } else if (lower.endsWith('.json')) {
+                        processJsonFile(file);
+                    }
+                }
+            });
+        }
+
+        // Fallback: Listen for Tauri native drag-drop events if dispatched by the window
+        if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+            try {
+                window.__TAURI__.event.listen('tauri://drag-drop', (event) => {
+                    const paths = event.payload?.paths || event.payload;
+                    if (Array.isArray(paths) && paths.length > 0) {
+                        const firstPath = paths[0];
+                        const lower = firstPath.toLowerCase();
+                        if (lower.endsWith('.opml') || lower.endsWith('.xml')) {
+                            processOpmlFile(firstPath);
+                        } else if (lower.endsWith('.json')) {
+                            processJsonFile(firstPath);
+                        }
+                    }
+                });
+            } catch (e) {
+                console.warn('tauri://drag-drop registration:', e);
             }
         }
 
