@@ -3495,24 +3495,6 @@
             });
         }
 
-        const backupPasteBtn = document.getElementById('settings-backup-paste-btn');
-        if (backupPasteBtn && backupFolderInput) {
-            backupPasteBtn.addEventListener('click', async () => {
-                try {
-                    const text = await navigator.clipboard.readText();
-                    if (text) {
-                        const clean = sanitizeFolderPath(text);
-                        backupFolderInput.value = clean;
-                        updateBackupTabFolderDisplay(clean);
-                        await chrome.storage.sync.set({ backupFolderPath: clean });
-                        showInAppToast("Clipboard Pasted", "Folder path pasted and saved.");
-                    }
-                } catch (err) {
-                    console.warn("[PureTidings Desktop] Clipboard read failed:", err);
-                }
-            });
-        }
-
         const backupBrowseBtn = document.getElementById('settings-backup-browse-btn');
         if (backupBrowseBtn && backupFolderInput) {
             backupBrowseBtn.addEventListener('click', async () => {
