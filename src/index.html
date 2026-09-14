@@ -644,20 +644,20 @@
             </table>
           </div>
 
-          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px;">
+          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px; margin-bottom: 16px;">
             <h4 style="margin: 0 0 10px 0;">🔔 Notifications & Unread Reminders</h4>
             
             <div style="margin-bottom: 12px;">
               <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="settings-show-notifications" checked>
+                <input type="checkbox" id="settings-show-notifications" checked style="cursor: pointer;">
                 <label for="settings-show-notifications" style="font-weight: 600; cursor: pointer;">Show desktop notification when new articles arrive</label>
               </div>
               <p class="settings-description" style="margin: 4px 0 0 24px;">Displays an OS desktop banner and in-app toast notification with the count of new articles.</p>
             </div>
 
-            <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-bottom: 12px;">
               <div style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="settings-show-summary-notifications">
+                <input type="checkbox" id="settings-show-summary-notifications" style="cursor: pointer;">
                 <label for="settings-show-summary-notifications" style="font-weight: 600; cursor: pointer;">Show periodic reminder of unread posts</label>
               </div>
               <p class="settings-description" style="margin: 4px 0 8px 24px;">Periodically informs you how many unread articles are still waiting with top headlines.</p>
@@ -665,6 +665,50 @@
                 <label for="settings-summary-interval" style="font-size: 13px;">Reminder interval:</label>
                 <input type="number" id="settings-summary-interval" min="1" max="1440" value="60" style="width: 75px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
                 <span style="font-size: 13px; color: var(--text-color-darker);">minutes</span>
+              </div>
+            </div>
+
+            <!-- Test Notification Row -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; align-items: center; gap: 12px;">
+              <button type="button" id="settings-test-notification-btn" class="secondary-btn" style="padding: 6px 14px; font-weight: 600;">🔔 Send Test Notification</button>
+              <span id="settings-test-notification-status" style="font-size: 12px; color: var(--link-color); font-weight: bold;"></span>
+            </div>
+          </div>
+
+          <!-- Card: Automated Daily Backups (*.opml & *.json) -->
+          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px;">
+            <h4 style="margin: 0 0 6px 0;">💾 Automated Daily Backups (*.opml & *.json)</h4>
+            <p class="settings-description" style="margin-bottom: 12px;">
+              Automatically create complete backups of your feeds (OPML 2.0) and all app data (JSON) at a scheduled time each day.
+            </p>
+
+            <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" id="settings-auto-backup-enabled" style="cursor: pointer;">
+              <label for="settings-auto-backup-enabled" style="font-weight: 600; cursor: pointer;">Enable automated daily backup</label>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px; margin-left: 24px;">
+              <label for="settings-auto-backup-time" style="font-size: 13px;">Daily backup time:</label>
+              <input type="time" id="settings-auto-backup-time" value="20:00" style="padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
+            </div>
+
+            <!-- Backup Target Folder Path (used for both automated AND manual backups) -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 12px;">
+              <label for="settings-backup-folder-path" style="font-weight: 600; display: block; margin-bottom: 6px;">
+                📁 Destination Backup Directory (for automated & manual backups):
+              </label>
+              <p class="settings-description" style="margin-bottom: 8px;">
+                Specify a fixed local directory on your PC. All automated daily backups and manual backup exports will be saved directly into this directory.
+              </p>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="flex: 1; padding: 7px 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px;">
+                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="padding: 0 12px; height: 34px;" title="Browse and select directory">📂 Browse...</button>
+                <button type="button" id="settings-backup-paste-btn" class="secondary-btn" style="padding: 0 10px; height: 34px;" title="Paste path from clipboard">📋 Paste</button>
+                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="padding: 0 10px; height: 34px;" title="Open directory in Windows Explorer">📁 Open</button>
+              </div>
+              <div style="display: flex; gap: 12px; align-items: center; margin-top: 12px;">
+                <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="padding: 6px 14px; font-weight: 600;">⚡ Create Backup Now</button>
+                <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
               </div>
             </div>
           </div>
@@ -746,6 +790,13 @@
         <!-- Tab: Backup & OPML (REDESIGNED) -->
         <div id="tab-backup" class="tab-content settings-tab-pane hidden">
           <h3 style="margin-top: 0;">Backup, Restore & OPML Exchange</h3>
+
+          <div id="backup-folder-display-banner" style="background: var(--hover-bg, rgba(255,255,255,0.05)); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+            <div>
+              <strong>📁 Destination Backup Directory:</strong> <span id="backup-tab-folder-label" style="word-break: break-all; color: var(--link-color); font-family: monospace;">(Default browser downloads)</span>
+            </div>
+            <button type="button" id="btn-goto-automation-backup" class="secondary-btn" style="padding: 4px 10px; font-size: 12px; white-space: nowrap;">Change in Automation ⚙️</button>
+          </div>
 
           <!-- Card 1: OPML Exchange -->
           <div class="backup-card">
