@@ -386,6 +386,31 @@
       max-height: 92vh;
       padding: 24px 32px;
     }
+    #reader-modal #reader-modal-close {
+      position: sticky;
+      top: 10px;
+      float: right;
+      z-index: 1000;
+      margin-top: -6px;
+      margin-right: -14px;
+      background: var(--bg-color, #202124);
+      border: 1px solid var(--border-color, #444);
+      border-radius: 6px;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      opacity: 0.9;
+      cursor: pointer;
+    }
+    #reader-modal #reader-modal-close:hover {
+      opacity: 1;
+      color: #d93025;
+      border-color: #d93025;
+      background: var(--hover-bg, #333);
+    }
     #reader-video-info {
       width: 100%;
       margin: 15px 0 20px 0;
@@ -700,13 +725,15 @@
               <p class="settings-description" style="margin-bottom: 8px;">
                 Specify a fixed local directory on your PC. All automated daily backups and manual backup exports will be saved directly into this directory.
               </p>
-              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 18px;">
-                <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="flex: 1; height: 36px; padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
-                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="flex-shrink: 0; height: 36px; padding: 0 14px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Browse and select directory">📂 Browse...</button>
-                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="flex-shrink: 0; height: 36px; padding: 0 14px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Open directory in Windows Explorer">📁 Open</button>
+              <div style="margin-bottom: 12px;">
+                <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="width: 100%; height: 38px; padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; display: block;">
               </div>
-              <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px; margin-bottom: 10px;">
-                <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 36px; padding: 0 18px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately">⚡ Create Backup Now</button>
+              <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 24px;">
+                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="height: 36px; padding: 0 16px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Browse and select directory">📂 Browse...</button>
+                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="height: 36px; padding: 0 16px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Open directory in Windows Explorer">📁 Open</button>
+              </div>
+              <div style="display: flex; gap: 12px; align-items: center; margin-top: 10px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 38px; padding: 0 20px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately">⚡ Create Backup Now</button>
                 <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
               </div>
             </div>

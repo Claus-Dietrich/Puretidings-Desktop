@@ -231,17 +231,33 @@ fn pick_file(default_path: Option<String>, filter_name: Option<String>, filter_e
     }
 }
 
+const APP_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+const APP_ICON_ICO: &[u8] = include_bytes!("../icons/icon.ico");
+
 #[tauri::command]
 fn show_native_notification(title: String, message: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        let temp_dir = std::env::temp_dir();
+        let icon_png_path = temp_dir.join("puretidings-icon.png");
+        let icon_ico_path = temp_dir.join("puretidings-icon.ico");
+        let _ = std::fs::write(&icon_png_path, APP_ICON_PNG);
+        let _ = std::fs::write(&icon_ico_path, APP_ICON_ICO);
+
         let safe_title = title.replace('\'', "''").replace('\"', "\\\"");
         let safe_msg = message.replace('\'', "''").replace('\"', "\\\"");
+        let icon_png_str = icon_png_path.to_string_lossy().replace('\'', "''");
+        let icon_ico_str = icon_ico_path.to_string_lossy().replace('\'', "''");
+
         let script = format!(
-            "$Title = '{}'; $Message = '{}'; \
+            "$Title = '{}'; $Message = '{}'; $IconPath = '{}'; $IconIcoPath = '{}'; \
             try {{ \
                 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; \
-                $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); \
+                $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02); \
+                $imageNodes = $template.GetElementsByTagName('image'); \
+                if ($imageNodes.Length -gt 0 -and (Test-Path $IconPath)) {{ \
+                    $imageNodes.Item(0).SetAttribute('src', $IconPath); \
+                }} \
                 $textNodes = $template.GetElementsByTagName('text'); \
                 $textNodes.Item(0).AppendChild($template.CreateTextNode($Title)) | Out-Null; \
                 $textNodes.Item(1).AppendChild($template.CreateTextNode($Message)) | Out-Null; \
@@ -251,7 +267,11 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
             }} catch {{ \
                 Add-Type -AssemblyName System.Windows.Forms; \
                 $notify = New-Object System.Windows.Forms.NotifyIcon; \
-                $notify.Icon = [System.Drawing.SystemIcons]::Information; \
+                if (Test-Path $IconIcoPath) {{ \
+                    $notify.Icon = New-Object System.Drawing.Icon($IconIcoPath); \
+                }} else {{ \
+                    $notify.Icon = [System.Drawing.SystemIcons]::Information; \
+                }} \
                 $notify.BalloonTipTitle = $Title; \
                 $notify.BalloonTipText = $Message; \
                 $notify.Visible = $True; \
@@ -259,7 +279,7 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
                 Start-Sleep -Seconds 2; \
                 $notify.Dispose(); \
             }}",
-            safe_title, safe_msg
+            safe_title, safe_msg, icon_png_str, icon_ico_str
         );
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);
@@ -268,8 +288,11 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
     }
     #[cfg(target_os = "linux")]
     {
+        let temp_dir = std::env::temp_dir();
+        let icon_png_path = temp_dir.join("puretidings-icon.png");
+        let _ = std::fs::write(&icon_png_path, APP_ICON_PNG);
         let _ = std::process::Command::new("notify-send")
-            .args([&title, &message])
+            .args(["--icon", icon_png_path.to_string_lossy().as_ref(), &title, &message])
             .spawn();
     }
     Ok(())

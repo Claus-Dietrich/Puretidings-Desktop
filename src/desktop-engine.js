@@ -2009,10 +2009,157 @@
                 }
                 parentEl.appendChild(li);
 
+                if (!isEditing) {
+                    li.draggable = true;
+                    li.addEventListener('dragstart', handleSettingsDragStart);
+                    li.addEventListener('dragover', handleSettingsDragOver);
+                    li.addEventListener('dragleave', handleSettingsDragLeave);
+                    li.addEventListener('drop', handleSettingsDrop);
+                    li.addEventListener('dragend', handleSettingsDragEnd);
+                }
+
                 if (node.children && node.children.length > 0) {
                     renderList(node.children, parentEl, level + 1, node.id);
                 }
             });
+        }
+
+        // Drag and Drop Handlers for Settings Feeds & Folders
+        let draggedSettingsNodeId = null;
+
+        function handleSettingsDragStart(e) {
+            draggedSettingsNodeId = this.dataset.id;
+            this.classList.add('dragging');
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', draggedSettingsNodeId);
+            }
+        }
+
+        function handleSettingsDragOver(e) {
+            if (e.preventDefault) e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+
+            const rect = this.getBoundingClientRect();
+            const height = rect.height;
+            const y = e.clientY - rect.top;
+            const isFolder = this.classList.contains('folder-item-row');
+
+            // Reset classes
+            this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
+
+            // If it's a folder, allow dropping INTO it (center zone)
+            if (isFolder && y > height * 0.25 && y < height * 0.75) {
+                this.classList.add('drag-over-center');
+            } else if (y < height / 2) {
+                this.classList.add('drag-over-top');
+            } else {
+                this.classList.add('drag-over-bottom');
+            }
+            return false;
+        }
+
+        function handleSettingsDragLeave() {
+            this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
+        }
+
+        function handleSettingsDragEnd() {
+            this.classList.remove('dragging');
+            list.querySelectorAll('li').forEach(item => {
+                item.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
+            });
+        }
+
+        async function handleSettingsDrop(e) {
+            if (e.stopPropagation) e.stopPropagation();
+            if (e.preventDefault) e.preventDefault();
+
+            const isCenter = this.classList.contains('drag-over-center');
+            const isTop = this.classList.contains('drag-over-top');
+            this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
+
+            const targetNodeId = this.dataset.id;
+            if (!draggedSettingsNodeId || draggedSettingsNodeId === targetNodeId) return false;
+
+            // Remove the dragged node from the tree
+            function removeNode(nodes, id) {
+                for (let i = 0; i < nodes.length; i++) {
+                    if (nodes[i].id === id) {
+                        return nodes.splice(i, 1)[0];
+                    }
+                    if (nodes[i].children) {
+                        const found = removeNode(nodes[i].children, id);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            }
+
+            // Find a node by id
+            function findNode(nodes, id) {
+                for (const n of nodes) {
+                    if (n.id === id) return n;
+                    if (n.children) {
+                        const found = findNode(n.children, id);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            }
+
+            // Prevent dropping a folder into itself or into its own descendants
+            function isDescendant(node, searchId) {
+                if (!node || !node.children) return false;
+                for (const child of node.children) {
+                    if (child.id === searchId || isDescendant(child, searchId)) return true;
+                }
+                return false;
+            }
+
+            const checkNode = findNode(feedTree, draggedSettingsNodeId);
+            if (!checkNode) return false;
+            if (isDescendant(checkNode, targetNodeId)) {
+                console.warn("[PureTidings Desktop] Cannot drop a folder into its own child.");
+                return false;
+            }
+
+            const draggedNode = removeNode(feedTree, draggedSettingsNodeId);
+            if (!draggedNode) return false;
+
+            let success = false;
+            if (isCenter) {
+                const folder = findNode(feedTree, targetNodeId);
+                if (folder && folder.type === 'folder') {
+                    if (!folder.children) folder.children = [];
+                    folder.children.push(draggedNode);
+                    success = true;
+                }
+            } else {
+                function findAndInsert(nodes, targetId, nodeToInsert, before) {
+                    for (let i = 0; i < nodes.length; i++) {
+                        if (nodes[i].id === targetId) {
+                            const index = before ? i : i + 1;
+                            nodes.splice(index, 0, nodeToInsert);
+                            return true;
+                        }
+                        if (nodes[i].children) {
+                            if (findAndInsert(nodes[i].children, targetId, nodeToInsert, before)) return true;
+                        }
+                    }
+                    return false;
+                }
+                success = findAndInsert(feedTree, targetNodeId, draggedNode, isTop);
+            }
+
+            if (success) {
+                await chrome.storage.local.set({ feedTree });
+                renderSettingsFeeds();
+            } else {
+                feedTree.push(draggedNode);
+                await chrome.storage.local.set({ feedTree });
+                renderSettingsFeeds();
+            }
+            return false;
         }
 
         renderList(feedTree, list, 0, '');
