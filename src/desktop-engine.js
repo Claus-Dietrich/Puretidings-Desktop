@@ -1391,9 +1391,8 @@
 
     async function runSummaryNotificationCycle() {
         try {
-            const { showSummaryNotification = false, fetchSchedule } = await chrome.storage.sync.get(['showSummaryNotification', 'fetchSchedule']);
+            const { showSummaryNotification = false } = await chrome.storage.sync.get(['showSummaryNotification']);
             if (!showSummaryNotification) return;
-            if (!isScheduleActiveNow(fetchSchedule)) return;
 
             const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
             const readLinksSet = new Set(readLinks || []);
