@@ -234,6 +234,29 @@ fn pick_file(default_path: Option<String>, filter_name: Option<String>, filter_e
 const APP_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
 const APP_ICON_ICO: &[u8] = include_bytes!("../icons/icon.ico");
 
+fn to_base64(data: &[u8]) -> String {
+    const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = chunk.get(1).copied().unwrap_or(0);
+        let b2 = chunk.get(2).copied().unwrap_or(0);
+        result.push(CHARSET[(b0 >> 2) as usize] as char);
+        result.push(CHARSET[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARSET[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARSET[(b2 & 0x3f) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
 #[tauri::command]
 fn show_native_notification(title: String, message: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
@@ -244,13 +267,15 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
         let _ = std::fs::write(&icon_png_path, APP_ICON_PNG);
         let _ = std::fs::write(&icon_ico_path, APP_ICON_ICO);
 
-        let safe_title = title.replace('\'', "''").replace('\"', "\\\"");
-        let safe_msg = message.replace('\'', "''").replace('\"', "\\\"");
+        let b64_title = to_base64(title.as_bytes());
+        let b64_msg = to_base64(message.as_bytes());
         let icon_png_str = icon_png_path.to_string_lossy().replace('\'', "''");
         let icon_ico_str = icon_ico_path.to_string_lossy().replace('\'', "''");
 
         let script = format!(
-            "$Title = '{}'; $Message = '{}'; $IconPath = '{}'; $IconIcoPath = '{}'; \
+            "$Title = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{0}')); \
+            $Message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{1}')); \
+            $IconPath = '{2}'; $IconIcoPath = '{3}'; \
             try {{ \
                 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; \
                 $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastImageAndText02); \
@@ -279,7 +304,7 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
                 Start-Sleep -Seconds 2; \
                 $notify.Dispose(); \
             }}",
-            safe_title, safe_msg, icon_png_str, icon_ico_str
+            b64_title, b64_msg, icon_png_str, icon_ico_str
         );
         let mut cmd = std::process::Command::new("powershell");
         cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);

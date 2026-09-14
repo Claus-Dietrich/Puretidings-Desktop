@@ -686,10 +686,11 @@
                 <label for="settings-show-summary-notifications" style="font-weight: 600; cursor: pointer;">Show periodic reminder of unread posts</label>
               </div>
               <p class="settings-description" style="margin: 4px 0 8px 24px;">Periodically informs you how many unread articles are still waiting with top headlines.</p>
-              <div style="margin-left: 24px; display: flex; align-items: center; gap: 10px;">
+              <div style="margin-left: 24px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                 <label for="settings-summary-interval" style="font-size: 13px;">Reminder interval:</label>
                 <input type="number" id="settings-summary-interval" min="1" max="1440" value="60" style="width: 75px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
                 <span style="font-size: 13px; color: var(--text-color-darker);">minutes</span>
+                <button type="button" id="settings-test-unread-reminder-btn" class="secondary-btn" style="margin-left: 12px; padding: 5px 12px; font-size: 12px; font-weight: 600;" title="Trigger an immediate unread reminder notification">🔔 Test Unread Reminder</button>
               </div>
             </div>
 
@@ -701,7 +702,7 @@
           </div>
 
           <!-- Card: Automated Daily Backups (*.opml & *.json) -->
-          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px;">
+          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px; margin-bottom: 16px;">
             <h4 style="margin: 0 0 6px 0;">💾 Automated Daily Backups (*.opml & *.json)</h4>
             <p class="settings-description" style="margin-bottom: 12px;">
               Automatically create complete backups of your feeds (OPML 2.0) and all app data (JSON) at a scheduled time each day.
@@ -725,19 +726,25 @@
               <p class="settings-description" style="margin-bottom: 12px;">
                 Specify a fixed local directory on your PC. All automated daily backups and manual backup exports will be saved directly into this directory.
               </p>
-              <div style="margin-bottom: 14px; width: 100%;">
+              <div style="margin-bottom: 12px; width: 100%;">
                 <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="width: 100%; height: 38px; padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; display: block;">
               </div>
-              <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px;">
+              <div style="display: flex; gap: 12px; align-items: center;">
                 <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="height: 38px; padding: 0 18px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Browse and select directory">📂 Browse...</button>
                 <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="height: 38px; padding: 0 18px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Open directory in Windows Explorer">📁 Open</button>
               </div>
-              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px; margin-top: 10px;">
-                <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
-                  <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 38px; padding: 0 22px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately">⚡ Create Backup Now</button>
-                  <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
-                </div>
-              </div>
+            </div>
+          </div>
+
+          <!-- Card: Instant Manual Backup (Dedicated Standalone Card) -->
+          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px; margin-bottom: 16px;">
+            <h4 style="margin: 0 0 6px 0;">⚡ Instant Backup (On Demand)</h4>
+            <p class="settings-description" style="margin-bottom: 12px;">
+              Create both OPML 2.0 feeds and full JSON backup files right now and store them in the configured destination folder.
+            </p>
+            <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 40px; padding: 0 24px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately">⚡ Create Backup Now</button>
+              <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
             </div>
           </div>
         </div>

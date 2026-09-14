@@ -1373,7 +1373,7 @@
         }
     }
 
-    async function scheduleNextSummaryNotification() {
+    async function scheduleNextSummaryNotification(initialCheck = false) {
         if (bgSummaryTimeout) clearTimeout(bgSummaryTimeout);
 
         const { showSummaryNotification = false, summaryInterval = 60 } = await chrome.storage.sync.get(['showSummaryNotification', 'summaryInterval']);
@@ -1383,16 +1383,22 @@
         const ms = intervalMinutes * 60 * 1000;
         console.log(`[PureTidings Desktop] Next unread summary reminder in ${intervalMinutes} minute(s).`);
 
+        if (initialCheck) {
+            setTimeout(async () => {
+                await runSummaryNotificationCycle(false);
+            }, 3000);
+        }
+
         bgSummaryTimeout = setTimeout(async () => {
-            await runSummaryNotificationCycle();
-            scheduleNextSummaryNotification();
+            await runSummaryNotificationCycle(false);
+            scheduleNextSummaryNotification(false);
         }, ms);
     }
 
-    async function runSummaryNotificationCycle() {
+    async function runSummaryNotificationCycle(isManualTest = false) {
         try {
             const { showSummaryNotification = false } = await chrome.storage.sync.get(['showSummaryNotification']);
-            if (!showSummaryNotification) return;
+            if (!showSummaryNotification && !isManualTest) return;
 
             const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
             const readLinksSet = new Set(readLinks || []);
@@ -1401,16 +1407,27 @@
                 .filter(p => p && p.link && !p.isHidden && !readLinksSet.has(p.link))
                 .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
-            if (unread.length === 0) return;
+            if (unread.length === 0) {
+                if (isManualTest) {
+                    const title = "PureTidings - Unread Reminder";
+                    const body = "All feeds are up-to-date. You have 0 unread articles waiting.";
+                    await showDesktopNotification(title, body);
+                    showInAppToast(title, body, false, 5000);
+                }
+                return;
+            }
 
             const title = `Unread Summary: ${unread.length} article(s) waiting`;
             const topTitles = unread.slice(0, 3).map(p => `• ${p.title}`).join('\n');
             const body = unread.length > 3 ? `${topTitles}\n...and ${unread.length - 3} more.` : topTitles;
 
-            showDesktopNotification(title, body);
+            await showDesktopNotification(title, body);
             showInAppToast(title, body, true, 8000);
         } catch (err) {
             console.warn("[PureTidings Desktop] Error during summary notification cycle:", err);
+            if (isManualTest) {
+                showInAppToast("Unread Reminder Error", err.message || String(err));
+            }
         }
     }
 
@@ -3456,7 +3473,7 @@
 
                     // Re-arm background schedulers immediately with new config
                     scheduleNextBackgroundFetch();
-                    scheduleNextSummaryNotification();
+                    scheduleNextSummaryNotification(true);
                     scheduleNextAutoBackup();
 
                     closeSettingsModal();
@@ -3623,6 +3640,15 @@
                     testNotifStatus.style.color = "#28a745";
                     setTimeout(() => { if (testNotifStatus) testNotifStatus.textContent = ''; }, 4000);
                 }
+            });
+        }
+
+        // Test Unread Reminder Button
+        const testUnreadReminderBtn = document.getElementById('settings-test-unread-reminder-btn');
+        if (testUnreadReminderBtn) {
+            testUnreadReminderBtn.addEventListener('click', async () => {
+                showInAppToast("🔔 Checking Feeds", "Checking unread articles for reminder...");
+                await runSummaryNotificationCycle(true);
             });
         }
 
