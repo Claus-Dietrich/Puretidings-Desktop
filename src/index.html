@@ -700,14 +700,14 @@
               <p class="settings-description" style="margin-bottom: 8px;">
                 Specify a fixed local directory on your PC. All automated daily backups and manual backup exports will be saved directly into this directory.
               </p>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="flex: 1; padding: 7px 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px;">
-                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="padding: 0 12px; height: 34px;" title="Browse and select directory">📂 Browse...</button>
-                <button type="button" id="settings-backup-paste-btn" class="secondary-btn" style="padding: 0 10px; height: 34px;" title="Paste path from clipboard">📋 Paste</button>
-                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="padding: 0 10px; height: 34px;" title="Open directory in Windows Explorer">📁 Open</button>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;">
+                <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="flex: 1; min-width: 220px; height: 36px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="flex-shrink: 0; height: 36px; padding: 0 14px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;" title="Browse and select directory">📂 Browse...</button>
+                <button type="button" id="settings-backup-paste-btn" class="secondary-btn" style="flex-shrink: 0; height: 36px; padding: 0 12px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;" title="Paste path from clipboard">📋 Paste</button>
+                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="flex-shrink: 0; height: 36px; padding: 0 12px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;" title="Open directory in Windows Explorer">📁 Open</button>
               </div>
-              <div style="display: flex; gap: 12px; align-items: center; margin-top: 12px;">
-                <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="padding: 6px 14px; font-weight: 600;">⚡ Create Backup Now</button>
+              <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; margin-bottom: 6px;">
+                <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 36px; padding: 0 16px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center;" title="Create both OPML and JSON backups immediately">⚡ Create Backup Now</button>
                 <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
               </div>
             </div>
@@ -831,7 +831,7 @@
       <!-- Settings Modal Footer -->
       <div class="settings-modal-footer">
         <span id="settings-status-banner" style="font-size: 13px; color: #28a745; font-weight: bold;"></span>
-        <button id="settings-save-btn" style="padding: 9px 24px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">Save & Close</button>
+        <button id="settings-save-btn" style="padding: 9px 24px; margin-right: 18px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">Save & Close</button>
         <div class="modal-resize-handle" title="Drag to resize width and height">◢</div>
       </div>
     </div>

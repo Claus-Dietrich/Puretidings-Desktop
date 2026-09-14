@@ -1451,11 +1451,18 @@
         return `${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}`;
     }
 
+    function sanitizeFolderPath(folder) {
+        if (!folder || typeof folder !== 'string') return '';
+        return folder.trim().replace(/^["']+|["']+$/g, '').trim();
+    }
+    window.sanitizeFolderPath = sanitizeFolderPath;
+
     function updateBackupTabFolderDisplay(path) {
         const lbl = document.getElementById('backup-tab-folder-label');
         if (!lbl) return;
-        if (path && path.trim()) {
-            lbl.textContent = path.trim();
+        const clean = sanitizeFolderPath(path);
+        if (clean) {
+            lbl.textContent = clean;
             lbl.style.color = "var(--link-color)";
         } else {
             lbl.textContent = "(Default browser downloads)";
@@ -1466,7 +1473,7 @@
 
     function joinPath(folder, filename) {
         if (!folder) return filename;
-        const clean = folder.trim().replace(/[/\\]+$/, '');
+        const clean = sanitizeFolderPath(folder).replace(/[/\\]+$/, '');
         const sep = clean.includes('/') && !clean.includes('\\') ? '/' : '\\';
         return `${clean}${sep}${filename}`;
     }
@@ -1506,8 +1513,8 @@
             version: "1.0",
             app: "PureTidings Desktop",
             date: new Date().toISOString(),
-            local,
-            sync
+            sync,
+            local
         };
         const feedCount = (local.feedTree || []).length;
         return { json: JSON.stringify(backup, null, 2), feedCount };
@@ -1515,8 +1522,34 @@
     window.generateBackupJsonData = generateBackupJsonData;
 
     async function saveBackupFile(filename, content, mimeType, backupFolderPath) {
-        if (backupFolderPath && backupFolderPath.trim()) {
-            const targetPath = joinPath(backupFolderPath.trim(), filename);
+        let cleanFolder = sanitizeFolderPath(backupFolderPath);
+        if (!cleanFolder) {
+            try {
+                const syncData = await chrome.storage.sync.get('backupFolderPath');
+                cleanFolder = sanitizeFolderPath(syncData.backupFolderPath || '');
+            } catch (e) {}
+        }
+        if (!cleanFolder) {
+            const domInput = document.getElementById('settings-backup-folder-path');
+            if (domInput && domInput.value) {
+                cleanFolder = sanitizeFolderPath(domInput.value);
+                if (cleanFolder) {
+                    await chrome.storage.sync.set({ backupFolderPath: cleanFolder });
+                }
+            }
+        }
+        if (!cleanFolder) {
+            const lbl = document.getElementById('backup-tab-folder-label');
+            if (lbl && lbl.textContent && !lbl.textContent.includes('Default browser')) {
+                cleanFolder = sanitizeFolderPath(lbl.textContent);
+                if (cleanFolder) {
+                    await chrome.storage.sync.set({ backupFolderPath: cleanFolder });
+                }
+            }
+        }
+
+        if (cleanFolder) {
+            const targetPath = joinPath(cleanFolder, filename);
             try {
                 await tauriInvoke('write_file_text', { path: targetPath, contents: content });
                 return { directWrite: true, path: targetPath };
@@ -1537,24 +1570,25 @@
             const { autoBackupEnabled = false, backupFolderPath = '' } = await chrome.storage.sync.get(['autoBackupEnabled', 'backupFolderPath']);
             if (!autoBackupEnabled) return;
 
+            const cleanFolder = sanitizeFolderPath(backupFolderPath);
             console.log("[PureTidings Desktop] Running scheduled daily backup...");
             const timestamp = getBackupTimestamp();
 
             // 1. OPML
             const { opml, feedCount: opmlCount } = await generateOpmlData();
             const opmlFilename = `puretidings-feeds-${timestamp}.opml`;
-            const opmlRes = await saveBackupFile(opmlFilename, opml, 'text/xml', backupFolderPath);
+            const opmlRes = await saveBackupFile(opmlFilename, opml, 'text/xml', cleanFolder);
 
             // 2. JSON
             const { json, feedCount: jsonCount } = await generateBackupJsonData();
             const jsonFilename = `puretidings-backup-${timestamp}.json`;
-            const jsonRes = await saveBackupFile(jsonFilename, json, 'application/json', backupFolderPath);
+            const jsonRes = await saveBackupFile(jsonFilename, json, 'application/json', cleanFolder);
 
             const todayStr = new Date().toISOString().split('T')[0];
             await chrome.storage.local.set({ lastAutoBackupDate: todayStr });
 
             const destMsg = (opmlRes.directWrite && opmlRes.path)
-                ? `Saved directly to: ${backupFolderPath}`
+                ? `Saved directly to: ${cleanFolder}`
                 : "Saved to default Downloads";
 
             const title = "PureTidings - Daily Backup Created";
@@ -3242,43 +3276,49 @@
         const saveSettingsBtn = document.getElementById('settings-save-btn');
         if (saveSettingsBtn) {
             saveSettingsBtn.addEventListener('click', async () => {
-                const key = document.getElementById('settings-gemini-key')?.value || '';
-                const aiPrompt = document.getElementById('settings-ai-prompt')?.value || '';
-                const ytPrompt = document.getElementById('settings-yt-prompt')?.value || '';
+                try {
+                    const key = document.getElementById('settings-gemini-key')?.value || '';
+                    const aiPrompt = document.getElementById('settings-ai-prompt')?.value || '';
+                    const ytPrompt = document.getElementById('settings-yt-prompt')?.value || '';
 
-                const checkInterval = parseInt(document.getElementById('settings-check-interval')?.value, 10) || 0;
-                const randomizeFetch = document.getElementById('settings-randomize-fetch')?.checked || false;
-                const showNotification = document.getElementById('settings-show-notifications')?.checked ?? true;
-                const showSummaryNotification = document.getElementById('settings-show-summary-notifications')?.checked || false;
-                const summaryInterval = parseInt(document.getElementById('settings-summary-interval')?.value, 10) || 60;
-                const autoBackupEnabled = document.getElementById('settings-auto-backup-enabled')?.checked || false;
-                const autoBackupTime = document.getElementById('settings-auto-backup-time')?.value || '20:00';
-                const backupFolderPath = document.getElementById('settings-backup-folder-path')?.value?.trim() || '';
+                    const checkInterval = parseInt(document.getElementById('settings-check-interval')?.value, 10) || 0;
+                    const randomizeFetch = document.getElementById('settings-randomize-fetch')?.checked || false;
+                    const showNotification = document.getElementById('settings-show-notifications')?.checked ?? true;
+                    const showSummaryNotification = document.getElementById('settings-show-summary-notifications')?.checked || false;
+                    const summaryInterval = parseInt(document.getElementById('settings-summary-interval')?.value, 10) || 60;
+                    const autoBackupEnabled = document.getElementById('settings-auto-backup-enabled')?.checked || false;
+                    const autoBackupTime = document.getElementById('settings-auto-backup-time')?.value || '20:00';
+                    const backupFolderPath = sanitizeFolderPath(document.getElementById('settings-backup-folder-path')?.value || '');
+                    const fetchSchedule = collectScheduleFromTable();
 
-                await chrome.storage.sync.set({
-                    geminiApiKey: key.trim(),
-                    aiReportPrompt: aiPrompt.trim(),
-                    youtubeAiPrompt: ytPrompt.trim(),
-                    checkInterval,
-                    randomizeFetch,
-                    showNotification,
-                    showSummaryNotification,
-                    summaryInterval,
-                    fetchSchedule,
-                    autoBackupEnabled,
-                    autoBackupTime,
-                    backupFolderPath
-                });
+                    await chrome.storage.sync.set({
+                        geminiApiKey: key.trim(),
+                        aiReportPrompt: aiPrompt.trim(),
+                        youtubeAiPrompt: ytPrompt.trim(),
+                        checkInterval,
+                        randomizeFetch,
+                        showNotification,
+                        showSummaryNotification,
+                        summaryInterval,
+                        fetchSchedule,
+                        autoBackupEnabled,
+                        autoBackupTime,
+                        backupFolderPath
+                    });
 
-                updateBackupTabFolderDisplay(backupFolderPath);
+                    updateBackupTabFolderDisplay(backupFolderPath);
 
-                // Re-arm background schedulers immediately with new config
-                scheduleNextBackgroundFetch();
-                scheduleNextSummaryNotification();
-                scheduleNextAutoBackup();
+                    // Re-arm background schedulers immediately with new config
+                    scheduleNextBackgroundFetch();
+                    scheduleNextSummaryNotification();
+                    scheduleNextAutoBackup();
 
-                closeSettingsModal();
-                showInAppToast("Settings Saved", "Your automation schedules and preferences have been updated successfully!");
+                    closeSettingsModal();
+                    showInAppToast("Settings Saved", "Your automation schedules and preferences have been updated successfully!");
+                } catch (err) {
+                    console.error("[PureTidings Desktop] Error saving settings:", err);
+                    showInAppToast("Settings Error", `Failed to save settings: ${err.message || err}`);
+                }
             });
         }
 
@@ -3444,7 +3484,14 @@
         const backupFolderInput = document.getElementById('settings-backup-folder-path');
         if (backupFolderInput) {
             backupFolderInput.addEventListener('input', (e) => {
-                updateBackupTabFolderDisplay(e.target.value);
+                const clean = sanitizeFolderPath(e.target.value);
+                updateBackupTabFolderDisplay(clean);
+            });
+            backupFolderInput.addEventListener('change', async (e) => {
+                const clean = sanitizeFolderPath(e.target.value);
+                e.target.value = clean;
+                updateBackupTabFolderDisplay(clean);
+                await chrome.storage.sync.set({ backupFolderPath: clean });
             });
         }
 
@@ -3454,9 +3501,11 @@
                 try {
                     const text = await navigator.clipboard.readText();
                     if (text) {
-                        backupFolderInput.value = text.trim();
-                        updateBackupTabFolderDisplay(text.trim());
-                        showInAppToast("Clipboard Pasted", "Folder path pasted from clipboard.");
+                        const clean = sanitizeFolderPath(text);
+                        backupFolderInput.value = clean;
+                        updateBackupTabFolderDisplay(clean);
+                        await chrome.storage.sync.set({ backupFolderPath: clean });
+                        showInAppToast("Clipboard Pasted", "Folder path pasted and saved.");
                     }
                 } catch (err) {
                     console.warn("[PureTidings Desktop] Clipboard read failed:", err);
@@ -3468,15 +3517,17 @@
         if (backupBrowseBtn && backupFolderInput) {
             backupBrowseBtn.addEventListener('click', async () => {
                 try {
-                    const currentVal = backupFolderInput.value.trim();
+                    const currentVal = sanitizeFolderPath(backupFolderInput.value);
                     const selected = await tauriInvoke('pick_folder', {
                         defaultPath: currentVal || null,
                         default_path: currentVal || null
                     });
                     if (selected && typeof selected === 'string' && selected.trim()) {
-                        backupFolderInput.value = selected.trim();
-                        updateBackupTabFolderDisplay(selected.trim());
-                        showInAppToast("Folder Selected", `Backup path set to: ${selected.trim()}`);
+                        const clean = sanitizeFolderPath(selected.trim());
+                        backupFolderInput.value = clean;
+                        updateBackupTabFolderDisplay(clean);
+                        await chrome.storage.sync.set({ backupFolderPath: clean });
+                        showInAppToast("Folder Selected", `Backup path set to: ${clean}`);
                     }
                 } catch (err) {
                     console.error("[PureTidings Desktop] Error picking folder:", err);
@@ -3511,7 +3562,12 @@
                     runBackupStatus.style.color = "var(--primary-color, #8ab4f8)";
                 }
                 try {
-                    const folderPath = document.getElementById('settings-backup-folder-path')?.value?.trim() || '';
+                    const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                    const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                    const folderPath = sanitizeFolderPath(backupFolderPath || domPath);
+                    if (folderPath && !backupFolderPath) {
+                        await chrome.storage.sync.set({ backupFolderPath: folderPath });
+                    }
                     const timestamp = getBackupTimestamp();
 
                     const { opml, feedCount: opmlCount } = await generateOpmlData();
@@ -3563,10 +3619,15 @@
                 showStatusBadge('opml-status-box', 'loading', '⏳ Generating OPML file...', 0);
                 try {
                     const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                    const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                    const folderPath = sanitizeFolderPath(backupFolderPath || domPath);
+                    if (folderPath && !backupFolderPath) {
+                        await chrome.storage.sync.set({ backupFolderPath: folderPath });
+                    }
                     const { opml, feedCount } = await generateOpmlData();
                     const filename = `puretidings-feeds-${getBackupTimestamp()}.opml`;
 
-                    const res = await saveBackupFile(filename, opml, 'text/xml', backupFolderPath);
+                    const res = await saveBackupFile(filename, opml, 'text/xml', folderPath);
                     if (res.directWrite && res.path) {
                         showStatusBadge('opml-status-box', 'success', `✓ Exported ${feedCount} feed(s) directly to:\n${res.path}`);
                         showInAppToast('OPML Export', `Saved ${feedCount} feed(s) to ${res.path}`);
@@ -3580,8 +3641,32 @@
             });
         }
 
-        // --- Dynamic File Picker Helpers (No HTML input elements needed) ---
-        function openOpmlFilePicker() {
+        // --- Dynamic File Picker Helpers (Uses native Windows/Linux file dialog with initial directory) ---
+        async function openOpmlFilePicker() {
+            try {
+                const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                const initialDir = sanitizeFolderPath(backupFolderPath || domPath);
+                const selectedPath = await tauriInvoke('pick_file', {
+                    defaultPath: initialDir || null,
+                    default_path: initialDir || null,
+                    filterName: 'OPML & XML Feeds',
+                    filter_name: 'OPML & XML Feeds',
+                    filterExt: '*.opml;*.xml',
+                    filter_ext: '*.opml;*.xml'
+                });
+                if (selectedPath && typeof selectedPath === 'string' && selectedPath.trim()) {
+                    await processOpmlFile(selectedPath.trim());
+                    return;
+                } else if (selectedPath === null || selectedPath === '') {
+                    // User cancelled the file picker dialog
+                    return;
+                }
+            } catch (err) {
+                console.warn("[PureTidings Desktop] Native file picker failed, falling back to HTML input:", err);
+            }
+
+            // Fallback to HTML input if native pick_file unavailable
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = '.opml,.xml';
@@ -3599,7 +3684,31 @@
             input.click();
         }
 
-        function openJsonFilePicker() {
+        async function openJsonFilePicker() {
+            try {
+                const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                const initialDir = sanitizeFolderPath(backupFolderPath || domPath);
+                const selectedPath = await tauriInvoke('pick_file', {
+                    defaultPath: initialDir || null,
+                    default_path: initialDir || null,
+                    filterName: 'JSON Backup Files',
+                    filter_name: 'JSON Backup Files',
+                    filterExt: '*.json',
+                    filter_ext: '*.json'
+                });
+                if (selectedPath && typeof selectedPath === 'string' && selectedPath.trim()) {
+                    await processJsonFile(selectedPath.trim());
+                    return;
+                } else if (selectedPath === null || selectedPath === '') {
+                    // User cancelled the file picker dialog
+                    return;
+                }
+            } catch (err) {
+                console.warn("[PureTidings Desktop] Native file picker failed, falling back to HTML input:", err);
+            }
+
+            // Fallback to HTML input if native pick_file unavailable
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = '.json';
@@ -3789,10 +3898,15 @@
                 showStatusBadge('backup-json-status-box', 'loading', '⏳ Generating full application backup...', 0);
                 try {
                     const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                    const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                    const folderPath = sanitizeFolderPath(backupFolderPath || domPath);
+                    if (folderPath && !backupFolderPath) {
+                        await chrome.storage.sync.set({ backupFolderPath: folderPath });
+                    }
                     const { json, feedCount } = await generateBackupJsonData();
                     const filename = `puretidings-backup-${getBackupTimestamp()}.json`;
 
-                    const res = await saveBackupFile(filename, json, 'application/json', backupFolderPath);
+                    const res = await saveBackupFile(filename, json, 'application/json', folderPath);
                     if (res.directWrite && res.path) {
                         showStatusBadge('backup-json-status-box', 'success', `✓ Full backup saved directly to:\n${res.path}`);
                         showInAppToast('Full Backup', `JSON backup saved to ${res.path}`);
@@ -3861,6 +3975,11 @@
                 console.warn('tauri://drag-drop registration:', e);
             }
         }
+
+        // Initialize backup destination label on startup
+        chrome.storage.sync.get('backupFolderPath').then(({ backupFolderPath }) => {
+            if (backupFolderPath) updateBackupTabFolderDisplay(backupFolderPath);
+        }).catch(() => {});
 
         // Start background automation engine (schedules next check based on configured interval & schedule)
         startBackgroundScheduler();
