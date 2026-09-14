@@ -346,19 +346,49 @@
                             context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } },
                             videoId: msg.videoId
                         });
-                        const dataStr = await tauriInvoke('post_url', {
-                            url: innerTubeUrl,
-                            body,
-                            userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
-                        });
+                        let dataStr = '';
+                        try {
+                            dataStr = await tauriInvoke('post_url', {
+                                url: innerTubeUrl,
+                                body,
+                                userAgent: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
+                            });
+                        } catch (postErr) {
+                            console.warn('[PureTidings Desktop] IPC post_url failed, falling back to direct fetch:', postErr);
+                            const directRes = await fetch(innerTubeUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14)'
+                                },
+                                body
+                            });
+                            dataStr = await directRes.text();
+                        }
                         const data = JSON.parse(dataStr);
                         const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
                         if (tracks && tracks.length > 0) {
-                            const track = tracks.find(t => t.languageCode === 'en' || t.languageCode === 'de') || tracks[0];
-                            const transcriptXml = await tauriInvoke('fetch_url', { url: track.baseUrl });
-                            return { status: 'ok', xml: transcriptXml };
+                            // Prefer German/English manual tracks over auto-generated, fallback to first available
+                            const deManual = tracks.find(t => (t.languageCode === 'de' || t.languageCode?.startsWith('de')) && !t.vssId?.startsWith('a.'));
+                            const deAuto = tracks.find(t => t.languageCode === 'de' || t.languageCode?.startsWith('de'));
+                            const enManual = tracks.find(t => (t.languageCode === 'en' || t.languageCode?.startsWith('en')) && !t.vssId?.startsWith('a.'));
+                            const enAuto = tracks.find(t => t.languageCode === 'en' || t.languageCode?.startsWith('en'));
+                            const track = deManual || deAuto || enManual || enAuto || tracks[0];
+
+                            let transcriptXml = '';
+                            try {
+                                transcriptXml = await tauriInvoke('fetch_url', { url: track.baseUrl });
+                            } catch (fetchErr) {
+                                console.warn('[PureTidings Desktop] IPC fetch_url for track failed, falling back to direct fetch:', fetchErr);
+                                const tRes = await fetch(track.baseUrl);
+                                transcriptXml = await tRes.text();
+                            }
+                            if (transcriptXml && transcriptXml.trim()) {
+                                return { status: 'ok', xml: transcriptXml, track: track };
+                            }
+                            return { status: 'error', message: 'Empty transcript received from YouTube.' };
                         }
-                        return { status: 'error', message: 'No transcript tracks found.' };
+                        return { status: 'error', message: 'No transcript tracks found for this video.' };
                     } catch (e) {
                         return { status: 'error', message: e.toString() };
                     }
@@ -1049,13 +1079,8 @@
             try {
                 const res = await chrome.runtime.sendMessage({ action: 'fetchYoutubeTranscript', videoId });
                 let transcriptText = "";
-                if (res && res.xml) {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(res.xml, "text/xml");
-                    const texts = doc.getElementsByTagName("text");
-                    for (let i = 0; i < texts.length; i++) {
-                        transcriptText += texts[i].textContent + " ";
-                    }
+                if (res && res.status === 'ok' && res.xml) {
+                    transcriptText = extractTranscriptText(res.xml);
                 }
                 const { geminiApiKey, youtubeAiPrompt } = await chrome.storage.sync.get(['geminiApiKey', 'youtubeAiPrompt']);
                 if (!geminiApiKey) {
@@ -1063,7 +1088,7 @@
                     return;
                 }
                 const prompt = youtubeAiPrompt || "Create a comprehensive and well-structured summary of this YouTube video with key takeaways and bullet points.";
-                const aiResult = await callGeminiApi(geminiApiKey, prompt, transcriptText || "No transcript available for video " + cleanUrl);
+                const aiResult = await callGeminiApi(geminiApiKey, prompt, transcriptText ? "Video Script / Transcript:\n" + transcriptText : "No transcript available for video " + cleanUrl);
                 
                 openReaderModal({
                     url: cleanUrl,
@@ -2001,6 +2026,109 @@
         return null;
     }
 
+    function extractTranscriptText(data) {
+        if (!data) return '';
+        if (typeof data !== 'string') {
+            try {
+                data = JSON.stringify(data);
+            } catch (_) {
+                return '';
+            }
+        }
+
+        // 1. JSON format (events / segs)
+        try {
+            const json = JSON.parse(data);
+            if (json.events && Array.isArray(json.events)) {
+                const segTexts = [];
+                for (const ev of json.events) {
+                    if (ev.segs && Array.isArray(ev.segs)) {
+                        for (const s of ev.segs) {
+                            if (s.utf8) segTexts.push(s.utf8);
+                        }
+                    }
+                }
+                if (segTexts.length > 0) {
+                    return segTexts.join(' ')
+                        .replace(/&#39;/g, "'")
+                        .replace(/&quot;/g, '"')
+                        .replace(/&amp;/g, '&')
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .substring(0, 50000);
+                }
+            }
+        } catch (_) {
+            // Not JSON, continue to XML
+        }
+
+        // 2. XML DOM parsing
+        try {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(data, "text/xml");
+            let nodes = Array.from(xmlDoc.getElementsByTagName('p'));
+            if (nodes.length === 0) {
+                nodes = Array.from(xmlDoc.getElementsByTagName('text'));
+            }
+
+            if (nodes.length > 0) {
+                const texts = nodes.map(node => {
+                    const txt = node.textContent || '';
+                    return txt.replace(/<[^>]+>/g, '');
+                });
+                const joined = texts.join(' ')
+                    .replace(/&#39;/g, "'")
+                    .replace(/&quot;/g, '"')
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                if (joined.length > 0) {
+                    return joined.substring(0, 50000);
+                }
+            }
+        } catch (xmlErr) {
+            console.warn("[PureTidings Desktop] Error parsing transcript XML via DOMParser:", xmlErr);
+        }
+
+        // 3. Regex fallback
+        try {
+            const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+            const matches = [];
+            let match;
+            while ((match = pRegex.exec(data)) !== null) {
+                matches.push(match[1]);
+            }
+            if (matches.length === 0) {
+                const textRegex = /<text[^>]*>([\s\S]*?)<\/text>/gi;
+                while ((match = textRegex.exec(data)) !== null) {
+                    matches.push(match[1]);
+                }
+            }
+            if (matches.length > 0) {
+                const joined = matches.join(' ')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&#39;/g, "'")
+                    .replace(/&quot;/g, '"')
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                if (joined.length > 0) {
+                    return joined.substring(0, 50000);
+                }
+            }
+        } catch (rxErr) {
+            console.warn("[PureTidings Desktop] Error parsing transcript via regex:", rxErr);
+        }
+
+        return '';
+    }
+
     function renderReaderVideoPlayer(videoId) {
         const videoEl = document.getElementById('reader-video-info');
         if (!videoEl) return;
@@ -2166,6 +2294,21 @@
                 bodyEl.innerHTML = data.description || '';
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
+            }
+
+            // If video ID wasn't found from URL or fetch, inspect rendered body and payload
+            if (!currentReaderVideoId) {
+                const potentialVideoId = extractYoutubeVideoId(
+                    data.url || '',
+                    (data.fullContentHtmlText || '') + ' ' + (data.description || '') + ' ' + (bodyEl ? bodyEl.innerHTML : ''),
+                    bodyEl
+                );
+                if (potentialVideoId) {
+                    currentReaderVideoId = potentialVideoId;
+                    renderReaderVideoPlayer(potentialVideoId);
+                    const ytAiBtn = document.getElementById('reader-generate-yt-ai-btn');
+                    if (ytAiBtn) ytAiBtn.style.display = 'inline-block';
+                }
             }
         }
     }
@@ -2381,25 +2524,57 @@
 
                 try {
                     let aiResult = '';
-                    if (type === 'youtube' && currentReaderVideoId) {
-                        // Fetch transcript
-                        let transcriptText = '';
-                        try {
-                            const res = await chrome.runtime.sendMessage({ action: 'fetchYoutubeTranscript', videoId: currentReaderVideoId });
-                            if (res && res.xml) {
-                                const parser = new DOMParser();
-                                const doc = parser.parseFromString(res.xml, "text/xml");
-                                const texts = doc.getElementsByTagName("text");
-                                for (let i = 0; i < texts.length; i++) {
-                                    transcriptText += texts[i].textContent + " ";
-                                }
-                            }
-                        } catch (te) {
-                            console.warn("Could not load transcript:", te);
+                    if (type === 'youtube') {
+                        // Ensure video ID is available
+                        const videoId = currentReaderVideoId || extractYoutubeVideoId(
+                            currentReaderArticle?.url || '',
+                            (currentReaderArticle?.fullContentHtmlText || '') + ' ' + (currentReaderArticle?.description || ''),
+                            document.getElementById('reader-article-body')
+                        );
+                        if (videoId && !currentReaderVideoId) {
+                            currentReaderVideoId = videoId;
                         }
 
-                        const descText = currentReaderArticle?.description || '';
-                        const contentPayload = `Video Title: ${currentReaderArticle?.title || ''}\n\nVideo Description:\n${descText}\n\nVideo Script / Transcript:\n${transcriptText || 'No video script (transcript) available.'}`;
+                        // Fetch transcript
+                        let transcriptText = '';
+                        let transcriptFound = false;
+                        let failReason = '';
+
+                        if (videoId) {
+                            try {
+                                console.log('[PureTidings Desktop] Fetching YouTube transcript for video ID:', videoId);
+                                const res = await chrome.runtime.sendMessage({ action: 'fetchYoutubeTranscript', videoId });
+                                if (res && res.status === 'ok' && res.xml) {
+                                    transcriptText = extractTranscriptText(res.xml);
+                                    if (transcriptText && transcriptText.length > 0) {
+                                        transcriptFound = true;
+                                        console.log(`[PureTidings Desktop] Successfully extracted transcript (${transcriptText.length} characters)`);
+                                    } else {
+                                        failReason = 'Script exists on YouTube but could not be parsed.';
+                                    }
+                                } else if (res && res.status === 'error') {
+                                    failReason = res.message || 'Subtitles/transcript not available on YouTube.';
+                                } else {
+                                    failReason = 'Could not load script from YouTube.';
+                                }
+                            } catch (te) {
+                                console.warn('[PureTidings Desktop] Could not load transcript:', te);
+                                failReason = te.message || 'Error communicating with YouTube.';
+                            }
+                        } else {
+                            failReason = 'Could not determine YouTube video ID.';
+                        }
+
+                        const bodyEl = document.getElementById('reader-article-body');
+                        const descText = (bodyEl?.innerText || currentReaderArticle?.description || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().substring(0, 10000);
+                        
+                        let contentPayload = `Video Title: ${currentReaderArticle?.title || ''}\n\nVideo Description:\n${descText || 'No description provided.'}\n\n`;
+                        if (transcriptFound && transcriptText) {
+                            contentPayload += `Video Script / Transcript:\n${transcriptText}`;
+                        } else {
+                            contentPayload += `Video Script / Transcript:\nNo video script (transcript) available. (${failReason})`;
+                        }
+
                         aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
                     } else {
                         // Regular article
