@@ -968,7 +968,7 @@
     // ==========================================
     // 7. Feed Discovery & Subscription (Question 4)
     // ==========================================
-    async function discoverAndSubscribeFeed(inputUrl, targetFolderId = '') {
+    async function discoverAndSubscribeFeed(inputUrl, targetFolderId = '', customName = '') {
         let cleanUrl = inputUrl.trim();
         if (!cleanUrl) return null;
         if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
@@ -976,7 +976,7 @@
         }
 
         let feedUrl = cleanUrl;
-        let feedName = '';
+        let feedName = (typeof customName === 'string' && customName.trim()) ? customName.trim() : '';
 
         // Check if YouTube
         const ytChannelMatch = cleanUrl.match(/youtube\.com\/channel\/([a-zA-Z0-9_-]+)/);
@@ -985,7 +985,7 @@
 
         if (ytChannelMatch) {
             feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ytChannelMatch[1]}`;
-            feedName = `YouTube Channel`;
+            if (!feedName) feedName = `YouTube Channel`;
         } else if (ytCustomMatch || ytVideoMatch) {
             try {
                 const pageHtml = await tauriInvoke('fetch_url', { url: cleanUrl });
@@ -993,8 +993,10 @@
                 if (rssMatch) {
                     feedUrl = rssMatch[0];
                 }
-                const titleMatch = pageHtml.match(/<title>([^<]+)<\/title>/i);
-                if (titleMatch) feedName = titleMatch[1].replace(' - YouTube', '').trim();
+                if (!feedName) {
+                    const titleMatch = pageHtml.match(/<title>([^<]+)<\/title>/i);
+                    if (titleMatch) feedName = titleMatch[1].replace(' - YouTube', '').trim();
+                }
             } catch (e) {
                 console.warn("YouTube discovery error:", e);
             }
@@ -1009,8 +1011,10 @@
                     const href = feedLink.getAttribute('href');
                     feedUrl = new URL(href, cleanUrl).toString();
                 }
-                const titleEl = doc.querySelector('title');
-                if (titleEl) feedName = titleEl.textContent.trim();
+                if (!feedName) {
+                    const titleEl = doc.querySelector('title');
+                    if (titleEl) feedName = titleEl.textContent.trim();
+                }
             } catch (e) {
                 console.warn("HTML feed discovery error:", e);
             }
@@ -1052,7 +1056,10 @@
         }
 
         await chrome.storage.local.set({ feedTree });
-        refreshAllFeedsNative();
+        if (typeof renderSettingsFeeds === 'function') {
+            renderSettingsFeeds();
+        }
+        await refreshSingleFeedNative(newFeed.id);
         return { name: feedName, url: feedUrl };
     }
     window.discoverAndSubscribeFeed = discoverAndSubscribeFeed;
@@ -3101,6 +3108,7 @@
         // 1. Dedicated Paste Buttons
         const pasteMappings = [
             { btnId: 'quick-feed-paste-btn', inputId: 'quick-feed-url-input' },
+            { btnId: 'quick-feed-name-paste-btn', inputId: 'quick-feed-name-input' },
             { btnId: 'quick-summarize-paste-btn', inputId: 'quick-summarize-url-input' },
             { btnId: 'settings-gemini-key-paste-btn', inputId: 'settings-gemini-key' },
             { btnId: 'new-rule-paste-btn', inputId: 'new-rule-value' },
@@ -3246,6 +3254,101 @@
     }
 
     // ==========================================
+    // Mobile Responsive Off-Canvas Drawer Handling
+    // ==========================================
+    function setupMobileResponsiveDrawer() {
+        const sidebar = document.getElementById('app-sidebar') || document.querySelector('.sidebar');
+        const drawerOverlay = document.getElementById('drawer-overlay');
+        const menuBtn = document.getElementById('mobile-menu-btn');
+        const closeBtn = document.getElementById('sidebar-close-btn');
+        const mobileRefresh = document.getElementById('mobile-refresh-btn');
+        const mobileTheme = document.getElementById('mobile-theme-btn');
+        const mobileSettings = document.getElementById('mobile-settings-btn');
+        const mobileTitle = document.getElementById('mobile-page-title');
+        const pageTitle = document.getElementById('page-title');
+
+        if (!sidebar) return;
+
+        function openDrawer() {
+            sidebar.classList.add('drawer-open');
+            if (drawerOverlay) drawerOverlay.classList.add('active');
+        }
+
+        function closeDrawer() {
+            sidebar.classList.remove('drawer-open');
+            if (drawerOverlay) drawerOverlay.classList.remove('active');
+        }
+
+        if (menuBtn) {
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (sidebar.classList.contains('drawer-open')) {
+                    closeDrawer();
+                } else {
+                    openDrawer();
+                }
+            });
+        }
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeDrawer();
+            });
+        }
+
+        if (drawerOverlay) {
+            drawerOverlay.addEventListener('click', closeDrawer);
+        }
+
+        // Auto-close drawer on mobile when clicking any navigation link or feed item
+        sidebar.addEventListener('click', (e) => {
+            if (window.innerWidth <= 768) {
+                const target = e.target;
+                if (target.closest('a') || target.closest('.sidebar-action-btn') || target.closest('.feed-item') || target.closest('.tree-item')) {
+                    setTimeout(closeDrawer, 120);
+                }
+            }
+        });
+
+        // Delegate mobile header buttons to existing handlers
+        if (mobileRefresh) {
+            mobileRefresh.addEventListener('click', () => {
+                const desktopRefresh = document.getElementById('sidebar-refresh-btn');
+                if (desktopRefresh) desktopRefresh.click();
+            });
+        }
+
+        if (mobileTheme) {
+            mobileTheme.addEventListener('click', () => {
+                const desktopTheme = document.getElementById('theme-toggle-btn');
+                if (desktopTheme) desktopTheme.click();
+                setTimeout(() => {
+                    if (desktopTheme) mobileTheme.textContent = desktopTheme.textContent;
+                }, 50);
+            });
+        }
+
+        if (mobileSettings) {
+            mobileSettings.addEventListener('click', () => {
+                const desktopSettings = document.getElementById('sidebar-settings-btn');
+                if (desktopSettings) desktopSettings.click();
+            });
+        }
+
+        // Sync mobile header title with main page title
+        if (pageTitle && mobileTitle) {
+            const syncTitle = () => {
+                const txt = pageTitle.textContent.trim();
+                if (txt) mobileTitle.textContent = txt;
+            };
+            syncTitle();
+            const observer = new MutationObserver(syncTitle);
+            observer.observe(pageTitle, { childList: true, characterData: true, subtree: true });
+        }
+    }
+
+    // ==========================================
     // 10. DOM Initialization & Event Wiring
     // ==========================================
     document.addEventListener('DOMContentLoaded', () => {
@@ -3339,6 +3442,7 @@
         const quickAddClose = document.getElementById('quick-add-modal-close');
         const quickAddSubmit = document.getElementById('quick-feed-submit-btn');
         const quickAddInput = document.getElementById('quick-feed-url-input');
+        const quickAddNameInput = document.getElementById('quick-feed-name-input');
         const quickAddStatus = document.getElementById('quick-feed-status');
 
         if (quickAddBtn && quickAddModal) {
@@ -3348,6 +3452,7 @@
                 quickAddModal.style.display = 'flex';
                 renderSettingsFeeds();
                 if (quickAddInput) { quickAddInput.value = ''; quickAddInput.focus(); }
+                if (quickAddNameInput) { quickAddNameInput.value = ''; }
                 if (quickAddStatus) quickAddStatus.textContent = '';
             });
         }
@@ -3358,15 +3463,34 @@
             });
         }
 
+        if (quickAddInput) {
+            quickAddInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (quickAddSubmit && !quickAddSubmit.disabled) quickAddSubmit.click();
+                }
+            });
+        }
+
+        if (quickAddNameInput) {
+            quickAddNameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (quickAddSubmit && !quickAddSubmit.disabled) quickAddSubmit.click();
+                }
+            });
+        }
+
         if (quickAddSubmit) {
             quickAddSubmit.addEventListener('click', async () => {
                 const val = quickAddInput?.value?.trim() || '';
                 if (!val) return;
+                const customName = quickAddNameInput?.value?.trim() || '';
                 const folderId = document.getElementById('quick-feed-folder-select')?.value || '';
                 if (quickAddStatus) quickAddStatus.textContent = "Discovering feed and subscribing...";
                 quickAddSubmit.disabled = true;
                 try {
-                    const res = await discoverAndSubscribeFeed(val, folderId);
+                    const res = await discoverAndSubscribeFeed(val, folderId, customName);
                     if (res) {
                         if (quickAddStatus) quickAddStatus.textContent = `Subscribed to "${res.name}"!`;
                         setTimeout(() => {
@@ -3419,9 +3543,10 @@
         const readerCloseBtn = document.getElementById('reader-modal-close');
         if (readerCloseBtn) readerCloseBtn.addEventListener('click', closeReaderModal);
 
-        // Initialize Reader Toolbar & Context Menu
+        // Initialize Reader Toolbar, Context Menu & Mobile Responsive Drawer
         setupReaderToolbar();
         setupClipboardAndContextMenu();
+        setupMobileResponsiveDrawer();
 
         // Settings Tabs
         document.querySelectorAll('.settings-tab-btn').forEach(btn => {

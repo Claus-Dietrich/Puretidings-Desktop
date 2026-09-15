@@ -436,9 +436,15 @@
   </style>
 </head>
 <body>
+  <!-- Mobile Drawer Overlay Backdrop -->
+  <div id="drawer-overlay" class="drawer-overlay"></div>
+
   <div class="page-layout">
-    <aside class="sidebar">
-      <h1 class="sidebar-title">PureTidings</h1>
+    <aside class="sidebar" id="app-sidebar">
+      <div class="sidebar-header-row">
+        <h1 class="sidebar-title">PureTidings</h1>
+        <button id="sidebar-close-btn" class="sidebar-close-btn" title="Close Menu">&times;</button>
+      </div>
       
       <!-- Quick Action Buttons for Subscription & Summaries -->
       <div style="margin-bottom: 12px; flex-shrink: 0;">
@@ -466,6 +472,19 @@
     </aside>
 
     <div class="main-content">
+      <!-- Mobile Top App Bar (Visible on <= 768px) -->
+      <header id="mobile-app-bar" class="mobile-app-bar">
+        <button id="mobile-menu-btn" class="mobile-icon-btn" aria-label="Open menu" title="Menu">
+          <span class="hamburger-icon">☰</span>
+        </button>
+        <div class="mobile-app-title" id="mobile-page-title">PureTidings</div>
+        <div class="mobile-app-actions">
+          <button id="mobile-refresh-btn" class="mobile-icon-btn" title="Refresh Feeds">🔄</button>
+          <button id="mobile-theme-btn" class="mobile-icon-btn" title="Toggle Theme">🌙</button>
+          <button id="mobile-settings-btn" class="mobile-icon-btn" title="Settings">⚙️</button>
+        </div>
+      </header>
+
       <header class="main-header">
         <h2 id="page-title">All Posts</h2> 
         <div id="summary-toolbar" class="hidden">
@@ -550,15 +569,19 @@
         Enter any website URL (e.g. <code>techcrunch.com</code>), YouTube channel, or RSS feed link. PureTidings will automatically discover the feed and subscribe.
       </p>
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <div style="display: flex; gap: 8px;">
-          <input type="url" id="quick-feed-url-input" placeholder="https://example.com or RSS URL" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
-          <button type="button" id="quick-feed-paste-btn" class="secondary-btn" style="padding: 0 12px; height: 40px;" title="Paste URL from clipboard">📋 Paste</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="url" id="quick-feed-url-input" placeholder="https://example.com or RSS URL" style="flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+          <button type="button" id="quick-feed-paste-btn" class="secondary-btn" style="flex-shrink: 0; padding: 0 12px; height: 40px; white-space: nowrap;" title="Paste URL from clipboard">📋 Paste</button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="text" id="quick-feed-name-input" placeholder="Feed Name (optional - auto-detected if empty)" style="flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
+          <button type="button" id="quick-feed-name-paste-btn" class="secondary-btn" style="flex-shrink: 0; padding: 0 12px; height: 40px; white-space: nowrap;" title="Paste name from clipboard">📋 Paste</button>
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
-          <select id="quick-feed-folder-select" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 13px; outline: none;">
+          <select id="quick-feed-folder-select" style="flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 13px; outline: none;">
             <option value="">Root (No Folder)</option>
           </select>
-          <button type="button" id="quick-feed-submit-btn" style="padding: 10px 20px; background: #007bff; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;">Subscribe</button>
+          <button type="button" id="quick-feed-submit-btn" style="flex-shrink: 0; padding: 10px 20px; background: #007bff; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">Subscribe</button>
         </div>
         <p id="quick-feed-status" style="font-size: 12px; margin: 5px 0 0 0; color: var(--link-color); font-weight: bold;"></p>
       </div>
