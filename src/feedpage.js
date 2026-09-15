@@ -376,23 +376,27 @@ async function switchView(view, isRefresh = false) {
   summaryToolbar.classList.remove('hidden');
   clearSummaryBtn.style.display = (view === 'summary' || view === 'favorites') ? 'inline-block' : 'none';
 
-  switch (view) {
-    case 'all':
-      pageTitleH2.textContent = "All Posts";
-      break;
-    case 'unread':
-      pageTitleH2.textContent = "Unread Posts";
-      break;
-    case 'favorites':
-      pageTitleH2.textContent = "Favorite Posts";
-      break;
-    case 'keywords':
-      pageTitleH2.textContent = "Keyword Matches";
-      break;
-    case 'summary':
-      pageTitleH2.textContent = "Summary Cart";
-      break;
-  }
+  const getViewTitle = (v) => {
+    if (window.i18n) {
+      switch (v) {
+        case 'all': return window.i18n.t('page_title_all');
+        case 'unread': return window.i18n.t('page_title_unread');
+        case 'favorites': return window.i18n.t('page_title_favorites');
+        case 'keywords': return window.i18n.t('page_title_keywords');
+        case 'summary': return window.i18n.t('page_title_summary');
+      }
+    }
+    switch (v) {
+      case 'all': return "All Posts";
+      case 'unread': return "Unread Posts";
+      case 'favorites': return "Favorite Posts";
+      case 'keywords': return "Keyword Matches";
+      case 'summary': return "Summary Cart";
+      default: return "All Posts";
+    }
+  };
+
+  pageTitleH2.textContent = getViewTitle(view);
 
   switch (view) {
     case 'all': renderAllPostsView(); break;
@@ -1835,3 +1839,16 @@ function preprocessDOM(doc, url) {
         }
     }
 }
+
+// Global runtime language switch listener
+window.addEventListener('i18n:languageChanged', () => {
+    if (pageTitleH2 && typeof currentViewMode !== 'undefined' && window.i18n) {
+        switch (currentViewMode) {
+            case 'all': pageTitleH2.textContent = window.i18n.t('page_title_all'); break;
+            case 'unread': pageTitleH2.textContent = window.i18n.t('page_title_unread'); break;
+            case 'favorites': pageTitleH2.textContent = window.i18n.t('page_title_favorites'); break;
+            case 'keywords': pageTitleH2.textContent = window.i18n.t('page_title_keywords'); break;
+            case 'summary': pageTitleH2.textContent = window.i18n.t('page_title_summary'); break;
+        }
+    }
+});

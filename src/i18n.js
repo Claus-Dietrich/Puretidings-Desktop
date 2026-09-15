@@ -1,0 +1,708 @@
+/**
+ * PureTidings Desktop - Internationalization (i18n) Module
+ * Supports: English (en), German (de), Spanish (es), French (fr)
+ */
+(function () {
+    const translations = {
+        en: {
+            // Sidebar navigation
+            nav_all: "All Posts",
+            nav_unread: "Unread Posts",
+            nav_favorites: "Favorites",
+            nav_keywords: "Keyword Matches",
+            nav_summary: "Summary Cart",
+            btn_quick_add_feed: "➕ Add / Subscribe Feed",
+            btn_quick_summarize: "🤖 AI Summarize URL",
+            search_placeholder: "Search... (+ AND, , OR, - NOT)",
+            search_title: "Example: Apple +Macbook -iPhone",
+            tooltip_settings: "Settings",
+            tooltip_refresh: "Refresh Feeds (F5)",
+            tooltip_theme: "Toggle Light/Dark Theme",
+            sidebar_close: "Close Menu",
+
+            // Mobile app bar
+            mobile_title: "PureTidings",
+            mobile_menu: "Menu",
+
+            // Main view header
+            page_title_all: "All Posts",
+            page_title_unread: "Unread Posts",
+            page_title_favorites: "Favorites",
+            page_title_keywords: "Keyword Matches",
+            page_title_summary: "Summary Cart",
+            date_filter_all: "All Dates",
+            date_filter_today: "Today",
+            date_filter_yesterday: "Yesterday",
+            date_filter_last_7_days: "Last 7 Days",
+            date_filter_custom: "Custom Range",
+            btn_copy: "Copy",
+            btn_save: "Save",
+            btn_clear_list: "Clear List",
+            btn_ai_report: "AI Report",
+            btn_full_view: "Full Report View",
+            filter_search_placeholder: "Filter posts...",
+
+            // Quick Add Feed Modal
+            modal_add_feed_title: "➕ Add / Subscribe Feed",
+            modal_add_feed_desc: "Enter any website URL (e.g. techcrunch.com), YouTube channel, or RSS feed link. PureTidings will automatically discover the feed and subscribe.",
+            input_feed_url_placeholder: "https://example.com or RSS URL",
+            input_feed_name_placeholder: "Feed Name (optional - auto-detected if empty)",
+            folder_root_option: "Root (No Folder)",
+            btn_subscribe: "Subscribe",
+            btn_paste: "📋 Paste",
+            subscribing_status: "Discovering feed and subscribing...",
+            subscribed_status: "Subscribed to \"{name}\"!",
+
+            // Quick AI Summarize Modal
+            modal_ai_summarize_title: "🤖 AI Summarize Page or Video",
+            modal_ai_summarize_desc: "Paste any article link or YouTube video URL. PureTidings will extract the full content or transcript and generate an instant AI summary.",
+            input_ai_url_placeholder: "https://... (article or YouTube video)",
+            btn_generate_ai_summary: "Generate AI Summary",
+
+            // Settings Modal Header & Tabs
+            settings_title: "⚙️ Settings & Configuration",
+            settings_tab_feeds: "Feeds & Folders",
+            settings_tab_automation: "Automation & Schedule",
+            settings_tab_ai: "AI Features",
+            settings_tab_rules: "Rules & Filters",
+            settings_tab_backup: "Backup & OPML",
+            settings_language_label: "🌐 Language / Sprache:",
+            btn_save_settings: "Save Settings",
+
+            // Settings: Feeds & Folders Tab
+            settings_manage_feeds_title: "Manage Feeds",
+            settings_add_feed_heading: "Add New Feed",
+            settings_feed_name_placeholder: "Feed Name (e.g. Ars Technica)",
+            settings_feed_url_placeholder: "Feed URL (RSS / Atom / YouTube channel)",
+            settings_btn_add_feed: "Add Feed",
+            settings_add_folder_heading: "Add New Folder",
+            settings_folder_name_placeholder: "Folder Name (e.g. News)",
+            settings_btn_add_folder: "Add Folder",
+            settings_configured_heading: "Configured Feeds & Folders",
+
+            // Settings: Automation Tab
+            settings_automation_title: "⏱️ Fetch Automation & Background Schedule",
+            settings_fetch_schedule_title: "Automatic Fetch Schedule (Active Hours)",
+            settings_fetch_interval_label: "Background Fetch Interval:",
+            settings_randomize_label: "🎲 Randomize fetch timing (±20% jitter)",
+            settings_notifications_title: "🔔 Desktop Notification Settings",
+            settings_notify_articles_label: "Show desktop toast notification when new articles arrive",
+            settings_notify_unread_label: "Send periodic summary reminder for unread articles",
+            settings_unread_interval_label: "Unread Reminder Interval:",
+            btn_test_notification: "🔔 Send Test Notification",
+            btn_test_unread_reminder: "🔔 Test Unread Reminder",
+
+            // Settings: AI Tab
+            settings_ai_title: "🤖 Google Gemini AI Summaries (BYOK)",
+            settings_ai_key_label: "Google Gemini API Key:",
+            settings_ai_key_placeholder: "Enter your Google Gemini API Key",
+            settings_ai_prompt_label: "Article Summary Custom Prompt:",
+            settings_ai_yt_prompt_label: "YouTube Video Custom Prompt:",
+
+            // Settings: Rules Tab
+            settings_rules_title: "🔍 Smart Keyword Automation & Rules",
+            settings_rule_keyword_placeholder: "Keywords (e.g. Apple +Macbook -iPhone)",
+            settings_rule_action_label: "Action:",
+            settings_rule_action_fav: "Mark as Favorite (Star)",
+            settings_rule_action_unread: "Keep Unread & Highlight",
+            settings_rule_action_read: "Mark as Read",
+            settings_rule_action_hide: "Hide from feed",
+            btn_add_rule: "Add Rule",
+
+            // Settings: Backup & OPML Tab
+            settings_backup_title: "💾 Local-First Backups & OPML 2.0 Portability",
+            settings_auto_backup_title: "⏰ Automated Scheduled Daily Backups",
+            settings_auto_backup_label: "Enable automated daily backups directly to disk",
+            settings_auto_backup_time_label: "Scheduled Backup Time:",
+            settings_backup_folder_label: "Destination Backup Directory:",
+            btn_browse_folder: "📂 Browse...",
+            btn_open_folder: "📁 Open",
+            btn_create_backup_now: "⚡ Create Backup Now",
+            btn_export_opml: "📤 Export OPML",
+            btn_import_opml: "📥 Import OPML...",
+            btn_backup_json: "💾 Backup All Data (JSON)",
+            btn_restore_json: "🔄 Restore Backup...",
+
+            // Reader Mode
+            reader_copy: "Copy",
+            reader_save: "Save",
+            reader_ai_summary: "🤖 AI Summary",
+            reader_ai_video_summary: "🎥 AI Video Summary",
+            reader_close: "Close",
+            reader_original_article: "Original Article",
+
+            // Post actions
+            post_action_read_mode: "Read Mode",
+            post_action_mark_read: "Mark as read",
+            post_action_mark_unread: "Mark as unread",
+            post_action_favorite: "Favorite",
+            post_action_summary_cart: "Summary Cart",
+
+            // Miscellaneous & Toasts
+            toast_saved: "Settings Saved",
+            toast_backup_created: "Backup created successfully",
+            toast_feed_updated: "Feed Updated",
+            toast_feed_refresh_failed: "Feed Refresh Failed",
+            no_articles_found: "No articles found.",
+            loading_posts: "Loading posts..."
+        },
+
+        de: {
+            // Sidebar navigation
+            nav_all: "Alle Artikel",
+            nav_unread: "Ungelesene Artikel",
+            nav_favorites: "Favoriten",
+            nav_keywords: "Schlagwort-Treffer",
+            nav_summary: "Zusammenfassungs-Korb",
+            btn_quick_add_feed: "➕ Feed abonnieren / hinzufügen",
+            btn_quick_summarize: "🤖 KI-Zusammenfassung (URL)",
+            search_placeholder: "Suchen... (+ UND, , ODER, - NICHT)",
+            search_title: "Beispiel: Apple +Macbook -iPhone",
+            tooltip_settings: "Einstellungen",
+            tooltip_refresh: "Feeds aktualisieren (F5)",
+            tooltip_theme: "Hell/Dunkel umschalten",
+            sidebar_close: "Menü schließen",
+
+            // Mobile app bar
+            mobile_title: "PureTidings",
+            mobile_menu: "Menü",
+
+            // Main view header
+            page_title_all: "Alle Artikel",
+            page_title_unread: "Ungelesene Artikel",
+            page_title_favorites: "Favoriten",
+            page_title_keywords: "Schlagwort-Treffer",
+            page_title_summary: "Zusammenfassungs-Korb",
+            date_filter_all: "Alle Daten",
+            date_filter_today: "Heute",
+            date_filter_yesterday: "Gestern",
+            date_filter_last_7_days: "Letzte 7 Tage",
+            date_filter_custom: "Benutzerdefiniert",
+            btn_copy: "Kopieren",
+            btn_save: "Speichern",
+            btn_clear_list: "Liste leeren",
+            btn_ai_report: "KI-Bericht",
+            btn_full_view: "Vollansicht",
+            filter_search_placeholder: "Artikel filtern...",
+
+            // Quick Add Feed Modal
+            modal_add_feed_title: "➕ Feed abonnieren / hinzufügen",
+            modal_add_feed_desc: "Gib eine Website-URL (z. B. heise.de), einen YouTube-Kanal oder einen RSS-Link ein. PureTidings erkennt den Feed automatisch und abonniert ihn.",
+            input_feed_url_placeholder: "https://beispiel.de oder RSS-URL",
+            input_feed_name_placeholder: "Feed-Name (optional - wird sonst automatisch erkannt)",
+            folder_root_option: "Hauptverzeichnis (Kein Ordner)",
+            btn_subscribe: "Abonnieren",
+            btn_paste: "📋 Einfügen",
+            subscribing_status: "Feed wird gesucht und abonniert...",
+            subscribed_status: "\"{name}\" erfolgreich abonniert!",
+
+            // Quick AI Summarize Modal
+            modal_ai_summarize_title: "🤖 KI-Zusammenfassung (Seite oder Video)",
+            modal_ai_summarize_desc: "Füge einen Artikellink oder eine YouTube-Video-URL ein. PureTidings extrahiert den Inhalt oder das Transkript und erstellt eine sofortige Zusammenfassung.",
+            input_ai_url_placeholder: "https://... (Artikel oder YouTube-Video)",
+            btn_generate_ai_summary: "KI-Zusammenfassung erstellen",
+
+            // Settings Modal Header & Tabs
+            settings_title: "⚙️ Einstellungen & Konfiguration",
+            settings_tab_feeds: "Feeds & Ordner",
+            settings_tab_automation: "Automatisierung & Zeitplan",
+            settings_tab_ai: "KI-Funktionen",
+            settings_tab_rules: "Regeln & Filter",
+            settings_tab_backup: "Backup & OPML",
+            settings_language_label: "🌐 Sprache / Language:",
+            btn_save_settings: "Einstellungen speichern",
+
+            // Settings: Feeds & Folders Tab
+            settings_manage_feeds_title: "Feeds verwalten",
+            settings_add_feed_heading: "Neuen Feed hinzufügen",
+            settings_feed_name_placeholder: "Feed-Name (z. B. Heise Online)",
+            settings_feed_url_placeholder: "Feed-URL (RSS / Atom / YouTube-Kanal)",
+            settings_btn_add_feed: "Feed hinzufügen",
+            settings_add_folder_heading: "Neuen Ordner erstellen",
+            settings_folder_name_placeholder: "Ordnername (z. B. Nachrichten)",
+            settings_btn_add_folder: "Ordner hinzufügen",
+            settings_configured_heading: "Eingerichtete Feeds & Ordner",
+
+            // Settings: Automation Tab
+            settings_automation_title: "⏱️ Feed-Abruf & Hintergrund-Zeitplan",
+            settings_fetch_schedule_title: "Automatischer Zeitplan (Aktive Stunden)",
+            settings_fetch_interval_label: "Hintergrund-Abrufintervall:",
+            settings_randomize_label: "🎲 Zufällige Zeitabweichung (±20% Jitter)",
+            settings_notifications_title: "🔔 Desktop-Benachrichtigungseinstellungen",
+            settings_notify_articles_label: "Desktop-Benachrichtigung bei neuen Artikeln anzeigen",
+            settings_notify_unread_label: "Regelmäßige Erinnerung an ungelesene Artikel senden",
+            settings_unread_interval_label: "Erinnerungsintervall für ungelesene Artikel:",
+            btn_test_notification: "🔔 Test-Benachrichtigung senden",
+            btn_test_unread_reminder: "🔔 Ungelesene-Erinnerung testen",
+
+            // Settings: AI Tab
+            settings_ai_title: "🤖 Google Gemini KI-Zusammenfassungen (BYOK)",
+            settings_ai_key_label: "Google Gemini API-Schlüssel:",
+            settings_ai_key_placeholder: "Deinen Google Gemini API-Schlüssel eingeben",
+            settings_ai_prompt_label: "Eigener Prompt für Artikel-Zusammenfassungen:",
+            settings_ai_yt_prompt_label: "Eigener Prompt für YouTube-Videos:",
+
+            // Settings: Rules Tab
+            settings_rules_title: "🔍 Intelligente Schlagwort-Regeln & Automatisierung",
+            settings_rule_keyword_placeholder: "Schlagwörter (z. B. Apple +Macbook -iPhone)",
+            settings_rule_action_label: "Aktion:",
+            settings_rule_action_fav: "Als Favorit markieren (Stern)",
+            settings_rule_action_unread: "Ungelesen lassen & hervorheben",
+            settings_rule_action_read: "Als gelesen markieren",
+            settings_rule_action_hide: "Im Feed ausblenden",
+            btn_add_rule: "Regel hinzufügen",
+
+            // Settings: Backup & OPML Tab
+            settings_backup_title: "💾 Lokale Backups & OPML 2.0 Portabilität",
+            settings_auto_backup_title: "⏰ Automatische tägliche Datensicherungen",
+            settings_auto_backup_label: "Automatische tägliche Sicherung direkt auf die Festplatte aktivieren",
+            settings_auto_backup_time_label: "Geplante Backup-Uhrzeit:",
+            settings_backup_folder_label: "Zielordner für Backups:",
+            btn_browse_folder: "📂 Durchsuchen...",
+            btn_open_folder: "📁 Öffnen",
+            btn_create_backup_now: "⚡ Jetzt Backup erstellen",
+            btn_export_opml: "📤 OPML exportieren",
+            btn_import_opml: "📥 OPML importieren...",
+            btn_backup_json: "💾 Alle Daten sichern (JSON)",
+            btn_restore_json: "🔄 Backup wiederherstellen...",
+
+            // Reader Mode
+            reader_copy: "Kopieren",
+            reader_save: "Speichern",
+            reader_ai_summary: "🤖 KI-Zusammenfassung",
+            reader_ai_video_summary: "🎥 KI-Videozusammenfassung",
+            reader_close: "Schließen",
+            reader_original_article: "Originalartikel",
+
+            // Post actions
+            post_action_read_mode: "Lesemodus",
+            post_action_mark_read: "Als gelesen markieren",
+            post_action_mark_unread: "Als ungelesen markieren",
+            post_action_favorite: "Favorit",
+            post_action_summary_cart: "Zusammenfassungs-Korb",
+
+            // Miscellaneous & Toasts
+            toast_saved: "Einstellungen gespeichert",
+            toast_backup_created: "Backup erfolgreich erstellt",
+            toast_feed_updated: "Feed aktualisiert",
+            toast_feed_refresh_failed: "Feed-Aktualisierung fehlgeschlagen",
+            no_articles_found: "Keine Artikel gefunden.",
+            loading_posts: "Artikel werden geladen..."
+        },
+
+        es: {
+            // Sidebar navigation
+            nav_all: "Todos los artículos",
+            nav_unread: "No leídos",
+            nav_favorites: "Favoritos",
+            nav_keywords: "Palabras clave",
+            nav_summary: "Cesta de resumen",
+            btn_quick_add_feed: "➕ Añadir / Suscribir feed",
+            btn_quick_summarize: "🤖 Resumir URL con IA",
+            search_placeholder: "Buscar... (+ Y, , O, - NO)",
+            search_title: "Ejemplo: Apple +Macbook -iPhone",
+            tooltip_settings: "Configuración",
+            tooltip_refresh: "Actualizar feeds (F5)",
+            tooltip_theme: "Cambiar tema claro/oscuro",
+            sidebar_close: "Cerrar menú",
+
+            // Mobile app bar
+            mobile_title: "PureTidings",
+            mobile_menu: "Menú",
+
+            // Main view header
+            page_title_all: "Todos los artículos",
+            page_title_unread: "Artículos no leídos",
+            page_title_favorites: "Favoritos",
+            page_title_keywords: "Coincidencias de palabras clave",
+            page_title_summary: "Cesta de resumen",
+            date_filter_all: "Todas las fechas",
+            date_filter_today: "Hoy",
+            date_filter_yesterday: "Ayer",
+            date_filter_last_7_days: "Últimos 7 días",
+            date_filter_custom: "Personalizado",
+            btn_copy: "Copiar",
+            btn_save: "Guardar",
+            btn_clear_list: "Vaciar lista",
+            btn_ai_report: "Informe de IA",
+            btn_full_view: "Vista completa",
+            filter_search_placeholder: "Filtrar artículos...",
+
+            // Quick Add Feed Modal
+            modal_add_feed_title: "➕ Añadir / Suscribir feed",
+            modal_add_feed_desc: "Introduce una URL web (ej. techcrunch.com), canal de YouTube o enlace RSS. PureTidings lo descubrirá y suscribirá automáticamente.",
+            input_feed_url_placeholder: "https://ejemplo.com o URL RSS",
+            input_feed_name_placeholder: "Nombre del feed (opcional - detectado automáticamente)",
+            folder_root_option: "Raíz (Sin carpeta)",
+            btn_subscribe: "Suscribirse",
+            btn_paste: "📋 Pegar",
+            subscribing_status: "Descubriendo feed y suscribiendo...",
+            subscribed_status: "¡Suscrito a \"{name}\" con éxito!",
+
+            // Quick AI Summarize Modal
+            modal_ai_summarize_title: "🤖 Resumen con IA de página o vídeo",
+            modal_ai_summarize_desc: "Pega cualquier enlace de artículo o vídeo de YouTube. PureTidings extraerá el contenido o la transcripción y creará un resumen con IA al instante.",
+            input_ai_url_placeholder: "https://... (artículo o vídeo de YouTube)",
+            btn_generate_ai_summary: "Generar resumen con IA",
+
+            // Settings Modal Header & Tabs
+            settings_title: "⚙️ Ajustes y Configuración",
+            settings_tab_feeds: "Feeds y Carpetas",
+            settings_tab_automation: "Automatización y Horario",
+            settings_tab_ai: "Funciones de IA",
+            settings_tab_rules: "Reglas y Filtros",
+            settings_tab_backup: "Copia de seguridad y OPML",
+            settings_language_label: "🌐 Idioma / Language:",
+            btn_save_settings: "Guardar configuración",
+
+            // Settings: Feeds & Folders Tab
+            settings_manage_feeds_title: "Administrar feeds",
+            settings_add_feed_heading: "Añadir nuevo feed",
+            settings_feed_name_placeholder: "Nombre del feed (ej. Ars Technica)",
+            settings_feed_url_placeholder: "URL del feed (RSS / Atom / Canal de YouTube)",
+            settings_btn_add_feed: "Añadir feed",
+            settings_add_folder_heading: "Añadir nueva carpeta",
+            settings_folder_name_placeholder: "Nombre de la carpeta (ej. Noticias)",
+            settings_btn_add_folder: "Añadir carpeta",
+            settings_configured_heading: "Feeds y carpetas configurados",
+
+            // Settings: Automation Tab
+            settings_automation_title: "⏱️ Automatización de obtención y horario",
+            settings_fetch_schedule_title: "Horario de obtención automática (Horas activas)",
+            settings_fetch_interval_label: "Intervalo de actualización en segundo plano:",
+            settings_randomize_label: "🎲 Variación aleatoria de tiempo (±20% Jitter)",
+            settings_notifications_title: "🔔 Configuración de notificaciones de escritorio",
+            settings_notify_articles_label: "Mostrar notificación de escritorio cuando lleguen nuevos artículos",
+            settings_notify_unread_label: "Enviar recordatorio periódico de artículos no leídos",
+            settings_unread_interval_label: "Intervalo del recordatorio de no leídos:",
+            btn_test_notification: "🔔 Enviar notificación de prueba",
+            btn_test_unread_reminder: "🔔 Probar recordatorio de no leídos",
+
+            // Settings: AI Tab
+            settings_ai_title: "🤖 Resúmenes con Google Gemini IA (BYOK)",
+            settings_ai_key_label: "Clave de API de Google Gemini:",
+            settings_ai_key_placeholder: "Introduce tu clave de API de Google Gemini",
+            settings_ai_prompt_label: "Prompt personalizado para resúmenes de artículos:",
+            settings_ai_yt_prompt_label: "Prompt personalizado para vídeos de YouTube:",
+
+            // Settings: Rules Tab
+            settings_rules_title: "🔍 Reglas inteligentes y automatización de palabras clave",
+            settings_rule_keyword_placeholder: "Palabras clave (ej. Apple +Macbook -iPhone)",
+            settings_rule_action_label: "Acción:",
+            settings_rule_action_fav: "Marcar como favorito (Estrella)",
+            settings_rule_action_unread: "Mantener no leído y destacar",
+            settings_rule_action_read: "Marcar como leído",
+            settings_rule_action_hide: "Ocultar del feed",
+            btn_add_rule: "Añadir regla",
+
+            // Settings: Backup & OPML Tab
+            settings_backup_title: "💾 Copias de seguridad locales y portabilidad OPML 2.0",
+            settings_auto_backup_title: "⏰ Copias de seguridad diarias automáticas",
+            settings_auto_backup_label: "Activar copia de seguridad diaria directamente en el disco",
+            settings_auto_backup_time_label: "Hora programada de la copia de seguridad:",
+            settings_backup_folder_label: "Directorio de destino de la copia:",
+            btn_browse_folder: "📂 Explorar...",
+            btn_open_folder: "📁 Abrir",
+            btn_create_backup_now: "⚡ Crear copia ahora",
+            btn_export_opml: "📤 Exportar OPML",
+            btn_import_opml: "📥 Importar OPML...",
+            btn_backup_json: "💾 Guardar todos los datos (JSON)",
+            btn_restore_json: "🔄 Restaurar copia...",
+
+            // Reader Mode
+            reader_copy: "Copiar",
+            reader_save: "Guardar",
+            reader_ai_summary: "🤖 Resumen con IA",
+            reader_ai_video_summary: "🎥 Resumen de vídeo con IA",
+            reader_close: "Cerrar",
+            reader_original_article: "Artículo original",
+
+            // Post actions
+            post_action_read_mode: "Modo lectura",
+            post_action_mark_read: "Marcar como leído",
+            post_action_mark_unread: "Marcar como no leído",
+            post_action_favorite: "Favorito",
+            post_action_summary_cart: "Cesta de resumen",
+
+            // Miscellaneous & Toasts
+            toast_saved: "Configuración guardada",
+            toast_backup_created: "Copia de seguridad creada con éxito",
+            toast_feed_updated: "Feed actualizado",
+            toast_feed_refresh_failed: "Error al actualizar el feed",
+            no_articles_found: "No se encontraron artículos.",
+            loading_posts: "Cargando artículos..."
+        },
+
+        fr: {
+            // Sidebar navigation
+            nav_all: "Tous les articles",
+            nav_unread: "Non lus",
+            nav_favorites: "Favoris",
+            nav_keywords: "Mots-clés",
+            nav_summary: "Panier de résumé",
+            btn_quick_add_feed: "➕ Ajouter / S'abonner au flux",
+            btn_quick_summarize: "🤖 Résumer l'URL avec l'IA",
+            search_placeholder: "Rechercher... (+ ET, , OU, - PAS)",
+            search_title: "Exemple : Apple +Macbook -iPhone",
+            tooltip_settings: "Paramètres",
+            tooltip_refresh: "Actualiser les flux (F5)",
+            tooltip_theme: "Basculer thème clair/sombre",
+            sidebar_close: "Fermer le menu",
+
+            // Mobile app bar
+            mobile_title: "PureTidings",
+            mobile_menu: "Menu",
+
+            // Main view header
+            page_title_all: "Tous les articles",
+            page_title_unread: "Articles non lus",
+            page_title_favorites: "Favoris",
+            page_title_keywords: "Mots-clés correspondants",
+            page_title_summary: "Panier de résumé",
+            date_filter_all: "Toutes les dates",
+            date_filter_today: "Aujourd'hui",
+            date_filter_yesterday: "Hier",
+            date_filter_last_7_days: "7 derniers jours",
+            date_filter_custom: "Personnalisé",
+            btn_copy: "Copier",
+            btn_save: "Enregistrer",
+            btn_clear_list: "Vider la liste",
+            btn_ai_report: "Rapport d'IA",
+            btn_full_view: "Vue rapport complet",
+            filter_search_placeholder: "Filtrer les articles...",
+
+            // Quick Add Feed Modal
+            modal_add_feed_title: "➕ Ajouter / S'abonner au flux",
+            modal_add_feed_desc: "Entrez l'URL d'un site (ex. lemonde.fr), d'une chaîne YouTube ou d'un flux RSS. PureTidings découvrira et ajoutera le flux automatiquement.",
+            input_feed_url_placeholder: "https://exemple.fr ou URL RSS",
+            input_feed_name_placeholder: "Nom du flux (facultatif - détecté automatiquement)",
+            folder_root_option: "Racine (Aucun dossier)",
+            btn_subscribe: "S'abonner",
+            btn_paste: "📋 Coller",
+            subscribing_status: "Découverte du flux et abonnement...",
+            subscribed_status: "Abonné à \"{name}\" avec succès !",
+
+            // Quick AI Summarize Modal
+            modal_ai_summarize_title: "🤖 Résumé IA d'une page ou d'une vidéo",
+            modal_ai_summarize_desc: "Collez un lien d'article ou une URL de vidéo YouTube. PureTidings extraira le contenu ou la transcription et produira un résumé instantané.",
+            input_ai_url_placeholder: "https://... (article ou vidéo YouTube)",
+            btn_generate_ai_summary: "Générer le résumé IA",
+
+            // Settings Modal Header & Tabs
+            settings_title: "⚙️ Paramètres et Configuration",
+            settings_tab_feeds: "Flux et Dossiers",
+            settings_tab_automation: "Automatisation et Planification",
+            settings_tab_ai: "Fonctions IA",
+            settings_tab_rules: "Règles et Filtres",
+            settings_tab_backup: "Sauvegarde et OPML",
+            settings_language_label: "🌐 Langue / Language :",
+            btn_save_settings: "Enregistrer les paramètres",
+
+            // Settings: Feeds & Folders Tab
+            settings_manage_feeds_title: "Gérer les flux",
+            settings_add_feed_heading: "Ajouter un nouveau flux",
+            settings_feed_name_placeholder: "Nom du flux (ex. Le Monde)",
+            settings_feed_url_placeholder: "URL du flux (RSS / Atom / Chaîne YouTube)",
+            settings_btn_add_feed: "Ajouter le flux",
+            settings_add_folder_heading: "Ajouter un nouveau dossier",
+            settings_folder_name_placeholder: "Nom du dossier (ex. Actualités)",
+            settings_btn_add_folder: "Ajouter le dossier",
+            settings_configured_heading: "Flux et dossiers configurés",
+
+            // Settings: Automation Tab
+            settings_automation_title: "⏱️ Automatisation de récupération et planification",
+            settings_fetch_schedule_title: "Planification automatique (Heures actives)",
+            settings_fetch_interval_label: "Intervalle de récupération en arrière-plan :",
+            settings_randomize_label: "🎲 Variation aléatoire du délai (±20% Jitter)",
+            settings_notifications_title: "🔔 Paramètres des notifications de bureau",
+            settings_notify_articles_label: "Afficher une notification de bureau lors de nouveaux articles",
+            settings_notify_unread_label: "Envoyer un rappel périodique pour les articles non lus",
+            settings_unread_interval_label: "Intervalle de rappel des non-lus :",
+            btn_test_notification: "🔔 Envoyer une notification de test",
+            btn_test_unread_reminder: "🔔 Tester le rappel des non-lus",
+
+            // Settings: AI Tab
+            settings_ai_title: "🤖 Résumés IA avec Google Gemini (BYOK)",
+            settings_ai_key_label: "Clé API Google Gemini :",
+            settings_ai_key_placeholder: "Entrez votre clé API Google Gemini",
+            settings_ai_prompt_label: "Prompt personnalisé pour les résumés d'articles :",
+            settings_ai_yt_prompt_label: "Prompt personnalisé pour les vidéos YouTube :",
+
+            // Settings: Rules Tab
+            settings_rules_title: "🔍 Règles et automatisation intelligente de mots-clés",
+            settings_rule_keyword_placeholder: "Mots-clés (ex. Apple +Macbook -iPhone)",
+            settings_rule_action_label: "Action :",
+            settings_rule_action_fav: "Marquer comme favori (Étoile)",
+            settings_rule_action_unread: "Garder non lu et surligner",
+            settings_rule_action_read: "Marquer comme lu",
+            settings_rule_action_hide: "Masquer du flux",
+            btn_add_rule: "Ajouter la règle",
+
+            // Settings: Backup & OPML Tab
+            settings_backup_title: "💾 Sauvegardes locales et portabilité OPML 2.0",
+            settings_auto_backup_title: "⏰ Sauvegardes quotidiennes automatiques",
+            settings_auto_backup_label: "Activer la sauvegarde quotidienne automatique sur le disque",
+            settings_auto_backup_time_label: "Heure de sauvegarde programmée :",
+            settings_backup_folder_label: "Dossier de destination des sauvegardes :",
+            btn_browse_folder: "📂 Parcourir...",
+            btn_open_folder: "📁 Ouvrir",
+            btn_create_backup_now: "⚡ Créer une sauvegarde maintenant",
+            btn_export_opml: "📤 Exporter OPML",
+            btn_import_opml: "📥 Importer OPML...",
+            btn_backup_json: "💾 Sauvegarder toutes les données (JSON)",
+            btn_restore_json: "🔄 Restaurer la sauvegarde...",
+
+            // Reader Mode
+            reader_copy: "Copier",
+            reader_save: "Enregistrer",
+            reader_ai_summary: "🤖 Résumé IA",
+            reader_ai_video_summary: "🎥 Résumé vidéo IA",
+            reader_close: "Fermer",
+            reader_original_article: "Article d'origine",
+
+            // Post actions
+            post_action_read_mode: "Mode lecture",
+            post_action_mark_read: "Marquer comme lu",
+            post_action_mark_unread: "Marquer comme non lu",
+            post_action_favorite: "Favori",
+            post_action_summary_cart: "Panier de résumé",
+
+            // Miscellaneous & Toasts
+            toast_saved: "Paramètres enregistrés",
+            toast_backup_created: "Sauvegarde créée avec succès",
+            toast_feed_updated: "Flux mis à jour",
+            toast_feed_refresh_failed: "Échec de mise à jour du flux",
+            no_articles_found: "Aucun article trouvé.",
+            loading_posts: "Chargement des articles..."
+        }
+    };
+
+    let currentLang = 'en';
+
+    function detectDefaultLanguage() {
+        const navLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+        if (navLang.startsWith('de')) return 'de';
+        if (navLang.startsWith('es')) return 'es';
+        if (navLang.startsWith('fr')) return 'fr';
+        return 'en';
+    }
+
+    function t(key, params = {}) {
+        const langData = translations[currentLang] || translations['en'];
+        let text = langData[key] || translations['en'][key] || key;
+        if (params && typeof params === 'object') {
+            for (const [k, v] of Object.entries(params)) {
+                text = text.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+            }
+        }
+        return text;
+    }
+
+    function applyTranslations(root = document) {
+        if (!root) return;
+
+        // 1. Text content
+        root.querySelectorAll('[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (key) {
+                el.textContent = t(key);
+            }
+        });
+
+        // 2. HTML content
+        root.querySelectorAll('[data-i18n-html]').forEach(el => {
+            const key = el.getAttribute('data-i18n-html');
+            if (key) {
+                el.innerHTML = t(key);
+            }
+        });
+
+        // 3. Placeholders
+        root.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+            const key = el.getAttribute('data-i18n-placeholder');
+            if (key) {
+                el.placeholder = t(key);
+            }
+        });
+
+        // 4. Titles / Tooltips
+        root.querySelectorAll('[data-i18n-title]').forEach(el => {
+            const key = el.getAttribute('data-i18n-title');
+            if (key) {
+                el.title = t(key);
+            }
+        });
+
+        // 5. Select dropdowns with data-i18n-options
+        root.querySelectorAll('option[data-i18n]').forEach(el => {
+            const key = el.getAttribute('data-i18n');
+            if (key) {
+                el.textContent = t(key);
+            }
+        });
+
+        // Sync HTML lang attribute
+        document.documentElement.lang = currentLang;
+
+        // Keep select dropdown in sync if present
+        const langSelect = document.getElementById('settings-language-select');
+        if (langSelect && langSelect.value !== currentLang) {
+            langSelect.value = currentLang;
+        }
+    }
+
+    async function setLanguage(lang, shouldSave = true) {
+        if (!translations[lang]) {
+            lang = 'en';
+        }
+        currentLang = lang;
+
+        if (shouldSave && window.chrome && chrome.storage && chrome.storage.sync) {
+            try {
+                await chrome.storage.sync.set({ appLanguage: lang });
+            } catch (err) {
+                console.warn('[i18n] Could not persist language setting:', err);
+            }
+        }
+
+        applyTranslations();
+
+        window.dispatchEvent(new CustomEvent('i18n:languageChanged', {
+            detail: { language: currentLang }
+        }));
+    }
+
+    async function init() {
+        let savedLang = null;
+        if (window.chrome && chrome.storage && chrome.storage.sync) {
+            try {
+                const data = await chrome.storage.sync.get('appLanguage');
+                savedLang = data.appLanguage;
+            } catch (e) {
+                console.warn('[i18n] Could not read appLanguage from sync:', e);
+            }
+        }
+
+        if (!savedLang || !translations[savedLang]) {
+            savedLang = detectDefaultLanguage();
+        }
+
+        await setLanguage(savedLang, false);
+    }
+
+    window.i18n = {
+        translations,
+        get currentLanguage() { return currentLang; },
+        t,
+        setLanguage,
+        applyTranslations,
+        init
+    };
+
+    // Auto-initialize when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => init());
+    } else {
+        init();
+    }
+})();

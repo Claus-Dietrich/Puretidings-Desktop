@@ -1878,6 +1878,11 @@
         const backupFolderInput = document.getElementById('settings-backup-folder-path');
         if (backupFolderInput) backupFolderInput.value = backupFolderPath || '';
 
+        const langSelect = document.getElementById('settings-language-select');
+        if (langSelect && window.i18n) {
+            langSelect.value = window.i18n.currentLanguage;
+        }
+
         updateBackupTabFolderDisplay(backupFolderPath);
 
         renderDesktopScheduleTable(fetchSchedule);
@@ -3560,6 +3565,20 @@
             });
         });
 
+        // Language Selector
+        const langSelect = document.getElementById('settings-language-select');
+        if (langSelect) {
+            if (window.i18n) {
+                langSelect.value = window.i18n.currentLanguage;
+            }
+            langSelect.addEventListener('change', async (e) => {
+                const newLang = e.target.value;
+                if (window.i18n) {
+                    await window.i18n.setLanguage(newLang);
+                }
+            });
+        }
+
         // Settings Save
         const saveSettingsBtn = document.getElementById('settings-save-btn');
         if (saveSettingsBtn) {
@@ -3578,6 +3597,7 @@
                     const autoBackupTime = document.getElementById('settings-auto-backup-time')?.value || '20:00';
                     const backupFolderPath = sanitizeFolderPath(document.getElementById('settings-backup-folder-path')?.value || '');
                     const fetchSchedule = collectScheduleFromTable();
+                    const appLanguage = document.getElementById('settings-language-select')?.value || window.i18n?.currentLanguage || 'en';
 
                     await chrome.storage.sync.set({
                         geminiApiKey: key.trim(),
@@ -3591,8 +3611,13 @@
                         fetchSchedule,
                         autoBackupEnabled,
                         autoBackupTime,
-                        backupFolderPath
+                        backupFolderPath,
+                        appLanguage
                     });
+
+                    if (window.i18n && window.i18n.currentLanguage !== appLanguage) {
+                        await window.i18n.setLanguage(appLanguage);
+                    }
 
                     updateBackupTabFolderDisplay(backupFolderPath);
 
@@ -3602,7 +3627,7 @@
                     scheduleNextAutoBackup();
 
                     closeSettingsModal();
-                    showInAppToast("Settings Saved", "Your automation schedules and preferences have been updated successfully!");
+                    showInAppToast(window.i18n ? window.i18n.t('toast_saved') : "Settings Saved", "Your automation schedules and preferences have been updated successfully!");
                 } catch (err) {
                     console.error("[PureTidings Desktop] Error saving settings:", err);
                     showInAppToast("Settings Error", `Failed to save settings: ${err.message || err}`);
