@@ -1,5 +1,30 @@
 function getFaviconUrl(feedUrl) {
   try {
+    if (feedUrl && (feedUrl.startsWith('imap:') || feedUrl.startsWith('email_'))) {
+      const lower = feedUrl.toLowerCase();
+      if (lower.includes('gmail') || lower.includes('google')) {
+        return 'https://www.google.com/s2/favicons?domain=gmail.com&sz=16';
+      }
+      if (lower.includes('outlook') || lower.includes('office') || lower.includes('hotmail')) {
+        return 'https://www.google.com/s2/favicons?domain=outlook.com&sz=16';
+      }
+      if (lower.includes('yahoo')) {
+        return 'https://www.google.com/s2/favicons?domain=yahoo.com&sz=16';
+      }
+      if (lower.includes('gmx')) {
+        return 'https://www.google.com/s2/favicons?domain=gmx.net&sz=16';
+      }
+      if (lower.includes('web.de')) {
+        return 'https://www.google.com/s2/favicons?domain=web.de&sz=16';
+      }
+      if (lower.includes('t-online')) {
+        return 'https://www.google.com/s2/favicons?domain=t-online.de&sz=16';
+      }
+      if (lower.includes('icloud') || lower.includes('apple') || lower.includes('me.com')) {
+        return 'https://www.google.com/s2/favicons?domain=icloud.com&sz=16';
+      }
+      return '128.png';
+    }
     const url = new URL(feedUrl);
     const domain = url.hostname;
     return `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;

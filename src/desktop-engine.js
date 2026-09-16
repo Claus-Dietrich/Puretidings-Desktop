@@ -418,15 +418,19 @@
                 if (!opts || !opts.url) return;
                 if (opts.url.startsWith('reader.html?')) {
                     const params = new URLSearchParams(opts.url.substring('reader.html?'.length));
+                    const rawUrl = params.get('url') || '';
                     openReaderModal({
-                        url: params.get('url') || '',
+                        url: rawUrl,
                         title: params.get('title') || '',
                         description: params.get('description') || '',
                         videoLength: params.get('videoLength') || '',
                         featuredImage: params.get('featuredImage') || '',
                         source: params.get('source') || '',
                         feedId: params.get('feedId') || '',
-                        fullContentHtmlText: params.get('fullContentHtmlText') || ''
+                        fullContentHtmlText: params.get('fullContentHtmlText') || '',
+                        isEmail: params.get('isEmail') === 'true' || rawUrl.startsWith('imap:'),
+                        emailUid: params.get('emailUid') || '',
+                        accountId: params.get('accountId') || ''
                     });
                 } else {
                     tauriOpenBrowser(opts.url);
@@ -567,6 +571,140 @@
         return posts;
     }
 
+    // ==========================================
+    // Email Accounts & IMAP Native Fetcher
+    // ==========================================
+    const IMAP_PRESETS = {
+        custom: { server: '', port: 993 },
+        gmail: { server: 'imap.gmail.com', port: 993 },
+        outlook: { server: 'outlook.office365.com', port: 993 },
+        yahoo: { server: 'imap.mail.yahoo.com', port: 993 },
+        gmx: { server: 'imap.gmx.net', port: 993 },
+        webde: { server: 'imap.web.de', port: 993 },
+        tonline: { server: 'secureimap.t-online.de', port: 993 },
+        icloud: { server: 'imap.mail.me.com', port: 993 }
+    };
+
+    async function syncEmailAccountsToFeedTree() {
+        try {
+            const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+            const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+
+            const activeAccounts = emailAccounts.filter(a => a.enabled !== false);
+            const folderIndex = feedTree.findIndex(n => n.id === 'folder_email_inboxes');
+
+            if (activeAccounts.length === 0) {
+                if (folderIndex !== -1) {
+                    feedTree.splice(folderIndex, 1);
+                    await chrome.storage.local.set({ feedTree });
+                }
+                return;
+            }
+
+            const emailFeedNodes = activeAccounts.map(a => ({
+                id: 'email_' + a.id,
+                name: '📬 ' + (a.name || a.username),
+                type: 'feed',
+                url: `imap://${a.server}/${a.folder || 'INBOX'}`,
+                isEmail: true,
+                emailAccountId: a.id
+            }));
+
+            if (folderIndex !== -1) {
+                feedTree[folderIndex].children = emailFeedNodes;
+            } else {
+                feedTree.push({
+                    id: 'folder_email_inboxes',
+                    name: '📬 Email Inboxes',
+                    type: 'folder',
+                    children: emailFeedNodes
+                });
+            }
+
+            await chrome.storage.local.set({ feedTree });
+        } catch (err) {
+            console.error('[PureTidings Desktop] Error syncing email accounts to feed tree:', err);
+        }
+    }
+    window.syncEmailAccountsToFeedTree = syncEmailAccountsToFeedTree;
+
+    async function fetchSingleEmailAccountNative(account, readLinksSet, rules) {
+        if (!account || !account.server || !account.username || !account.password) {
+            return [];
+        }
+        const server = account.server.trim();
+        const port = parseInt(account.port, 10) || 993;
+        const username = account.username.trim();
+        const password = account.password;
+        const folder = (account.folder || 'INBOX').trim();
+        const limit = parseInt(account.limit, 10) || 30;
+
+        const items = await tauriInvoke('fetch_imap_emails', {
+            server,
+            port,
+            username,
+            password,
+            folder,
+            limit
+        });
+
+        const feedId = 'email_' + account.id;
+        const posts = (items || []).map(item => {
+            const link = `imap://${account.id}/${item.uid}`;
+            const postObj = {
+                id: link,
+                link: link,
+                title: item.subject || '(No Subject)',
+                pubDate: item.date || new Date().toISOString(),
+                snippet: item.snippet || '',
+                description: item.snippet || '',
+                content: item.content_html || item.content_text || item.snippet || '',
+                fullContentHtml: item.content_html || '',
+                author: item.from || account.username,
+                feedTitle: account.name || account.username,
+                feedId: feedId,
+                isEmail: true,
+                emailUid: item.uid,
+                accountId: account.id,
+                featuredImage: null
+            };
+
+            if (!item.is_unread && readLinksSet) {
+                readLinksSet.add(link);
+            }
+
+            if (typeof applyRulesToPost === 'function' && rules) {
+                applyRulesToPost(postObj, rules, readLinksSet);
+            }
+
+            return postObj;
+        });
+
+        return posts;
+    }
+
+    async function markEmailReadNative(accountId, uid, read = true) {
+        try {
+            if (!accountId || !uid) return;
+            const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+            const account = emailAccounts.find(a => a.id === accountId);
+            if (!account) return;
+            await tauriInvoke('mark_imap_email_read', {
+                server: account.server,
+                port: parseInt(account.port, 10) || 993,
+                username: account.username,
+                password: account.password,
+                folder: account.folder || 'INBOX',
+                uid: parseInt(uid, 10),
+                read: !!read
+            });
+            console.log(`[PureTidings Desktop] Successfully synced read status (${read}) for email UID ${uid} to IMAP server.`);
+        } catch (e) {
+            console.warn(`[PureTidings Desktop] Could not sync read status for email UID ${uid} to IMAP:`, e);
+        }
+    }
+    window.markEmailReadNative = markEmailReadNative;
+
     async function refreshAllFeedsNative() {
         const refreshBtn = document.getElementById('sidebar-refresh-btn');
         if (refreshBtn) refreshBtn.classList.add('spinning');
@@ -576,7 +714,8 @@
 
         try {
             const { feedTree = [], allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
-            const { rules = [] } = await chrome.storage.sync.get(['rules']);
+            const { rules = [], emailAccounts = [] } = await chrome.storage.sync.get(['rules', 'emailAccounts']);
+            const activeEmailAccounts = emailAccounts.filter(a => a.enabled !== false);
             const readLinksSet = new Set(readLinks || []);
 
             const feeds = [];
@@ -588,7 +727,9 @@
                             n.url = 'https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ';
                             feedTreeUpdated = true;
                         }
-                        feeds.push(n);
+                        if (!n.isEmail && !n.id.startsWith('email_')) {
+                            feeds.push(n);
+                        }
                     } else if (n.type === 'folder' && n.children) {
                         gather(n.children);
                     }
@@ -614,61 +755,85 @@
                 }
             }
 
-            // Fetch feeds incrementally so posts appear immediately as each finishes
-            await Promise.all(feeds.map(async (feed) => {
-                try {
-                    const xml = await tauriInvoke('fetch_url', { url: feed.url });
-                    const posts = parseFeedXml(xml, feed);
-                    if (posts && posts.length > 0) {
-                        posts.forEach(p => {
-                            if (!p.featuredImage && existingImageMap.has(p.link)) {
-                                p.featuredImage = existingImageMap.get(p.link);
+            // Fetch RSS feeds and Email inboxes in parallel
+            await Promise.all([
+                ...feeds.map(async (feed) => {
+                    try {
+                        const xml = await tauriInvoke('fetch_url', { url: feed.url });
+                        const posts = parseFeedXml(xml, feed);
+                        if (posts && posts.length > 0) {
+                            posts.forEach(p => {
+                                if (!p.featuredImage && existingImageMap.has(p.link)) {
+                                    p.featuredImage = existingImageMap.get(p.link);
+                                }
+                                if (typeof applyRulesToPost === 'function') {
+                                    applyRulesToPost(p, rules, readLinksSet);
+                                }
+                            });
+                            newAllPosts[feed.id] = posts;
+
+                            let count = 0;
+                            posts.forEach(p => {
+                                if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                            });
+                            unreadCounts[feed.id] = count;
+
+                            // Save incrementally to render in UI
+                            await chrome.storage.local.set({
+                                allPosts: { ...newAllPosts },
+                                unreadCounts: { ...unreadCounts },
+                                readLinks: Array.from(readLinksSet)
+                            });
+
+                            // Background fetch missing og:images for newest articles
+                            const missingImages = posts.filter(p => !p.featuredImage && p.link && p.link.startsWith('http')).slice(0, 12);
+                            if (missingImages.length > 0) {
+                                (async () => {
+                                    let anyFound = false;
+                                    await Promise.all(missingImages.map(async (p) => {
+                                        try {
+                                            const og = await findOgImage(p.link);
+                                            if (og) {
+                                                p.featuredImage = og;
+                                                anyFound = true;
+                                            }
+                                        } catch (_) {}
+                                    }));
+                                    if (anyFound) {
+                                        const cur = await chrome.storage.local.get('allPosts');
+                                        const updatedPosts = cur.allPosts || {};
+                                        updatedPosts[feed.id] = posts;
+                                        await chrome.storage.local.set({ allPosts: { ...updatedPosts } });
+                                    }
+                                })();
                             }
-                            if (typeof applyRulesToPost === 'function') {
-                                applyRulesToPost(p, rules, readLinksSet);
-                            }
-                        });
-                        newAllPosts[feed.id] = posts;
+                        }
+                    } catch (err) {
+                        console.warn(`[PureTidings Desktop] Error fetching ${feed.name} (${feed.url}):`, err);
+                    }
+                }),
+                ...activeEmailAccounts.map(async (account) => {
+                    try {
+                        const feedId = 'email_' + account.id;
+                        const posts = await fetchSingleEmailAccountNative(account, readLinksSet, rules);
+                        newAllPosts[feedId] = posts;
 
                         let count = 0;
                         posts.forEach(p => {
                             if (!p.isHidden && !readLinksSet.has(p.link)) count++;
                         });
-                        unreadCounts[feed.id] = count;
+                        unreadCounts[feedId] = count;
 
-                        // Save incrementally to render in UI
                         await chrome.storage.local.set({
                             allPosts: { ...newAllPosts },
-                            unreadCounts: { ...unreadCounts }
+                            unreadCounts: { ...unreadCounts },
+                            readLinks: Array.from(readLinksSet)
                         });
-
-                        // Background fetch missing og:images for newest articles
-                        const missingImages = posts.filter(p => !p.featuredImage && p.link && p.link.startsWith('http')).slice(0, 12);
-                        if (missingImages.length > 0) {
-                            (async () => {
-                                let anyFound = false;
-                                await Promise.all(missingImages.map(async (p) => {
-                                    try {
-                                        const og = await findOgImage(p.link);
-                                        if (og) {
-                                            p.featuredImage = og;
-                                            anyFound = true;
-                                        }
-                                    } catch (_) {}
-                                }));
-                                if (anyFound) {
-                                    const cur = await chrome.storage.local.get('allPosts');
-                                    const updatedPosts = cur.allPosts || {};
-                                    updatedPosts[feed.id] = posts;
-                                    await chrome.storage.local.set({ allPosts: { ...updatedPosts } });
-                                }
-                            })();
-                        }
+                    } catch (err) {
+                        console.warn(`[PureTidings Desktop] Error fetching emails for ${account.name || account.username}:`, err);
                     }
-                } catch (err) {
-                    console.warn(`[PureTidings Desktop] Error fetching ${feed.name} (${feed.url}):`, err);
-                }
-            }));
+                })
+            ]);
 
             // Final sync
             for (const feed of feeds) {
@@ -676,9 +841,16 @@
                     unreadCounts[feed.id] = 0;
                 }
             }
+            for (const acc of activeEmailAccounts) {
+                const fId = 'email_' + acc.id;
+                if (unreadCounts[fId] === undefined) {
+                    unreadCounts[fId] = 0;
+                }
+            }
             await chrome.storage.local.set({
                 allPosts: newAllPosts,
-                unreadCounts: unreadCounts
+                unreadCounts: unreadCounts,
+                readLinks: Array.from(readLinksSet)
             });
 
         } catch (e) {
@@ -694,8 +866,39 @@
         if (!targetFeedId) return;
         try {
             const { feedTree = [], allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
-            const { rules = [] } = await chrome.storage.sync.get(['rules']);
+            const { rules = [], emailAccounts = [] } = await chrome.storage.sync.get(['rules', 'emailAccounts']);
             const readLinksSet = new Set(readLinks || []);
+
+            // Handle native IMAP email feeds
+            if (targetFeedId.startsWith('email_')) {
+                const accountId = targetFeedId.replace('email_', '');
+                const account = emailAccounts.find(a => a.id === accountId);
+                if (!account) {
+                    console.warn(`[PureTidings Desktop] Email account not found for feed: ${targetFeedId}`);
+                    return;
+                }
+                const posts = await fetchSingleEmailAccountNative(account, readLinksSet, rules);
+                const newAllPosts = { ...allPosts, [targetFeedId]: posts };
+
+                let count = 0;
+                posts.forEach(p => {
+                    if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                });
+
+                const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
+                const newUnreadCounts = { ...unreadCounts, [targetFeedId]: count };
+
+                await chrome.storage.local.set({
+                    allPosts: newAllPosts,
+                    unreadCounts: newUnreadCounts,
+                    readLinks: Array.from(readLinksSet)
+                });
+
+                if (typeof showInAppToast === 'function') {
+                    showInAppToast('Inbox Updated', `${account.name || account.username}: ${posts.length} emails (${count} unread)`);
+                }
+                return;
+            }
 
             let targetFeed = null;
             function findFeed(nodes) {
@@ -2193,31 +2396,35 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         renderDesktopScheduleTable(fetchSchedule);
         renderSettingsRules(rules);
         renderSettingsFeeds();
+        renderSettingsEmailAccounts();
     }
 
     async function renderSettingsRules(rules) {
         const container = document.getElementById('settings-rules-list');
         if (!container) return;
         container.innerHTML = '';
+
         if (!rules || rules.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-color-darker); font-style: italic; margin: 5px 0;">No rules defined yet.</p>';
+            container.innerHTML = '<p style="color: var(--secondary-text-color, #777); font-style: italic; margin: 0 0 10px 0;">No active rules configured.</p>';
             return;
         }
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'list-style: none; padding: 0; margin: 0;';
+
         rules.forEach((rule, idx) => {
-            const row = document.createElement('div');
-            row.style.display = 'flex';
-            row.style.justifyContent = 'space-between';
-            row.style.alignItems = 'center';
-            row.style.padding = '6px 8px';
-            row.style.marginBottom = '4px';
-            row.style.background = 'var(--hover-bg)';
-            row.style.borderRadius = '4px';
-            row.innerHTML = `
-                <span>IF <strong>${rule.field}</strong> ${rule.condition} <code>"${rule.value}"</code> &rarr; <em>${rule.action}</em></span>
-                <button class="rule-del-btn" data-idx="${idx}" style="background:transparent; border:none; color:#d93025; cursor:pointer; font-weight:bold;">&times;</button>
+            const li = document.createElement('li');
+            li.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--border-color); font-size: 13px;';
+            li.innerHTML = `
+                <div>
+                    <strong>IF</strong> ${rule.field} <strong>${rule.condition}</strong> "<em>${escapeHtml(rule.value)}</em>" &rarr; <span style="font-weight: bold; color: var(--link-color);">${rule.action}</span>
+                </div>
+                <button type="button" class="delete-btn rule-del-btn" data-idx="${idx}" style="padding: 2px 8px; font-size: 12px;">Delete</button>
             `;
-            container.appendChild(row);
+            list.appendChild(li);
         });
+
+        container.appendChild(list);
 
         container.querySelectorAll('.rule-del-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
@@ -2228,6 +2435,190 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             });
         });
     }
+
+    // ==========================================
+    // Email Accounts Settings Tab Management
+    // ==========================================
+    function populateEmailFormForEdit(account) {
+        document.getElementById('email-account-id').value = account.id;
+        document.getElementById('email-preset-select').value = account.preset || 'custom';
+        document.getElementById('email-account-name').value = account.name || '';
+        document.getElementById('email-imap-server').value = account.server || '';
+        document.getElementById('email-imap-port').value = account.port || 993;
+        document.getElementById('email-username').value = account.username || '';
+        document.getElementById('email-password').value = account.password || '';
+
+        const folderSelect = document.getElementById('email-folder-select');
+        if (folderSelect) {
+            folderSelect.innerHTML = `<option value="${escapeHtml(account.folder || 'INBOX')}">${escapeHtml(account.folder || 'INBOX')}</option>`;
+        }
+        document.getElementById('email-fetch-limit').value = account.limit || 30;
+
+        const heading = document.getElementById('email-form-heading');
+        if (heading) heading.textContent = window.i18n ? window.i18n.t('email_form_edit_heading') : '✏️ Edit Email Account';
+
+        const saveBtn = document.getElementById('email-save-account-btn');
+        if (saveBtn) saveBtn.textContent = window.i18n ? window.i18n.t('email_btn_update_account') : 'Update Account';
+
+        const cancelBtn = document.getElementById('email-cancel-edit-btn');
+        if (cancelBtn) cancelBtn.classList.remove('hidden');
+
+        const statusEl = document.getElementById('email-form-status');
+        if (statusEl) statusEl.textContent = '';
+    }
+
+    function resetEmailAccountForm() {
+        document.getElementById('email-account-id').value = '';
+        document.getElementById('email-preset-select').value = 'custom';
+        document.getElementById('email-account-name').value = '';
+        document.getElementById('email-imap-server').value = '';
+        document.getElementById('email-imap-port').value = '993';
+        document.getElementById('email-username').value = '';
+        document.getElementById('email-password').value = '';
+
+        const folderSelect = document.getElementById('email-folder-select');
+        if (folderSelect) {
+            folderSelect.innerHTML = '<option value="INBOX">INBOX (Default)</option>';
+        }
+        document.getElementById('email-fetch-limit').value = '30';
+
+        const heading = document.getElementById('email-form-heading');
+        if (heading) heading.textContent = window.i18n ? window.i18n.t('email_form_add_heading') : '➕ Add Email Account';
+
+        const saveBtn = document.getElementById('email-save-account-btn');
+        if (saveBtn) saveBtn.textContent = window.i18n ? window.i18n.t('email_btn_save_account') : 'Save Account';
+
+        const cancelBtn = document.getElementById('email-cancel-edit-btn');
+        if (cancelBtn) cancelBtn.classList.add('hidden');
+
+        const statusEl = document.getElementById('email-form-status');
+        if (statusEl) statusEl.textContent = '';
+    }
+
+    async function renderSettingsEmailAccounts() {
+        const container = document.getElementById('email-accounts-list');
+        if (!container) return;
+
+        const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+        container.innerHTML = '';
+
+        if (!emailAccounts || emailAccounts.length === 0) {
+            const p = document.createElement('p');
+            p.id = 'email-empty-accounts';
+            p.style.cssText = 'padding: 14px; margin: 0; font-size: 13px; color: var(--secondary-text-color); font-style: italic;';
+            p.textContent = window.i18n ? window.i18n.t('email_no_accounts_configured') : 'No email accounts configured yet.';
+            container.appendChild(p);
+            return;
+        }
+
+        const list = document.createElement('ul');
+        list.style.cssText = 'list-style: none; padding: 0; margin: 0;';
+
+        emailAccounts.forEach(account => {
+            const li = document.createElement('li');
+            li.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border-color); gap: 10px; flex-wrap: wrap;';
+
+            const left = document.createElement('div');
+            left.style.cssText = 'display: flex; align-items: center; gap: 10px; flex: 1; min-width: 200px;';
+
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.checked = account.enabled !== false;
+            chk.title = 'Enable / Disable this email inbox';
+            chk.addEventListener('change', async () => {
+                account.enabled = chk.checked;
+                await chrome.storage.sync.set({ emailAccounts });
+                await syncEmailAccountsToFeedTree();
+                renderSettingsEmailAccounts();
+                if (account.enabled) {
+                    refreshSingleFeedNative('email_' + account.id);
+                }
+            });
+
+            const info = document.createElement('div');
+            info.innerHTML = `
+                <div style="font-weight: 600; font-size: 13px; color: var(--text-color);">
+                    📬 ${escapeHtml(account.name || account.username)}
+                    <span style="font-weight: normal; font-size: 12px; color: var(--secondary-text-color);">(${escapeHtml(account.username)})</span>
+                </div>
+                <div style="font-size: 11px; color: var(--secondary-text-color);">
+                    ${escapeHtml(account.server)}:${account.port || 993} &middot; Folder: <strong>${escapeHtml(account.folder || 'INBOX')}</strong>
+                </div>
+            `;
+
+            left.appendChild(chk);
+            left.appendChild(info);
+
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display: flex; gap: 6px; align-items: center;';
+
+            // Check Now button
+            const checkBtn = document.createElement('button');
+            checkBtn.type = 'button';
+            checkBtn.className = 'secondary-btn';
+            checkBtn.style.cssText = 'padding: 4px 8px; font-size: 11px;';
+            checkBtn.textContent = window.i18n ? window.i18n.t('email_btn_check_now') : 'Check Now 🔄';
+            checkBtn.addEventListener('click', async () => {
+                checkBtn.disabled = true;
+                checkBtn.textContent = 'Checking...';
+                try {
+                    await refreshSingleFeedNative('email_' + account.id);
+                } finally {
+                    checkBtn.disabled = false;
+                    checkBtn.textContent = window.i18n ? window.i18n.t('email_btn_check_now') : 'Check Now 🔄';
+                }
+            });
+
+            // Edit button
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'secondary-btn';
+            editBtn.style.cssText = 'padding: 4px 8px; font-size: 11px;';
+            editBtn.textContent = window.i18n ? window.i18n.t('email_btn_edit') : 'Edit';
+            editBtn.addEventListener('click', () => {
+                populateEmailFormForEdit(account);
+            });
+
+            // Delete button
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'delete-btn';
+            delBtn.style.cssText = 'padding: 4px 8px; font-size: 11px;';
+            delBtn.textContent = window.i18n ? window.i18n.t('email_btn_delete') : 'Delete';
+            delBtn.addEventListener('click', async () => {
+                const confirmMsg = (window.i18n ? window.i18n.t('email_delete_confirm') : 'Are you sure you want to remove the email account "{name}"?').replace('{name}', account.name || account.username);
+                if (confirm(confirmMsg)) {
+                    const idx = emailAccounts.findIndex(a => a.id === account.id);
+                    if (idx !== -1) {
+                        emailAccounts.splice(idx, 1);
+                        await chrome.storage.sync.set({ emailAccounts });
+
+                        // Clean up allPosts and unreadCounts
+                        const feedId = 'email_' + account.id;
+                        const { allPosts = {}, unreadCounts = {} } = await chrome.storage.local.get(['allPosts', 'unreadCounts']);
+                        delete allPosts[feedId];
+                        delete unreadCounts[feedId];
+                        await chrome.storage.local.set({ allPosts, unreadCounts });
+
+                        await syncEmailAccountsToFeedTree();
+                        renderSettingsEmailAccounts();
+                        resetEmailAccountForm();
+                    }
+                }
+            });
+
+            actions.appendChild(checkBtn);
+            actions.appendChild(editBtn);
+            actions.appendChild(delBtn);
+
+            li.appendChild(left);
+            li.appendChild(actions);
+            list.appendChild(li);
+        });
+
+        container.appendChild(list);
+    }
+    window.renderSettingsEmailAccounts = renderSettingsEmailAccounts;
 
     let editingNodeId = null;
 
@@ -3032,7 +3423,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             if (data.author) metaParts.push(escapeHtml(data.author));
             if (data.date) metaParts.push(escapeHtml(new Date(data.date).toLocaleString()));
             const prefix = metaParts.length ? metaParts.join(' &middot; ') + ' &middot; ' : '';
-            if (data.url) {
+            const isEmail = data.isEmail || (data.url && data.url.startsWith('imap:'));
+            if (data.url && !isEmail) {
                 bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="${window.i18n ? window.i18n.t('tooltip_open_browser') : 'Open original article in browser'}" data-i18n-title="tooltip_open_browser">${escapeHtml(data.url)}</a>`;
                 const origLink = document.getElementById('reader-original-link');
                 if (origLink) {
@@ -3101,7 +3493,34 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
 
         if (bodyEl) {
-            if (data.fullContentHtmlText) {
+            const isEmail = data.isEmail || (data.url && data.url.startsWith('imap:'));
+            if (isEmail) {
+                if (data.fullContentHtmlText) {
+                    bodyEl.innerHTML = data.fullContentHtmlText;
+                } else if (data.content) {
+                    bodyEl.innerHTML = data.content;
+                } else if (data.description) {
+                    bodyEl.innerHTML = formatContentIfPlain(data.description);
+                } else {
+                    bodyEl.innerHTML = '<p style="font-style: italic; color: var(--secondary-text-color);">No content in this email.</p>';
+                }
+                if (loadingEl) loadingEl.classList.add('hidden');
+                if (contentEl) contentEl.classList.remove('hidden');
+
+                // Sync read status to IMAP server in background
+                let emailUid = data.emailUid;
+                let accountId = data.accountId;
+                if (!emailUid && data.url && data.url.startsWith('imap://')) {
+                    const parts = data.url.substring('imap://'.length).split('/');
+                    if (parts.length >= 2) {
+                        accountId = parts[0];
+                        emailUid = parts[1];
+                    }
+                }
+                if (emailUid && accountId && typeof markEmailReadNative === 'function') {
+                    markEmailReadNative(accountId, emailUid, true);
+                }
+            } else if (data.fullContentHtmlText) {
                 bodyEl.innerHTML = data.fullContentHtmlText;
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
@@ -3109,7 +3528,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 bodyEl.innerHTML = formatContentIfPlain(data.description);
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
-            } else if (data.url && !data.url.includes('youtube.com')) {
+            } else if (data.url && !data.url.includes('youtube.com') && !data.url.startsWith('imap:')) {
                 if (loadingEl) loadingEl.classList.remove('hidden');
                 if (contentEl) contentEl.classList.add('hidden');
                 try {
@@ -3732,7 +4151,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             { btnId: 'quick-summarize-paste-btn', inputId: 'quick-summarize-url-input' },
             { btnId: 'settings-gemini-key-paste-btn', inputId: 'settings-gemini-key' },
             { btnId: 'new-rule-paste-btn', inputId: 'new-rule-value' },
-            { btnId: 'new-feed-paste-btn', inputId: 'new-feed-url' }
+            { btnId: 'new-feed-paste-btn', inputId: 'new-feed-url' },
+            { btnId: 'email-password-paste-btn', inputId: 'email-password' }
         ];
 
         pasteMappings.forEach(({ btnId, inputId }) => {
@@ -3977,6 +4397,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // Initialize Theme from sync
         const isDark = getSyncItem('darkMode', true);
         applyDesktopTheme(isDark);
+
+        // Synchronize any configured email accounts to the feed tree
+        syncEmailAccountsToFeedTree();
 
         // Sidebar actions
         const themeBtn = document.getElementById('theme-toggle-btn');
@@ -4268,6 +4691,186 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     showInAppToast("Settings Error", `Failed to save settings: ${err.message || err}`);
                 }
             });
+        }
+
+        // Email Account Settings Event Listeners
+        const emailPresetSelect = document.getElementById('email-preset-select');
+        if (emailPresetSelect) {
+            emailPresetSelect.addEventListener('change', (e) => {
+                const preset = IMAP_PRESETS[e.target.value];
+                if (preset) {
+                    if (preset.server) {
+                        document.getElementById('email-imap-server').value = preset.server;
+                    }
+                    if (preset.port) {
+                        document.getElementById('email-imap-port').value = preset.port;
+                    }
+                }
+            });
+        }
+
+        const emailLoadFoldersBtn = document.getElementById('email-load-folders-btn');
+        if (emailLoadFoldersBtn) {
+            emailLoadFoldersBtn.addEventListener('click', async () => {
+                const server = document.getElementById('email-imap-server')?.value?.trim();
+                const port = parseInt(document.getElementById('email-imap-port')?.value, 10) || 993;
+                const username = document.getElementById('email-username')?.value?.trim();
+                const password = document.getElementById('email-password')?.value;
+                const statusEl = document.getElementById('email-form-status');
+
+                if (!server || !username || !password) {
+                    if (statusEl) {
+                        statusEl.style.color = '#d93025';
+                        statusEl.textContent = 'Please provide server, username, and password.';
+                    }
+                    return;
+                }
+
+                emailLoadFoldersBtn.disabled = true;
+                const origText = emailLoadFoldersBtn.textContent;
+                emailLoadFoldersBtn.textContent = 'Connecting...';
+                if (statusEl) {
+                    statusEl.style.color = 'var(--link-color)';
+                    statusEl.textContent = window.i18n ? window.i18n.t('email_testing_connection') : 'Testing connection to server...';
+                }
+
+                try {
+                    const testRes = await tauriInvoke('test_imap_connection', { server, port, username, password });
+                    console.log('[PureTidings Desktop] IMAP connection test:', testRes);
+
+                    const folders = await tauriInvoke('list_imap_folders', { server, port, username, password });
+                    console.log('[PureTidings Desktop] IMAP folders loaded:', folders);
+
+                    const folderSelect = document.getElementById('email-folder-select');
+                    if (folderSelect && folders && folders.length > 0) {
+                        const curVal = folderSelect.value;
+                        folderSelect.innerHTML = '';
+                        folders.forEach(f => {
+                            const opt = document.createElement('option');
+                            opt.value = f;
+                            opt.textContent = f;
+                            if (f === curVal || (curVal === 'INBOX' && f.toUpperCase() === 'INBOX')) {
+                                opt.selected = true;
+                            }
+                            folderSelect.appendChild(opt);
+                        });
+                    }
+
+                    if (statusEl) {
+                        statusEl.style.color = '#28a745';
+                        const tpl = window.i18n ? window.i18n.t('email_test_success') : '✓ Connected successfully! Found {count} folder(s).';
+                        statusEl.textContent = tpl.replace('{count}', folders ? folders.length : 1);
+                    }
+                } catch (err) {
+                    console.error('[PureTidings Desktop] IMAP test error:', err);
+                    if (statusEl) {
+                        statusEl.style.color = '#d93025';
+                        const tpl = window.i18n ? window.i18n.t('email_test_failed') : '✗ Connection failed: {error}';
+                        statusEl.textContent = tpl.replace('{error}', err.message || err);
+                    }
+                } finally {
+                    emailLoadFoldersBtn.disabled = false;
+                    emailLoadFoldersBtn.textContent = origText;
+                }
+            });
+        }
+
+        const emailSaveBtn = document.getElementById('email-save-account-btn');
+        if (emailSaveBtn) {
+            emailSaveBtn.addEventListener('click', async () => {
+                const editId = document.getElementById('email-account-id')?.value?.trim();
+                const preset = document.getElementById('email-preset-select')?.value || 'custom';
+                const name = document.getElementById('email-account-name')?.value?.trim();
+                const server = document.getElementById('email-imap-server')?.value?.trim();
+                const port = parseInt(document.getElementById('email-imap-port')?.value, 10) || 993;
+                const username = document.getElementById('email-username')?.value?.trim();
+                const password = document.getElementById('email-password')?.value;
+                const folder = document.getElementById('email-folder-select')?.value?.trim() || 'INBOX';
+                const limit = parseInt(document.getElementById('email-fetch-limit')?.value, 10) || 30;
+                const statusEl = document.getElementById('email-form-status');
+
+                if (!server || !username || !password) {
+                    if (statusEl) {
+                        statusEl.style.color = '#d93025';
+                        statusEl.textContent = 'Server, email/username, and password are required.';
+                    }
+                    return;
+                }
+
+                emailSaveBtn.disabled = true;
+                if (statusEl) {
+                    statusEl.style.color = 'var(--link-color)';
+                    statusEl.textContent = 'Saving email account...';
+                }
+
+                try {
+                    const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+                    const accountName = name || username;
+
+                    let savedAccount;
+                    if (editId) {
+                        const idx = emailAccounts.findIndex(a => a.id === editId);
+                        if (idx !== -1) {
+                            emailAccounts[idx] = {
+                                ...emailAccounts[idx],
+                                preset,
+                                name: accountName,
+                                server,
+                                port,
+                                username,
+                                password,
+                                folder,
+                                limit,
+                                enabled: emailAccounts[idx].enabled !== false
+                            };
+                            savedAccount = emailAccounts[idx];
+                        }
+                    } else {
+                        savedAccount = {
+                            id: 'acc_' + Date.now(),
+                            preset,
+                            name: accountName,
+                            server,
+                            port,
+                            username,
+                            password,
+                            folder,
+                            limit,
+                            enabled: true
+                        };
+                        emailAccounts.push(savedAccount);
+                    }
+
+                    await chrome.storage.sync.set({ emailAccounts });
+                    await syncEmailAccountsToFeedTree();
+                    renderSettingsEmailAccounts();
+                    resetEmailAccountForm();
+
+                    if (statusEl) {
+                        statusEl.style.color = '#28a745';
+                        const tpl = window.i18n ? window.i18n.t('email_account_saved') : '✓ Account "{name}" saved!';
+                        statusEl.textContent = tpl.replace('{name}', accountName);
+                    }
+
+                    // Trigger immediate fetch in background for new/updated account
+                    if (savedAccount) {
+                        refreshSingleFeedNative('email_' + savedAccount.id);
+                    }
+                } catch (err) {
+                    console.error('[PureTidings Desktop] Error saving email account:', err);
+                    if (statusEl) {
+                        statusEl.style.color = '#d93025';
+                        statusEl.textContent = 'Error: ' + (err.message || err);
+                    }
+                } finally {
+                    emailSaveBtn.disabled = false;
+                }
+            });
+        }
+
+        const emailCancelEditBtn = document.getElementById('email-cancel-edit-btn');
+        if (emailCancelEditBtn) {
+            emailCancelEditBtn.addEventListener('click', resetEmailAccountForm);
         }
 
         // Add Rule

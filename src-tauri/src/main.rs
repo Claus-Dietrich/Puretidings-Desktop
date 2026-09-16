@@ -215,6 +215,7 @@ fn pick_file(default_path: Option<String>, filter_name: Option<String>, filter_e
     }
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = (&filter_name, &filter_ext);
         let mut cmd = std::process::Command::new("zenity");
         cmd.args(["--file-selection", "--title=Select Backup File"]);
         if let Some(ref def) = default_path {
@@ -232,8 +233,10 @@ fn pick_file(default_path: Option<String>, filter_name: Option<String>, filter_e
 }
 
 const APP_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+#[allow(dead_code)]
 const APP_ICON_ICO: &[u8] = include_bytes!("../icons/icon.ico");
 
+#[allow(dead_code)]
 fn to_base64(data: &[u8]) -> String {
     const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
@@ -323,6 +326,224 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct ImapEmailItem {
+    pub uid: u32,
+    pub subject: String,
+    pub from: String,
+    pub date: String,
+    pub snippet: String,
+    pub content_html: String,
+    pub content_text: String,
+    pub is_unread: bool,
+}
+
+#[tauri::command]
+async fn test_imap_connection(
+    server: String,
+    port: u16,
+    username: String,
+    password: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let domain = server.trim();
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS Error: {}", e))?;
+        let client = imap::ClientBuilder::new(domain, port)
+            .connect(domain, &tls)
+            .map_err(|e| format!("IMAP Connection error: {}", e))?;
+        let mut session = client
+            .login(&username, &password)
+            .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
+        let _ = session.logout();
+        Ok(format!("Successfully connected to {} as {}", domain, username))
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
+#[tauri::command]
+async fn list_imap_folders(
+    server: String,
+    port: u16,
+    username: String,
+    password: String,
+) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let domain = server.trim();
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS Error: {}", e))?;
+        let client = imap::ClientBuilder::new(domain, port)
+            .connect(domain, &tls)
+            .map_err(|e| format!("IMAP Connection error: {}", e))?;
+        let mut session = client
+            .login(&username, &password)
+            .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
+        let mailboxes = session
+            .list(None, Some("*"))
+            .map_err(|e| format!("Failed to list folders: {}", e))?;
+        let mut folder_names = Vec::new();
+        for mb in mailboxes.iter() {
+            folder_names.push(mb.name().to_string());
+        }
+        let _ = session.logout();
+        Ok(folder_names)
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
+#[tauri::command]
+async fn fetch_imap_emails(
+    server: String,
+    port: u16,
+    username: String,
+    password: String,
+    folder: String,
+    limit: u32,
+) -> Result<Vec<ImapEmailItem>, String> {
+    tokio::task::spawn_blocking(move || {
+        let domain = server.trim();
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS Error: {}", e))?;
+        let client = imap::ClientBuilder::new(domain, port)
+            .connect(domain, &tls)
+            .map_err(|e| format!("IMAP Connection error: {}", e))?;
+        let mut session = client
+            .login(&username, &password)
+            .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
+
+        let target_folder = if folder.trim().is_empty() { "INBOX" } else { folder.trim() };
+        let mailbox = session
+            .select(target_folder)
+            .map_err(|e| format!("Failed to select folder '{}': {}", target_folder, e))?;
+
+        let total_messages = mailbox.exists;
+        if total_messages == 0 {
+            let _ = session.logout();
+            return Ok(Vec::new());
+        }
+
+        let max_fetch = if limit == 0 { 30 } else { limit };
+        let start_seq = if total_messages > max_fetch {
+            total_messages - max_fetch + 1
+        } else {
+            1
+        };
+        let range = format!("{}:{}", start_seq, total_messages);
+
+        let messages = session
+            .fetch(&range, "(UID FLAGS BODY.PEEK[])")
+            .map_err(|e| format!("Failed to fetch messages: {}", e))?;
+
+        let mut items = Vec::new();
+
+        for msg in messages.iter().rev() {
+            let uid = msg.uid.unwrap_or(0);
+            let flags = msg.flags();
+            let is_unread = !flags.iter().any(|f| matches!(f, imap::types::Flag::Seen));
+
+            if let Some(body_bytes) = msg.body() {
+                if let Some(parsed) = mail_parser::MessageParser::default().parse(body_bytes) {
+                    let subject = parsed.subject().unwrap_or("(No Subject)").to_string();
+                    let from_str = match parsed.from() {
+                        Some(mail_parser::Address::Mailbox(mb)) => {
+                            let name = mb.name.as_deref().unwrap_or("");
+                            let email = mb.address.as_deref().unwrap_or("");
+                            if !name.is_empty() && !email.is_empty() {
+                                format!("{} <{}>", name, email)
+                            } else if !email.is_empty() {
+                                email.to_string()
+                            } else {
+                                name.to_string()
+                            }
+                        }
+                        Some(mail_parser::Address::Group(grp)) => {
+                            grp.name.as_deref().unwrap_or("Group").to_string()
+                        }
+                        None => "Unknown Sender".to_string(),
+                    };
+
+                    let date_str = parsed.date().map(|d| d.to_rfc3339()).unwrap_or_default();
+                    let content_html = parsed.html_body(0).map(|c| c.to_string()).unwrap_or_default();
+                    let content_text = parsed.text_body(0).map(|c| c.to_string()).unwrap_or_default();
+
+                    let raw_snippet = if !content_text.is_empty() {
+                        content_text.replace('\n', " ")
+                    } else {
+                        content_html.replace("<[^>]+>", " ")
+                    };
+                    let snippet = raw_snippet.split_whitespace().collect::<Vec<_>>().join(" ");
+                    let truncated_snippet = if snippet.chars().count() > 280 {
+                        let end = snippet.char_indices().map(|(i, _)| i).nth(280).unwrap_or(snippet.len());
+                        format!("{}...", &snippet[..end])
+                    } else {
+                        snippet
+                    };
+
+                    items.push(ImapEmailItem {
+                        uid,
+                        subject,
+                        from: from_str,
+                        date: date_str,
+                        snippet: truncated_snippet,
+                        content_html,
+                        content_text,
+                        is_unread,
+                    });
+                }
+            }
+        }
+
+        let _ = session.logout();
+        Ok(items)
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
+#[tauri::command]
+async fn mark_imap_email_read(
+    server: String,
+    port: u16,
+    username: String,
+    password: String,
+    folder: String,
+    uid: u32,
+    read: bool,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let domain = server.trim();
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS Error: {}", e))?;
+        let client = imap::ClientBuilder::new(domain, port)
+            .connect(domain, &tls)
+            .map_err(|e| format!("IMAP Connection error: {}", e))?;
+        let mut session = client
+            .login(&username, &password)
+            .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
+
+        let target_folder = if folder.trim().is_empty() { "INBOX" } else { folder.trim() };
+        session
+            .select(target_folder)
+            .map_err(|e| format!("Failed to select folder '{}': {}", target_folder, e))?;
+
+        let flag_action = if read { "+FLAGS (\\Seen)" } else { "-FLAGS (\\Seen)" };
+        session
+            .uid_store(format!("{}", uid), flag_action)
+            .map_err(|e| format!("Failed to update flags: {}", e))?;
+
+        let _ = session.logout();
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -333,7 +554,11 @@ fn main() {
             write_file_text,
             pick_folder,
             pick_file,
-            show_native_notification
+            show_native_notification,
+            test_imap_connection,
+            list_imap_folders,
+            fetch_imap_emails,
+            mark_imap_email_read
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -697,6 +697,7 @@
       <div class="tabs-nav">
         <button class="tab-btn settings-tab-btn active" data-tab="tab-feeds" data-i18n="settings_tab_feeds">Feeds & Folders</button>
         <button class="tab-btn settings-tab-btn" data-tab="tab-automation" data-i18n="settings_tab_automation">Automation & Schedule</button>
+        <button class="tab-btn settings-tab-btn" data-tab="tab-email" data-i18n="settings_tab_email">📬 Email Accounts</button>
         <button class="tab-btn settings-tab-btn" data-tab="tab-ai" data-i18n="settings_tab_ai">AI Features</button>
         <button class="tab-btn settings-tab-btn" data-tab="tab-rules" data-i18n="settings_tab_rules">Rules & Filters</button>
         <button class="tab-btn settings-tab-btn" data-tab="tab-backup" data-i18n="settings_tab_backup">Backup & OPML</button>
@@ -846,6 +847,114 @@
             <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
               <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 40px; padding: 0 24px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately" data-i18n="btn_create_backup_now" data-i18n-title="tooltip_create_backup_now">⚡ Create Backup Now</button>
               <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab: Email Accounts (IMAP) -->
+        <div id="tab-email" class="tab-content settings-tab-pane hidden">
+          <h3 style="margin-top: 0;" data-i18n="settings_email_title">📬 Email Inboxes & Newsletters (IMAP)</h3>
+          <p class="settings-description" style="margin-bottom: 14px;" data-i18n="settings_email_desc">
+            Connect any email account directly via native IMAP to receive newsletters and incoming emails seamlessly alongside your RSS feeds.
+          </p>
+
+          <!-- Email Account Form (Add / Edit) -->
+          <div style="background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px 16px; margin-bottom: 16px;">
+            <h4 id="email-form-heading" style="margin: 0 0 10px 0; font-size: 14px;" data-i18n="email_form_add_heading">➕ Add Email Account</h4>
+            <input type="hidden" id="email-account-id" value="">
+            
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <!-- Provider Presets -->
+              <div>
+                <label for="email-preset-select" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_provider_preset">Quick Provider Preset:</label>
+                <select id="email-preset-select" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px;">
+                  <option value="custom" data-i18n="email_preset_custom">Custom IMAP Server</option>
+                  <option value="gmail">Gmail (Google)</option>
+                  <option value="outlook">Outlook / Hotmail / Office 365</option>
+                  <option value="yahoo">Yahoo Mail</option>
+                  <option value="gmx">GMX Mail</option>
+                  <option value="webde">Web.de</option>
+                  <option value="tonline">T-Online</option>
+                  <option value="icloud">Apple iCloud</option>
+                </select>
+              </div>
+
+              <!-- Account Name -->
+              <div>
+                <label for="email-account-name" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_account_name">Account Name (Label):</label>
+                <input type="text" id="email-account-name" placeholder="e.g. My Newsletters or Work Gmail" data-i18n-placeholder="email_account_name_placeholder" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+              </div>
+
+              <!-- Server & Port -->
+              <div style="display: flex; gap: 10px;">
+                <div style="flex: 3;">
+                  <label for="email-imap-server" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_server">IMAP Server:</label>
+                  <input type="text" id="email-imap-server" placeholder="imap.example.com" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                </div>
+                <div style="flex: 1;">
+                  <label for="email-imap-port" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_port">Port (SSL/TLS):</label>
+                  <input type="number" id="email-imap-port" value="993" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                </div>
+              </div>
+
+              <!-- Email / Username & Password -->
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 220px;">
+                  <label for="email-username" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_username">Email Address / Username:</label>
+                  <input type="email" id="email-username" placeholder="user@domain.com" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                </div>
+                <div style="flex: 1; min-width: 220px;">
+                  <label for="email-password" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_password">Password / App Password:</label>
+                  <div style="display: flex; gap: 6px;">
+                    <input type="password" id="email-password" placeholder="••••••••••••" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                    <button type="button" id="email-password-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste password from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_key">📋 Paste</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Folder selection & Limit -->
+              <div style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                <div style="flex: 2; min-width: 180px;">
+                  <label for="email-folder-select" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_folder">IMAP Folder:</label>
+                  <div style="display: flex; gap: 6px;">
+                    <select id="email-folder-select" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                      <option value="INBOX">INBOX (Default)</option>
+                    </select>
+                    <button type="button" id="email-load-folders-btn" class="secondary-btn" style="padding: 0 12px; white-space: nowrap; font-size: 12px;" title="Connect and load folders from server" data-i18n="email_btn_load_folders">📂 Test & Load Folders</button>
+                  </div>
+                </div>
+                <div style="flex: 1; min-width: 120px;">
+                  <label for="email-fetch-limit" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_fetch_limit">Max Emails to Fetch:</label>
+                  <input type="number" id="email-fetch-limit" min="5" max="150" value="30" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                </div>
+              </div>
+
+              <!-- Form Buttons & Status Message -->
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; flex-wrap: wrap; gap: 10px;">
+                <span id="email-form-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" id="email-cancel-edit-btn" class="secondary-btn hidden" style="padding: 8px 14px;" data-i18n="btn_cancel">Cancel</button>
+                  <button type="button" id="email-save-account-btn" style="padding: 8px 18px; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;" data-i18n="email_btn_save_account">Save Account</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- App Password Notice Card -->
+          <div style="background: var(--hover-bg, rgba(255,255,255,0.04)); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;">
+            <div style="font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; color: var(--link-color);">
+              <span>💡</span> <span data-i18n="email_app_pw_notice_title">Notice for Gmail, Outlook & iCloud:</span>
+            </div>
+            <p style="margin: 0;" data-i18n="email_app_pw_notice_desc">
+              Major email providers require an <strong>App Password</strong> (Anwendungspasswort) when 2-Factor-Authentication is active. Generate one in your Google/Microsoft account settings under Security -> 2-Step Verification -> App Passwords.
+            </p>
+          </div>
+
+          <!-- Configured Accounts List -->
+          <div>
+            <h4 style="font-size: 13px; margin-bottom: 8px;" data-i18n="email_configured_heading">Configured Email Inboxes</h4>
+            <div id="email-accounts-list" style="border: 1px solid var(--border-color); border-radius: 4px; max-height: 240px; overflow-y: auto; background: var(--bg-color);">
+              <p id="email-empty-accounts" style="padding: 14px; margin: 0; font-size: 13px; color: var(--secondary-text-color); font-style: italic;" data-i18n="email_no_accounts_configured">No email accounts configured yet.</p>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 [package]
 name = "puretidings-desktop"
-version = "1.0.27"
+version = "1.0.28"
 description = "PureTidings Desktop RSS Reader"
 authors = ["PureTidings"]
 edition = "2021"
@@ -14,3 +14,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli"] }
 tokio = { version = "1", features = ["full"] }
+imap = "3.0"
+native-tls = "0.2"
+mail-parser = "0.9"

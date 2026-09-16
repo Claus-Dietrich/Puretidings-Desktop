@@ -1164,6 +1164,9 @@ async function markPostAsRead(element, post) {
   if(currentViewMode === 'unread') {
       element.style.display = 'none';
   }
+  if (post.isEmail && post.emailUid && post.accountId && typeof window.markEmailReadNative === 'function') {
+      window.markEmailReadNative(post.accountId, post.emailUid, true);
+  }
 }
 
 function addTitleClickListener(element, post) {
@@ -1173,7 +1176,14 @@ function addTitleClickListener(element, post) {
     markPostAsRead(element, post);
     element.classList.add('flipping-out');
     setTimeout(() => {
-      chrome.tabs.create({ url: post.link, active: false });
+      const isEmail = post.isEmail || (post.link && post.link.startsWith('imap:'));
+      if (isEmail) {
+        const feedName = findFeedById(post.feedId)?.name || '';
+        const readerUrl = `reader.html?url=${encodeURIComponent(post.link)}&description=${encodeURIComponent(post.description || '')}&title=${encodeURIComponent(post.title || '')}&videoLength=${encodeURIComponent(post.videoLength || '')}&featuredImage=${encodeURIComponent(post.featuredImage || '')}&source=${encodeURIComponent(feedName)}&feedId=${encodeURIComponent(post.feedId)}&fullContentHtmlText=${encodeURIComponent(post.fullContentHtml || post.content || '')}&isEmail=true&emailUid=${encodeURIComponent(post.emailUid || '')}&accountId=${encodeURIComponent(post.accountId || '')}`;
+        chrome.tabs.create({ url: readerUrl });
+      } else {
+        chrome.tabs.create({ url: post.link, active: false });
+      }
       setTimeout(() => element.classList.remove('flipping-out'), 1000);
     }, 500);
   });
@@ -1211,7 +1221,8 @@ function addReaderModeListener(element, post) {
     element.classList.add('flipping-out');
     setTimeout(() => {
       const feedName = findFeedById(post.feedId)?.name || '';
-      const readerUrl = `reader.html?url=${encodeURIComponent(post.link)}&description=${encodeURIComponent(post.description || '')}&title=${encodeURIComponent(post.title || '')}&videoLength=${encodeURIComponent(post.videoLength || '')}&featuredImage=${encodeURIComponent(post.featuredImage || '')}&source=${encodeURIComponent(feedName)}&feedId=${encodeURIComponent(post.feedId)}&fullContentHtmlText=${encodeURIComponent(post.fullContentHtml || '')}`;
+      const isEmail = post.isEmail || (post.link && post.link.startsWith('imap:'));
+      const readerUrl = `reader.html?url=${encodeURIComponent(post.link)}&description=${encodeURIComponent(post.description || '')}&title=${encodeURIComponent(post.title || '')}&videoLength=${encodeURIComponent(post.videoLength || '')}&featuredImage=${encodeURIComponent(post.featuredImage || '')}&source=${encodeURIComponent(feedName)}&feedId=${encodeURIComponent(post.feedId)}&fullContentHtmlText=${encodeURIComponent(post.fullContentHtml || post.content || '')}&isEmail=${isEmail ? 'true' : 'false'}&emailUid=${encodeURIComponent(post.emailUid || '')}&accountId=${encodeURIComponent(post.accountId || '')}`;
       chrome.tabs.create({ url: readerUrl });
       setTimeout(() => element.classList.remove('flipping-out'), 1000);
     }, 500);
