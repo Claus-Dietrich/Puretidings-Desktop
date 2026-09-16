@@ -1721,43 +1721,102 @@ downloadAiReportBtn.addEventListener('click', () => {
 
 function formatMarkdownToHtml(markdown) {
     if (!markdown) return '';
-    let html = markdown.replace(/\r\n/g, '\n');
-    
-    // Headers
-    html = html.replace(/^### (.*$)/gim, '<h4>$1</h4>');
-    html = html.replace(/^## (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^# (.*$)/gim, '<h2>$1</h2>');
-    
-    // Bold
-    html = html.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
-    
-    // Italic
-    html = html.replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '<em>$1</em>');
-    
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    
-    // Blockquotes
-    html = html.replace(/^>\s*(.*)$/gim, '<blockquote>$1</blockquote>');
-    html = html.replace(/<\/blockquote>\s*<blockquote>/g, '<br>');
+    const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+    let html = '';
+    let listStack = []; // stores open list levels
 
-    // Lists
-    html = html.replace(/^\s*[-*]\s+(.*)/gim, '<ul><li>$1</li></ul>');
-    html = html.replace(/<\/ul>\s*<ul>/g, '');
-    
-    // Line breaks and paragraphs
-    html = html.replace(/\n{2,}/g, '</p><p>');
-    html = html.replace(/\n/g, '<br>');
-
-    if (!html.startsWith('<h') && !html.startsWith('<ul') && !html.startsWith('<blockquote') && !html.startsWith('<p')) {
-        html = '<p>' + html + '</p>';
+    function closeListsToLevel(targetLevel) {
+        let out = '';
+        while (listStack.length > targetLevel) {
+            listStack.pop();
+            out += '</li></ul>';
+        }
+        return out;
     }
 
-    // Clean up empty or redundant wrappers
-    html = html.replace(/<p>\s*<\/p>/g, '');
-    html = html.replace(/<p>\s*(<h[1-6]>.*?<\/h[1-6]>)\s*<\/p>/gi, '$1');
-    html = html.replace(/<p>\s*(<ul[\s\S]*?<\/ul>)\s*<\/p>/gi, '$1');
-    html = html.replace(/<p>\s*(<blockquote[\s\S]*?<\/blockquote>)\s*<\/p>/gi, '$1');
+    function formatInline(text) {
+        if (!text) return '';
+        let s = text;
+        // Bold: **text** or __text__
+        s = s.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
+        s = s.replace(/__([^\n]+?)__/g, '<strong>$1</strong>');
+        // Italic: *text* or _text_
+        s = s.replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '<em>$1</em>');
+        s = s.replace(/(?<=^|\s)_([^\n_]+?)_(?=\s|$|[.,!?])/g, '<em>$1</em>');
+        // Inline code: `code`
+        s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // Links: [text](url)
+        s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        return s;
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i];
+
+        // Check for list item: optional indentation, bullet (- or * or + or 1.), space, content
+        const listMatch = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
+        if (listMatch) {
+            const indentSpaces = listMatch[1].length;
+            const content = listMatch[2];
+            // Determine level: 0-1 spaces => level 1; 2-3 spaces => level 2; 4+ spaces => level 3
+            const level = Math.floor(indentSpaces / 2) + 1;
+
+            if (level > listStack.length) {
+                while (listStack.length < level) {
+                    const isSub = listStack.length > 0;
+                    listStack.push(listStack.length + 1);
+                    html += `<ul class="markdown-list${isSub ? ' markdown-sublist' : ''}"><li>`;
+                }
+            } else if (level < listStack.length) {
+                html += closeListsToLevel(level);
+                html += '</li><li>';
+            } else {
+                html += '</li><li>';
+            }
+
+            html += formatInline(content);
+            continue;
+        }
+
+        // Not a list item: close any open lists
+        if (listStack.length > 0) {
+            html += closeListsToLevel(0);
+        }
+
+        // Headings: #, ##, ###, ####
+        const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
+        if (hMatch) {
+            const hNum = hMatch[1].length;
+            const headingTag = hNum === 1 ? 'h2' : (hNum === 2 ? 'h3' : 'h4');
+            html += `<${headingTag} class="summary-heading">${formatInline(hMatch[2])}</${headingTag}>`;
+            continue;
+        }
+
+        // Blockquotes
+        const bqMatch = line.match(/^>\s*(.*)$/);
+        if (bqMatch) {
+            html += `<blockquote>${formatInline(bqMatch[1])}</blockquote>`;
+            continue;
+        }
+
+        // Horizontal rules
+        if (/^(\*{3,}|-{3,}|_{3,})$/.test(line.trim())) {
+            html += '<hr>';
+            continue;
+        }
+
+        // Empty line
+        if (!line.trim()) {
+            continue;
+        }
+
+        // Normal paragraph
+        html += `<p>${formatInline(line)}</p>`;
+    }
+
+    if (listStack.length > 0) {
+        html += closeListsToLevel(0);
+    }
 
     return html;
 }

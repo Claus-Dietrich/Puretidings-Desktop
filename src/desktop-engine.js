@@ -1119,8 +1119,166 @@
     window.discoverAndSubscribeFeed = discoverAndSubscribeFeed;
 
     // ==========================================
-    // 8. AI URL Summarizer (Question 5)
+    // 8. AI URL Summarizer & Dynamic Prompt Engine
     // ==========================================
+    function isLegacyGenericPrompt(text) {
+        if (!text || !text.trim()) return true;
+        const t = text.trim().toLowerCase();
+        return (
+            t === "create a concise, insightful summary of this article highlighting the core facts and takeaways." ||
+            t === "provide a concise summary and highlight the key takeaways of the following article in markdown format." ||
+            t.startsWith("create a concise, insightful summary") ||
+            t.startsWith("provide a concise summary and highlight the key takeaways") ||
+            t === "create a comprehensive and well-structured summary of this youtube video with key takeaways and bullet points." ||
+            t.startsWith("create a comprehensive and well-structured summary of this youtube video") ||
+            t.startsWith("you are an assistant that summarizes youtube videos")
+        );
+    }
+    window.isLegacyGenericPrompt = isLegacyGenericPrompt;
+
+    function getDefaultAiPrompt(type, lang = 'en') {
+        const l = (lang || 'en').toLowerCase().substring(0, 2);
+        if (type === 'youtube') {
+            if (l === 'de') {
+                return `Du bist ein intelligenter Assistent, der YouTube-Videos präzise und fundiert zusammenfasst. Erstelle die Antwort auf Deutsch, klar gegliedert in zwei Abschnitte mit exakt diesen Markdown-Überschriften:
+
+### 📝 Zusammenfassung aus der Videobeschreibung
+[Erstelle hier eine prägnante Zusammenfassung der Videobeschreibung]
+
+### 🎥 Zusammenfassung aus dem Videoskript (Transkript)
+[Erstelle hier eine fundierte Zusammenfassung mit 3-5 Kernpunkten als Aufzählung, jeweils beginnend mit einem fettgedruckten Thema (z.B. * **Thema:** Erläuterung), basierend auf dem Transkript/Skript des Videos]
+
+Falls sowohl Beschreibung als auch Transkript vorliegen, zeige BEIDE Abschnitte. Falls kein Transkript geladen werden konnte, zeige dennoch beide Überschriften und notiere unter dem Skript-Abschnitt: 'Kein Videoskript (Transkript) verfügbar. Zusammenfassung basiert nur auf der Beschreibung.' Ignoriere Werbeeinblendungen und Sponsorenhinweise.`;
+            }
+            if (l === 'es') {
+                return `Eres un asistente inteligente que resume videos de YouTube. Genera una respuesta en español claramente dividida en dos secciones con estos encabezados Markdown exactos:
+
+### 📝 Resumen de la descripción del video
+[Proporciona un resumen conciso del texto de la descripción aquí]
+
+### 🎥 Resumen del guión del video (transcripción)
+[Proporciona un resumen sólido con 3-5 puntos clave, cada uno comenzando con una categoría en negrita (ej. * **Tema:** Explicación), basado en la transcripción/guión del video]
+
+Si se proporcionan tanto la descripción como la transcripción, DEBES mostrar ambas secciones. Si no se pudo cargar la transcripción, muestra ambos encabezados y escribe debajo: 'No hay transcripción disponible. El resumen se basa únicamente en la descripción.' Ignora publicidad o menciones a patrocinadores.`;
+            }
+            if (l === 'fr') {
+                return `Vous êtes un assistant intelligent qui résume des vidéos YouTube. Générez une réponse en français clairement divisée en deux sections avec ces titres Markdown exacts :
+
+### 📝 Résumé de la description de la vidéo
+[Fournissez un résumé concis de la description de la vidéo ici]
+
+### 🎥 Résumé du script de la vidéo (transcription)
+[Fournissez un résumé approfondi avec 3-5 points clés, chacun commençant par une catégorie en gras (ex. * **Thème :** Explication), basé sur la transcription/script de la vidéo]
+
+Si la description et la transcription sont fournies, vous DEVEZ afficher les deux sections. Si la transcription n'a pas pu être chargée, affichez les deux titres et écrivez : 'Aucune transcription disponible. Le résumé est basé uniquement sur la description.' Ignorez les publicités et sponsors.`;
+            }
+            // Default English
+            return `You are an intelligent assistant that summarizes YouTube videos. Generate a response in English clearly divided into two distinct sections using these exact Markdown headings:
+
+### 📝 Summary from Video Description
+[Provide a concise summary of the video's description text here]
+
+### 🎥 Summary from Video Script
+[Provide a comprehensive summary and 3-5 key takeaways in bullet points, each beginning with a bold topic category (e.g. * **Topic:** Explanation), based on the video transcript]
+
+If both description and transcript are provided, you MUST show both sections. If the transcript could not be loaded, still display both headers but under the script header write: 'No video script (transcript) available. Summary is based only on the description.' Ignore advertisements or sponsor mentions in the text.`;
+        }
+
+        // Default: 'article' / website URL summary
+        if (l === 'de') {
+            return `Erstelle eine präzise, hochwertige und fundierte Zusammenfassung der bereitgestellten Inhalte (Website oder Artikel) auf Deutsch im Markdown-Format.
+
+Befolge exakt diese Struktur:
+1. Einleitender Satz (1-2 Sätze): Eine prägnante Einführung, worum es sich bei der Website bzw. dem Artikel handelt.
+2. Überschrift: '### Kerninhalte der Seite' (bzw. '### Kerninhalte des Artikels')
+3. Strukturierte Stichpunkte mit fettgedruckter Themenkategorie:
+   - Fasse alle wesentlichen Aspekte in klaren Aufzählungspunkten zusammen, jeweils beginnend mit einem prägnanten fettgedruckten Thema (z.B. '* **Zweck & Philosophie:** ...').
+   - Falls die Seite Struktur- oder Themenbereiche, Rubriken oder Menüpunkte aufweist (wie Navigation, Kapitel oder Kategorien), liste diese als eingerückte Unterpunkte auf (z.B.:
+     * **Struktur & Themenbereiche:**
+       * **Kategorie 1:** Kurze Erläuterung
+       * **Kategorie 2:** Kurze Erläuterung).
+Verwende sauberes Standard-Markdown mit Aufzählungszeichen (* oder -). Keine unnötigen Floskeln.`;
+        }
+        if (l === 'es') {
+            return `Crea un resumen preciso, de alta calidad y bien estructurado del contenido proporcionado (sitio web o artículo) en español en formato Markdown.
+
+Sigue exactamente esta estructura:
+1. Oración introductoria (1-2 oraciones): Una descripción general concisa que explique de qué trata el sitio web o artículo.
+2. Encabezado: '### Contenidos clave de la página' (o '### Contenidos clave del artículo')
+3. Puntos estructurados con categorías en negrita:
+   - Resume los aspectos esenciales en viñetas claras, cada una comenzando con una etiqueta de tema en negrita (ej. '* **Propósito y Filosofía:** ...').
+   - Si la página presenta secciones estructurales, temas o categorías de navegación, preséntalas como subviñetas sangradas (ej.:
+     * **Estructura y Secciones:**
+       * **Sección 1:** Breve explicación
+       * **Sección 2:** Breve explicación).
+Usa Markdown estándar con viñetas (* o -). Evita frases introductorias innecesarias.`;
+        }
+        if (l === 'fr') {
+            return `Créez un résumé précis, de haute qualité et bien structuré du contenu fourni (site web ou article) en français au format Markdown.
+
+Suivez exactement cette structure :
+1. Phrase d'introduction (1-2 phrases) : Une vue d'ensemble concise présentant le sujet du site web ou de l'article.
+2. Titre : '### Contenus clés de la page' (ou '### Contenus clés de l'article')
+3. Points structurés avec catégorie en gras :
+   - Résumez les aspects essentiels sous forme de puces claires, commençant chacune par un thème en gras (ex. '* **Objectif & Philosophie :** ...').
+   - Si la page comporte des sections structurelles, thèmes ou rubriques de navigation, présentez-les sous forme de sous-puces indentées (ex. :
+     * **Structure & Rubriques :**
+       * **Rubrique 1 :** Brève explication
+       * **Rubrique 2 :** Brève explication).
+Utilisez du Markdown propre avec des puces (* ou -). Pas de phrases de remplissage inutiles.`;
+        }
+        // Default English
+        return `Create a precise, high-quality, and well-structured summary of the provided content (website or article) in English using Markdown format.
+
+Follow this exact structure:
+1. Introductory sentence (1-2 sentences): A concise overview introducing what the website or article is about.
+2. Heading: '### Core Content of the Page' (or '### Core Content of the Article')
+3. Structured bullet points with bold topic categories:
+   - Summarize key aspects in clear bullet points, each beginning with a bolded topic label (e.g. '* **Purpose & Philosophy:** ...').
+   - If the page contains distinct structural sections, topics, or navigation categories, present them as indented sub-bullets (e.g.:
+     * **Website Structure & Sections:**
+       * **Section 1:** Brief explanation
+       * **Section 2:** Brief explanation).
+Use clean Markdown with standard bullet points (* or -). Avoid unnecessary filler phrases.`;
+    }
+    window.getDefaultAiPrompt = getDefaultAiPrompt;
+
+    function isDefaultPrompt(text, type) {
+        if (!text || !text.trim() || isLegacyGenericPrompt(text)) return true;
+        const clean = text.trim();
+        const langs = ['en', 'de', 'es', 'fr'];
+        for (const lang of langs) {
+            if (clean === getDefaultAiPrompt(type, lang).trim()) {
+                return true;
+            }
+        }
+        return false;
+    }
+    window.isDefaultPrompt = isDefaultPrompt;
+
+    function syncReaderAiContainer(markdown, html, prompt, type) {
+        const container = document.getElementById('reader-ai-container');
+        const contentEl = document.getElementById('reader-ai-content');
+        const promptInput = document.getElementById('reader-ai-prompt-input');
+        const headerTitle = document.getElementById('reader-ai-header-title');
+        const genBtn = document.getElementById('reader-ai-generate-btn');
+        if (container && contentEl) {
+            container.style.display = 'block';
+            contentEl.innerHTML = html;
+            if (headerTitle) {
+                headerTitle.textContent = type === 'youtube'
+                    ? (window.i18n ? window.i18n.t('reader_ai_yt_summary') : '🎥 AI Video Summary')
+                    : (window.i18n ? window.i18n.t('reader_ai_summary') : '🤖 AI Article Summary');
+            }
+            if (promptInput && prompt) {
+                promptInput.value = prompt;
+            }
+            if (genBtn && type) {
+                genBtn.dataset.type = type;
+            }
+        }
+    }
+
     async function summarizeAnyUrl(inputUrl) {
         const cleanUrl = inputUrl.trim();
         if (!cleanUrl) return;
@@ -1134,6 +1292,7 @@
 
         const isYt = cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be');
         const ytMatch = cleanUrl.match(/(?:v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+        const currentLang = (window.i18n && window.i18n.currentLanguage) || 'en';
 
         if (isYt && ytMatch) {
             const videoId = ytMatch[1];
@@ -1148,46 +1307,129 @@
                     alert("Please set your Google Gemini API Key in Settings first to generate AI summaries.");
                     return;
                 }
-                const prompt = youtubeAiPrompt || "Create a comprehensive and well-structured summary of this YouTube video with key takeaways and bullet points.";
-                const aiResult = await callGeminiApi(geminiApiKey, prompt, transcriptText ? "Video Script / Transcript:\n" + transcriptText : "No transcript available for video " + cleanUrl);
-                
+                const prompt = (!youtubeAiPrompt || isLegacyGenericPrompt(youtubeAiPrompt))
+                    ? getDefaultAiPrompt('youtube', currentLang)
+                    : youtubeAiPrompt;
+
+                let contentPayload = `Video URL: ${cleanUrl}\n\n`;
+                if (transcriptText) {
+                    contentPayload += `Video Script / Transcript:\n${transcriptText}`;
+                } else {
+                    contentPayload += `Video Script / Transcript:\nNo video script (transcript) available for ${cleanUrl}`;
+                }
+
+                const aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
+                const formattedHtml = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(aiResult) : escapeHtml(aiResult).replace(/\n/g, '<br>');
+
                 openReaderModal({
                     url: cleanUrl,
                     title: 'YouTube Video AI Summary',
-                    description: `<div style="background:var(--hover-bg); padding:16px; border-radius:8px; margin-bottom:20px;"><h3 style="margin-top:0;">🤖 AI Video Summary</h3><div style="white-space:pre-wrap; line-height:1.6;">${escapeHTML(aiResult)}</div></div>`,
+                    description: `
+                        <div class="ai-summary-card">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                                    <span>🎥</span> ${window.i18n ? window.i18n.t('reader_ai_yt_summary') : 'AI Video Summary'}
+                                </h3>
+                                <span style="font-size: 11px; opacity: 0.7;">Powered by Gemini</span>
+                            </div>
+                            <div class="ai-summary-body">
+                                ${formattedHtml}
+                            </div>
+                        </div>
+                    `,
                     source: 'YouTube Video'
                 });
                 currentReaderAiMarkdown = aiResult;
+                syncReaderAiContainer(aiResult, formattedHtml, prompt, 'youtube');
             } catch (err) {
                 alert("Failed to summarize video: " + err.message);
             }
         } else {
-            // General Web Article
+            // General Web Article or Website URL
             try {
                 const html = await tauriInvoke('fetch_url', { url: cleanUrl });
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, "text/html");
-                const reader = new Readability(doc);
-                const article = reader.parse();
-                const contentText = article ? article.textContent : html.substring(0, 15000);
-                const title = article ? article.title : cleanUrl;
+
+                // Extract rich site structure, navigation & sections
+                const siteName = doc.querySelector('meta[property="og:site_name"]')?.content || new URL(cleanUrl).hostname;
+                const metaDesc = doc.querySelector('meta[name="description"]')?.content || doc.querySelector('meta[property="og:description"]')?.content || '';
+
+                const navLinks = Array.from(doc.querySelectorAll('nav a, header a, .menu a, .nav a, ul.navigation a, [id*="menu"] a, [class*="menu"] a'))
+                    .map(a => a.textContent.trim())
+                    .filter(t => t.length > 1 && t.length < 50 && !/^(sign in|log in|anmelden|login|register|cookie|datenschutz|privacy|impressum)/i.test(t));
+                const uniqueNav = [...new Set(navLinks)].slice(0, 20);
+
+                const headings = Array.from(doc.querySelectorAll('h1, h2, h3'))
+                    .map(h => h.textContent.trim())
+                    .filter(t => t.length > 2 && t.length < 100);
+                const uniqueHeadings = [...new Set(headings)].slice(0, 20);
+
+                let article = null;
+                try {
+                    const reader = new Readability(doc.cloneNode(true));
+                    article = reader.parse();
+                } catch (re) {
+                    console.warn('[PureTidings Desktop] Readability parse error:', re);
+                }
+
+                const bodyText = article?.textContent || (doc.body ? doc.body.innerText : html.substring(0, 15000));
+                const title = article?.title || doc.title || cleanUrl;
+
+                let contentPayload = `Website / Article URL: ${cleanUrl}\n`;
+                if (siteName) contentPayload += `Site Name: ${siteName}\n`;
+                if (title) contentPayload += `Title: ${title}\n`;
+                if (metaDesc) contentPayload += `Meta Description: ${metaDesc}\n`;
+                if (uniqueNav.length > 0) contentPayload += `Website Navigation / Main Sections: ${uniqueNav.join(', ')}\n`;
+                if (uniqueHeadings.length > 0) contentPayload += `Page Headings / Structure: ${uniqueHeadings.join(' | ')}\n`;
+                contentPayload += `\nMain Content:\n${bodyText.substring(0, 30000)}`;
 
                 const { geminiApiKey, aiReportPrompt } = await chrome.storage.sync.get(['geminiApiKey', 'aiReportPrompt']);
                 if (!geminiApiKey) {
                     alert("Please set your Google Gemini API Key in Settings first to generate AI summaries.");
                     return;
                 }
-                const prompt = aiReportPrompt || "Create a concise, insightful summary of this article highlighting the core facts and takeaways.";
-                const aiResult = await callGeminiApi(geminiApiKey, prompt, contentText);
+
+                const prompt = (!aiReportPrompt || isLegacyGenericPrompt(aiReportPrompt))
+                    ? getDefaultAiPrompt('article', currentLang)
+                    : aiReportPrompt;
+
+                const aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
+                const formattedHtml = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(aiResult) : escapeHtml(aiResult).replace(/\n/g, '<br>');
+
+                const originalArticleHtml = article?.content || (bodyText ? formatContentIfPlain(bodyText) : '<p>Original content extracted.</p>');
+                const summaryLabel = window.i18n ? window.i18n.t('reader_ai_summary') : 'AI Article Summary';
+                const originalLabel = window.i18n ? (window.i18n.currentLanguage === 'de' ? 'Originaler Seiteninhalt (Volltext)' : 'Original Page Content') : 'Original Page Content';
 
                 openReaderModal({
                     url: cleanUrl,
                     title: title,
                     featuredImage: '',
-                    description: `<div style="background:var(--hover-bg); padding:16px; border-radius:8px; margin-bottom:20px;"><h3 style="margin-top:0;">🤖 AI Article Summary</h3><div style="white-space:pre-wrap; line-height:1.6;">${escapeHTML(aiResult)}</div></div><hr><h3 style="margin-top:20px;">Full Article Content</h3>` + (article ? article.content : '<p>Original text extracted.</p>'),
-                    source: new URL(cleanUrl).hostname
+                    description: `
+                        <div class="ai-summary-card">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                                    <span>🤖</span> ${summaryLabel}
+                                </h3>
+                                <span style="font-size: 11px; opacity: 0.7;">Powered by Gemini</span>
+                            </div>
+                            <div class="ai-summary-body">
+                                ${formattedHtml}
+                            </div>
+                        </div>
+                        <details style="margin-top: 24px; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 16px; background: var(--hover-bg);">
+                            <summary style="font-weight: 600; cursor: pointer; color: var(--accent-color, #1a73e8); outline: none;">
+                                📄 ${originalLabel}
+                            </summary>
+                            <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-color); font-size: 14px; line-height: 1.6;">
+                                ${originalArticleHtml}
+                            </div>
+                        </details>
+                    `,
+                    source: siteName || new URL(cleanUrl).hostname
                 });
                 currentReaderAiMarkdown = aiResult;
+                syncReaderAiContainer(aiResult, formattedHtml, prompt, 'article');
             } catch (err) {
                 alert("Failed to summarize URL: " + err.message);
             }
@@ -1903,10 +2145,19 @@
 
         const keyInput = document.getElementById('settings-gemini-key');
         if (keyInput) keyInput.value = geminiApiKey || '';
+        const currentSettingsLang = (window.i18n && window.i18n.currentLanguage) || 'en';
         const aiPromptInput = document.getElementById('settings-ai-prompt');
-        if (aiPromptInput) aiPromptInput.value = aiReportPrompt || '';
+        if (aiPromptInput) {
+            aiPromptInput.value = (aiReportPrompt && !isLegacyGenericPrompt(aiReportPrompt))
+                ? aiReportPrompt
+                : getDefaultAiPrompt('article', currentSettingsLang);
+        }
         const ytPromptInput = document.getElementById('settings-yt-prompt');
-        if (ytPromptInput) ytPromptInput.value = youtubeAiPrompt || '';
+        if (ytPromptInput) {
+            ytPromptInput.value = (youtubeAiPrompt && !isLegacyGenericPrompt(youtubeAiPrompt))
+                ? youtubeAiPrompt
+                : getDefaultAiPrompt('youtube', currentSettingsLang);
+        }
 
         const intervalInput = document.getElementById('settings-check-interval');
         if (intervalInput) intervalInput.value = checkInterval !== undefined ? checkInterval : 30;
@@ -2457,6 +2708,96 @@
         return md.trim();
     }
     window.htmlToMarkdownSimple = htmlToMarkdownSimple;
+
+    function formatMarkdownToHtml(markdown) {
+        if (!markdown) return '';
+        const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+        let html = '';
+        let listStack = [];
+
+        function closeListsToLevel(targetLevel) {
+            let out = '';
+            while (listStack.length > targetLevel) {
+                listStack.pop();
+                out += '</li></ul>';
+            }
+            return out;
+        }
+
+        function formatInline(text) {
+            if (!text) return '';
+            let s = text;
+            s = s.replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>');
+            s = s.replace(/__([^\n]+?)__/g, '<strong>$1</strong>');
+            s = s.replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '<em>$1</em>');
+            s = s.replace(/(?<=^|\s)_([^\n_]+?)_(?=\s|$|[.,!?])/g, '<em>$1</em>');
+            s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+            s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+            return s;
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            const listMatch = line.match(/^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/);
+            if (listMatch) {
+                const indentSpaces = listMatch[1].length;
+                const content = listMatch[2];
+                const level = Math.floor(indentSpaces / 2) + 1;
+
+                if (level > listStack.length) {
+                    while (listStack.length < level) {
+                        const isSub = listStack.length > 0;
+                        listStack.push(listStack.length + 1);
+                        html += `<ul class="markdown-list${isSub ? ' markdown-sublist' : ''}"><li>`;
+                    }
+                } else if (level < listStack.length) {
+                    html += closeListsToLevel(level);
+                    html += '</li><li>';
+                } else {
+                    html += '</li><li>';
+                }
+
+                html += formatInline(content);
+                continue;
+            }
+
+            if (listStack.length > 0) {
+                html += closeListsToLevel(0);
+            }
+
+            const hMatch = line.match(/^(#{1,6})\s+(.*)$/);
+            if (hMatch) {
+                const hNum = hMatch[1].length;
+                const headingTag = hNum === 1 ? 'h2' : (hNum === 2 ? 'h3' : 'h4');
+                html += `<${headingTag} class="summary-heading">${formatInline(hMatch[2])}</${headingTag}>`;
+                continue;
+            }
+
+            const bqMatch = line.match(/^>\s*(.*)$/);
+            if (bqMatch) {
+                html += `<blockquote>${formatInline(bqMatch[1])}</blockquote>`;
+                continue;
+            }
+
+            if (/^(\*{3,}|-{3,}|_{3,})$/.test(line.trim())) {
+                html += '<hr>';
+                continue;
+            }
+
+            if (!line.trim()) {
+                continue;
+            }
+
+            html += `<p>${formatInline(line)}</p>`;
+        }
+
+        if (listStack.length > 0) {
+            html += closeListsToLevel(0);
+        }
+
+        return html;
+    }
+    window.formatMarkdownToHtml = formatMarkdownToHtml;
 
     function cleanMarkdownToPlainText(markdown) {
         if (!markdown) return '';
@@ -3137,14 +3478,15 @@
                 if (!container) return;
                 container.style.display = 'block';
                 const headerTitle = document.getElementById('reader-ai-header-title');
-                if (headerTitle) headerTitle.textContent = '🤖 AI Article Summary';
+                if (headerTitle) headerTitle.textContent = window.i18n ? window.i18n.t('reader_ai_summary') : '🤖 AI Article Summary';
 
                 const { aiReportPrompt } = await chrome.storage.sync.get('aiReportPrompt');
+                const currentLang = (window.i18n && window.i18n.currentLanguage) || 'en';
                 const promptInput = document.getElementById('reader-ai-prompt-input');
                 if (promptInput) {
-                    promptInput.value = aiReportPrompt && aiReportPrompt.trim() !== ''
+                    promptInput.value = (aiReportPrompt && !isLegacyGenericPrompt(aiReportPrompt))
                         ? aiReportPrompt.trim()
-                        : "Provide a concise summary and highlight the key takeaways of the following article in Markdown format.";
+                        : getDefaultAiPrompt('article', currentLang);
                 }
 
                 const genBtn = document.getElementById('reader-ai-generate-btn');
@@ -3165,16 +3507,15 @@
                 if (!container) return;
                 container.style.display = 'block';
                 const headerTitle = document.getElementById('reader-ai-header-title');
-                if (headerTitle) headerTitle.textContent = '🎥 AI Video Summary';
+                if (headerTitle) headerTitle.textContent = window.i18n ? window.i18n.t('reader_ai_yt_summary') : '🎥 AI Video Summary';
 
                 const { youtubeAiPrompt } = await chrome.storage.sync.get('youtubeAiPrompt');
-                const defaultYtPrompt = "You are an assistant that summarizes YouTube videos. Generate a response in English that is clearly divided into two distinct sections using these exact Markdown headings:\n\n### 📝 Summary from Video Description\n[Provide a concise summary of the video's description text here]\n\n### 🎥 Summary from Video Script\n[Provide a concise summary and 3-5 key takeaways in bullet points based on the transcript (script) of the video here]\n\nIf both description and transcript are provided, you MUST show both sections. If the transcript could not be loaded, still display both headers but under the script header write: 'No video script (transcript) available. Summary is based only on the description.' Ignore advertisements or sponsor mentions in the text.\n\n";
-
+                const currentLang = (window.i18n && window.i18n.currentLanguage) || 'en';
                 const promptInput = document.getElementById('reader-ai-prompt-input');
                 if (promptInput) {
-                    promptInput.value = youtubeAiPrompt && youtubeAiPrompt.trim() !== ''
+                    promptInput.value = (youtubeAiPrompt && !isLegacyGenericPrompt(youtubeAiPrompt))
                         ? youtubeAiPrompt.trim()
-                        : defaultYtPrompt;
+                        : getDefaultAiPrompt('youtube', currentLang);
                 }
 
                 const genBtn = document.getElementById('reader-ai-generate-btn');
@@ -3211,8 +3552,12 @@
                 const origText = genBtn.textContent;
                 genBtn.textContent = 'Generating...';
 
-                const prompt = (document.getElementById('reader-ai-prompt-input')?.value || '').trim();
-                const type = genBtn.dataset.type;
+                let prompt = (document.getElementById('reader-ai-prompt-input')?.value || '').trim();
+                const type = genBtn.dataset.type || 'article';
+                const currentLang = (window.i18n && window.i18n.currentLanguage) || 'en';
+                if (!prompt || isLegacyGenericPrompt(prompt)) {
+                    prompt = getDefaultAiPrompt(type, currentLang);
+                }
 
                 try {
                     let aiResult = '';
@@ -3272,7 +3617,9 @@
                         // Regular article
                         const bodyEl = document.getElementById('reader-article-body');
                         const bodyText = (bodyEl?.innerText || currentReaderArticle?.description || '').trim();
-                        const contentPayload = `Article Title: ${currentReaderArticle?.title || ''}\n\nArticle Content:\n${bodyText.substring(0, 30000)}`;
+                        let contentPayload = `URL: ${currentReaderArticle?.url || ''}\n`;
+                        if (currentReaderArticle?.source) contentPayload += `Source: ${currentReaderArticle.source}\n`;
+                        contentPayload += `Title: ${currentReaderArticle?.title || ''}\n\nContent:\n${bodyText.substring(0, 30000)}`;
                         aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
                     }
 
@@ -3855,6 +4202,14 @@
                 const newLang = e.target.value;
                 if (window.i18n) {
                     await window.i18n.setLanguage(newLang);
+                }
+                const aiInput = document.getElementById('settings-ai-prompt');
+                if (aiInput && isDefaultPrompt(aiInput.value, 'article')) {
+                    aiInput.value = getDefaultAiPrompt('article', newLang);
+                }
+                const ytInput = document.getElementById('settings-yt-prompt');
+                if (ytInput && isDefaultPrompt(ytInput.value, 'youtube')) {
+                    ytInput.value = getDefaultAiPrompt('youtube', newLang);
                 }
             });
         }

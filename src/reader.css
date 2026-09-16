@@ -223,6 +223,67 @@ hr {
   }
 }
 
+/* AI Summary Card & Structured Content */
+.ai-summary-card {
+  background: var(--hover-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-color, #333);
+  border-left: 4px solid var(--accent-color, #1a73e8);
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 25px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.ai-summary-card h3,
+.ai-summary-card h4,
+.summary-heading {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 22px;
+  margin-bottom: 12px;
+  color: var(--text-color, inherit);
+}
+
+.ai-summary-card p {
+  margin-top: 0;
+  margin-bottom: 14px;
+  line-height: 1.65;
+}
+
+/* Markdown Lists & Nested Sublists with 'o' Bullets */
+.markdown-list {
+  padding-left: 24px;
+  margin: 12px 0 18px 0;
+  list-style-type: circle; /* Renders open ring 'o' matching the screenshot */
+}
+
+.markdown-list > li {
+  margin-bottom: 12px;
+  line-height: 1.65;
+  color: var(--text-color, inherit);
+}
+
+.markdown-list > li > strong:first-child {
+  color: var(--text-color, inherit);
+}
+
+.markdown-list .markdown-sublist {
+  padding-left: 24px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  list-style-type: circle; /* Nested 'o' matching screenshot */
+}
+
+.markdown-list .markdown-sublist > li {
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.markdown-list .markdown-sublist > li > strong:first-child {
+  color: var(--text-color, inherit);
+}
+
 /* Responsive Video Embeds */
 .video-container {
   position: relative;
