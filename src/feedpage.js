@@ -514,8 +514,9 @@ function renderTreeView(postsByFeed) {
         
         const isCollapsed = collapsedFolders.has(node.id);
         const toggleText = isCollapsed ? '[+]' : '[-]';
+        const refreshFolderTitle = window.i18n ? window.i18n.t('tooltip_refresh_folder') : 'Refresh all feeds in this folder';
 
-        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${folderCountSpan}</span><button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="Refresh all feeds in this folder">🔄</button></div>`;
+        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${folderCountSpan}</span><button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="${refreshFolderTitle}" data-i18n-title="tooltip_refresh_folder">🔄</button></div>`;
         
         const ul = document.createElement('ul');
         ul.className = 'folder-children' + (isCollapsed ? ' hidden' : '');
@@ -543,8 +544,9 @@ function renderTreeView(postsByFeed) {
 
         const isExpanded = expandedFeeds.has(node.id);
         const toggleText = isExpanded ? '[-]' : '[+]';
+        const refreshFeedTitle = window.i18n ? window.i18n.t('tooltip_refresh_feed') : 'Refresh this feed';
 
-        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><img src="${faviconUrl}" class="feed-favicon" alt="icon" onerror="this.src='128.png'"><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${feedCountSpan}</span><button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="Refresh this feed">🔄</button></div>`;
+        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><img src="${faviconUrl}" class="feed-favicon" alt="icon" onerror="this.src='128.png'"><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${feedCountSpan}</span><button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="${refreshFeedTitle}" data-i18n-title="tooltip_refresh_feed">🔄</button></div>`;
 
         const postUl = document.createElement('ul');
         if (!isExpanded) postUl.classList.add('hidden');
@@ -1012,7 +1014,8 @@ function addSummaryBtnListener(element, post) {
 
     if (summaryLinksSet.has(post.link)) {
         summaryBtn.classList.add('active');
-        summaryBtn.title = 'Remove from summary list';
+        summaryBtn.title = window.i18n ? window.i18n.t('tooltip_remove_summary') : 'Remove from summary cart';
+        summaryBtn.setAttribute('data-i18n-title', 'tooltip_remove_summary');
     }
 
     summaryBtn.addEventListener('click', async (e) => {
@@ -1020,12 +1023,14 @@ function addSummaryBtnListener(element, post) {
         if (summaryLinksSet.has(post.link)) {
             summaryLinksSet.delete(post.link);
             summaryBtn.classList.remove('active');
-            summaryBtn.title = 'Add to summary list';
+            summaryBtn.title = window.i18n ? window.i18n.t('tooltip_add_summary') : 'Add to summary cart';
+            summaryBtn.setAttribute('data-i18n-title', 'tooltip_add_summary');
             if (currentViewMode === 'summary') element.style.display = 'none';
         } else {
             summaryLinksSet.add(post.link);
             summaryBtn.classList.add('active');
-            summaryBtn.title = 'Remove from summary list';
+            summaryBtn.title = window.i18n ? window.i18n.t('tooltip_remove_summary') : 'Remove from summary cart';
+            summaryBtn.setAttribute('data-i18n-title', 'tooltip_remove_summary');
         }
         await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "summaryLinks", data: Array.from(summaryLinksSet) });
     });
@@ -1163,11 +1168,15 @@ function addFavoriteMarkerListener(element, post) {
     favoritedLinksSet.delete(post.link);
     starBtn.classList.remove('favorited');
     starBtn.innerHTML = '&#9734;';
+    starBtn.title = window.i18n ? window.i18n.t('tooltip_add_favorites') : 'Add to favorites';
+    starBtn.setAttribute('data-i18n-title', 'tooltip_add_favorites');
     if (currentViewMode === 'favorites') element.style.display = 'none';
   } else {
     favoritedLinksSet.add(post.link);
     starBtn.classList.add('favorited');
     starBtn.innerHTML = '&#9733;';
+    starBtn.title = window.i18n ? window.i18n.t('tooltip_remove_favorites') : 'Remove from favorites';
+    starBtn.setAttribute('data-i18n-title', 'tooltip_remove_favorites');
   }
   await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "favoritedLinks", data: Array.from(favoritedLinksSet) });
   });
@@ -1850,5 +1859,36 @@ window.addEventListener('i18n:languageChanged', () => {
             case 'keywords': pageTitleH2.textContent = window.i18n.t('page_title_keywords'); break;
             case 'summary': pageTitleH2.textContent = window.i18n.t('page_title_summary'); break;
         }
+    }
+
+    if (window.i18n) {
+        // Update post item button tooltips and texts
+        document.querySelectorAll('.post-item').forEach(item => {
+            const readBtn = item.querySelector('.read-mode-btn');
+            if (readBtn) readBtn.title = window.i18n.t('post_action_read_mode');
+            const starBtn = item.querySelector('.favorite-btn');
+            if (starBtn) {
+                const isFav = starBtn.classList.contains('favorited');
+                starBtn.title = window.i18n.t(isFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites');
+            }
+            const sumBtn = item.querySelector('.summary-btn');
+            if (sumBtn) {
+                const isSum = sumBtn.classList.contains('active');
+                sumBtn.title = window.i18n.t(isSum ? 'tooltip_remove_summary' : 'tooltip_add_summary');
+            }
+            const unreadBtn = item.querySelector('.mark-unread-btn');
+            if (unreadBtn) {
+                unreadBtn.title = window.i18n.t('post_action_mark_unread');
+                unreadBtn.textContent = window.i18n.t('post_action_mark_unread');
+            }
+        });
+
+        // Update sidebar and settings feed tree buttons
+        document.querySelectorAll('.folder-refresh-btn').forEach(btn => {
+            btn.title = window.i18n.t('tooltip_refresh_folder');
+        });
+        document.querySelectorAll('.feed-single-refresh-btn:not(.folder-refresh-btn)').forEach(btn => {
+            btn.title = window.i18n.t('tooltip_refresh_feed');
+        });
     }
 });

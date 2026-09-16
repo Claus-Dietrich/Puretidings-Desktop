@@ -157,7 +157,11 @@
         const themeBtn = document.getElementById('theme-toggle-btn');
         if (themeBtn) {
             themeBtn.textContent = isDark ? '🌙' : '☀️';
-            themeBtn.title = isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+            themeBtn.title = window.i18n ? window.i18n.t(isDark ? 'tooltip_theme_light' : 'tooltip_theme_dark') : (isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
+        }
+        const mobileThemeBtn = document.getElementById('mobile-theme-btn');
+        if (mobileThemeBtn) {
+            mobileThemeBtn.title = window.i18n ? window.i18n.t(isDark ? 'tooltip_theme_light' : 'tooltip_theme_dark') : (isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
         }
         setSyncItem('darkMode', isDark);
     }
@@ -2062,7 +2066,7 @@
                             </div>
                         </div>
                         <div class="folder-actions feed-actions">
-                            <button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="Refresh all feeds in this folder">🔄</button>
+                            <button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_refresh_folder') : 'Refresh all feeds in this folder'}" data-i18n-title="tooltip_refresh_folder">🔄</button>
                             <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
                             <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
                         </div>
@@ -2079,7 +2083,7 @@
                             </div>
                         </div>
                         <div class="feed-actions">
-                            <button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="Refresh this feed">🔄</button>
+                            <button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_refresh_feed') : 'Refresh this feed'}" data-i18n-title="tooltip_refresh_feed">🔄</button>
                             <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
                             <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
                         </div>
@@ -2644,7 +2648,7 @@
             if (data.author) metaParts.push(escapeHtml(data.author));
             const prefix = metaParts.length > 0 ? metaParts.join(' | ') + ' | ' : '';
             if (data.url) {
-                bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="Open original article in browser">${escapeHtml(data.url)}</a>`;
+                bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="${window.i18n ? window.i18n.t('tooltip_open_browser') : 'Open original article in browser'}" data-i18n-title="tooltip_open_browser">${escapeHtml(data.url)}</a>`;
                 const origLink = document.getElementById('reader-original-link');
                 if (origLink) {
                     origLink.addEventListener('click', (e) => {
@@ -2676,7 +2680,8 @@
                 const isFav = favoritedLinks.includes(data.url);
                 starBtn.classList.toggle('favorited', isFav);
                 starBtn.innerHTML = isFav ? '&#9733;' : '&#9734;';
-                starBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
+                starBtn.title = window.i18n ? window.i18n.t(isFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites') : (isFav ? 'Remove from favorites' : 'Add to favorites');
+                starBtn.setAttribute('data-i18n-title', isFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites');
             });
         }
 
@@ -2686,7 +2691,8 @@
                 const isSum = summaryLinks.includes(data.url);
                 summaryBtn.classList.toggle('active', isSum);
                 summaryBtn.classList.toggle('in-cart', isSum);
-                summaryBtn.title = isSum ? 'Remove from summary cart' : 'Add to summary cart';
+                summaryBtn.title = window.i18n ? window.i18n.t(isSum ? 'tooltip_remove_summary' : 'tooltip_add_summary') : (isSum ? 'Remove from summary cart' : 'Add to summary cart');
+                summaryBtn.setAttribute('data-i18n-title', isSum ? 'tooltip_remove_summary' : 'tooltip_add_summary');
             });
         }
 
@@ -2894,7 +2900,8 @@
                 const nowFav = newFavs.includes(url);
                 starBtn.classList.toggle('favorited', nowFav);
                 starBtn.innerHTML = nowFav ? '&#9733;' : '&#9734;';
-                starBtn.title = nowFav ? 'Remove from favorites' : 'Add to favorites';
+                starBtn.title = window.i18n ? window.i18n.t(nowFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites') : (nowFav ? 'Remove from favorites' : 'Add to favorites');
+                starBtn.setAttribute('data-i18n-title', nowFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites');
                 showInAppToast('Favorites', nowFav ? 'Article added to favorites' : 'Article removed from favorites');
 
                 try {
@@ -2904,6 +2911,8 @@
                         if (cardStar) {
                             cardStar.classList.toggle('favorited', nowFav);
                             cardStar.innerHTML = nowFav ? '&#9733;' : '&#9734;';
+                            cardStar.title = window.i18n ? window.i18n.t(nowFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites') : (nowFav ? 'Remove from favorites' : 'Add to favorites');
+                            cardStar.setAttribute('data-i18n-title', nowFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites');
                         }
                     }
                 } catch (_) {}
@@ -2926,7 +2935,8 @@
                 const nowSum = newSums.includes(url);
                 summaryBtn.classList.toggle('active', nowSum);
                 summaryBtn.classList.toggle('in-cart', nowSum);
-                summaryBtn.title = nowSum ? 'Remove from summary cart' : 'Add to summary cart';
+                summaryBtn.title = window.i18n ? window.i18n.t(nowSum ? 'tooltip_remove_summary' : 'tooltip_add_summary') : (nowSum ? 'Remove from summary cart' : 'Add to summary cart');
+                summaryBtn.setAttribute('data-i18n-title', nowSum ? 'tooltip_remove_summary' : 'tooltip_add_summary');
                 showInAppToast('Summary Cart', nowSum ? 'Article added to summary cart' : 'Article removed from summary cart');
 
                 try {
@@ -2935,7 +2945,8 @@
                         const cardSum = card.querySelector('.summary-btn');
                         if (cardSum) {
                             cardSum.classList.toggle('active', nowSum);
-                            cardSum.title = nowSum ? 'Remove from summary list' : 'Add to summary list';
+                            cardSum.title = window.i18n ? window.i18n.t(nowSum ? 'tooltip_remove_summary' : 'tooltip_add_summary') : (nowSum ? 'Remove from summary cart' : 'Add to summary cart');
+                            cardSum.setAttribute('data-i18n-title', nowSum ? 'tooltip_remove_summary' : 'tooltip_add_summary');
                         }
                     }
                 } catch (_) {}
@@ -4406,6 +4417,33 @@
 
         // Start background automation engine (schedules next check based on configured interval & schedule)
         startBackgroundScheduler();
+
+        // Listen for runtime language switches to update theme & reader tooltips
+        window.addEventListener('i18n:languageChanged', () => {
+            const isDark = document.documentElement.classList.contains('dark-mode');
+            const themeBtn = document.getElementById('theme-toggle-btn');
+            if (themeBtn && window.i18n) {
+                themeBtn.title = window.i18n.t(isDark ? 'tooltip_theme_light' : 'tooltip_theme_dark');
+            }
+            const mobileThemeBtn = document.getElementById('mobile-theme-btn');
+            if (mobileThemeBtn && window.i18n) {
+                mobileThemeBtn.title = window.i18n.t(isDark ? 'tooltip_theme_light' : 'tooltip_theme_dark');
+            }
+            const origLink = document.getElementById('reader-original-link');
+            if (origLink && window.i18n) {
+                origLink.title = window.i18n.t('tooltip_open_browser');
+            }
+            const starBtn = document.getElementById('reader-star-btn');
+            if (starBtn && window.i18n) {
+                const isFav = starBtn.classList.contains('favorited');
+                starBtn.title = window.i18n.t(isFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites');
+            }
+            const summaryBtn = document.getElementById('reader-summary-btn');
+            if (summaryBtn && window.i18n) {
+                const isSum = summaryBtn.classList.contains('active');
+                summaryBtn.title = window.i18n.t(isSum ? 'tooltip_remove_summary' : 'tooltip_add_summary');
+            }
+        });
 
         // Note: Automatic feed fetch on startup is disabled per user preference.
         // Feeds are fetched only according to the user's background schedule or upon manual refresh (F5 / 🔄).

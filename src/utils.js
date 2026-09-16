@@ -101,7 +101,8 @@ function createPostElement(post, isRead, isFavorited, isKeywordMatch) {
   const readBtn = document.createElement('a');
   readBtn.href = '#';
   readBtn.className = 'read-mode-btn';
-  readBtn.title = 'Open in Reader Mode';
+  readBtn.title = window.i18n ? window.i18n.t('post_action_read_mode') : 'Open in Reader Mode';
+  readBtn.setAttribute('data-i18n-title', 'post_action_read_mode');
   readBtn.innerHTML = '&#128083;'; // Glasses emoji
   actionsWrapper.appendChild(readBtn);
 
@@ -109,12 +110,14 @@ function createPostElement(post, isRead, isFavorited, isKeywordMatch) {
   const starBtn = document.createElement('a');
   starBtn.href = '#';
   starBtn.className = 'favorite-btn';
-  starBtn.title = 'Add to favorites';
+  starBtn.title = window.i18n ? window.i18n.t('tooltip_add_favorites') : 'Add to favorites';
+  starBtn.setAttribute('data-i18n-title', 'tooltip_add_favorites');
   starBtn.innerHTML = '&#9734;'; 
   if (isFavorited) {
     starBtn.classList.add('favorited');
     starBtn.innerHTML = '&#9733;'; 
-    starBtn.title = 'Remove from favorites';
+    starBtn.title = window.i18n ? window.i18n.t('tooltip_remove_favorites') : 'Remove from favorites';
+    starBtn.setAttribute('data-i18n-title', 'tooltip_remove_favorites');
   }
   actionsWrapper.appendChild(starBtn);
 
@@ -122,7 +125,8 @@ function createPostElement(post, isRead, isFavorited, isKeywordMatch) {
   const summaryBtn = document.createElement('a');
   summaryBtn.href = '#';
   summaryBtn.className = 'summary-btn';
-  summaryBtn.title = 'Add to summary list';
+  summaryBtn.title = window.i18n ? window.i18n.t('tooltip_add_summary') : 'Add to summary cart';
+  summaryBtn.setAttribute('data-i18n-title', 'tooltip_add_summary');
   summaryBtn.innerHTML = '&#128203;'; // Clipboard emoji
   
   // The 'active' class and styling will be handled by the caller (popup.js or feedpage.js)
@@ -132,8 +136,9 @@ function createPostElement(post, isRead, isFavorited, isKeywordMatch) {
   const unreadBtn = document.createElement('a');
   unreadBtn.href = '#';
   unreadBtn.className = 'mark-unread-btn';
-  unreadBtn.title = 'Mark as unread';
-  unreadBtn.textContent = 'Mark as Unread';
+  unreadBtn.title = window.i18n ? window.i18n.t('post_action_mark_unread') : 'Mark as unread';
+  unreadBtn.setAttribute('data-i18n-title', 'post_action_mark_unread');
+  unreadBtn.textContent = window.i18n ? window.i18n.t('post_action_mark_unread') : 'Mark as Unread';
   actionsWrapper.appendChild(unreadBtn);
   
   metaWrapper.appendChild(actionsWrapper); // Actions to metaWrapper

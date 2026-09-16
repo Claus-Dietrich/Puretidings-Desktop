@@ -515,8 +515,8 @@
       
       <!-- Quick Action Buttons for Subscription & Summaries -->
       <div style="margin-bottom: 12px; flex-shrink: 0;">
-        <button id="btn-quick-add-feed" class="sidebar-action-btn" title="Subscribe to any website or feed" data-i18n="btn_quick_add_feed">➕ Add / Subscribe Feed</button>
-        <button id="btn-quick-summarize" class="sidebar-action-btn" title="Summarize any web page or video with AI" data-i18n="btn_quick_summarize">🤖 AI Summarize URL</button>
+        <button id="btn-quick-add-feed" class="sidebar-action-btn" title="Subscribe to any website or feed" data-i18n="btn_quick_add_feed" data-i18n-title="tooltip_quick_add_feed">➕ Add / Subscribe Feed</button>
+        <button id="btn-quick-summarize" class="sidebar-action-btn" title="Summarize any web page or video with AI" data-i18n="btn_quick_summarize" data-i18n-title="tooltip_quick_summarize">🤖 AI Summarize URL</button>
       </div>
 
       <nav class="sidebar-nav">
@@ -564,16 +564,16 @@
               <option value="custom" data-i18n="date_filter_custom">Custom Range...</option>
             </select>
             <div id="custom-range-container" class="hidden">
-              <input type="date" id="filter-date-from" title="Start Date">
-              <input type="time" id="filter-time-from" title="Start Time">
+              <input type="date" id="filter-date-from" title="Start Date" data-i18n-title="tooltip_start_date">
+              <input type="time" id="filter-time-from" title="Start Time" data-i18n-title="tooltip_start_time">
               <span class="range-separator">to</span>
-              <input type="date" id="filter-date-to" title="End Date">
-              <input type="time" id="filter-time-to" title="End Time">
+              <input type="date" id="filter-date-to" title="End Date" data-i18n-title="tooltip_end_date">
+              <input type="time" id="filter-time-to" title="End Time" data-i18n-title="tooltip_end_time">
             </div>
           </div>
           
           <div class="summary-toolbar-section">
-            <select id="export-format" title="Export Format">
+            <select id="export-format" title="Export Format" data-i18n-title="tooltip_export_format">
               <option value="txt">TXT</option>
               <option value="markdown">Markdown</option>
               <option value="html">HTML</option>
@@ -595,7 +595,7 @@
             <div class="ai-report-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: gap; gap: 10px;">
                 <h3 style="margin: 0;">AI Generated Report</h3>
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <select id="export-ai-format" title="Export Format" style="padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                    <select id="export-ai-format" title="Export Format" data-i18n-title="tooltip_export_format" style="padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
                       <option value="txt">TXT</option>
                       <option value="markdown">Markdown</option>
                       <option value="html">HTML</option>
@@ -630,7 +630,7 @@
   <!-- Quick Add Feed Modal Overlay -->
   <div id="quick-add-modal" class="desktop-modal-overlay">
     <div class="desktop-modal-card container" style="position: relative; max-width: 540px; width: 100%; padding: 25px;">
-      <button id="quick-add-modal-close" class="modal-close-btn" title="Close">&times;</button>
+      <button id="quick-add-modal-close" class="modal-close-btn" title="Close" data-i18n-title="reader_close">&times;</button>
       <h2 style="margin-top: 0; color: var(--link-color, #0066cc);" data-i18n="modal_add_feed_title">➕ Add / Subscribe Feed</h2>
       <p style="font-size: 13px; color: var(--secondary-text-color, #777); margin-bottom: 15px; line-height: 1.4;" data-i18n="modal_add_feed_desc">
         Enter any website URL (e.g. <code>techcrunch.com</code>), YouTube channel, or RSS feed link. PureTidings will automatically discover the feed and subscribe.
@@ -638,11 +638,11 @@
       <div style="display: flex; flex-direction: column; gap: 10px;">
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="url" id="quick-feed-url-input" placeholder="https://example.com or RSS URL" data-i18n-placeholder="input_feed_url_placeholder" style="flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
-          <button type="button" id="quick-feed-paste-btn" class="secondary-btn" style="flex-shrink: 0; padding: 0 12px; height: 40px; white-space: nowrap;" title="Paste URL from clipboard" data-i18n="btn_paste">📋 Paste</button>
+          <button type="button" id="quick-feed-paste-btn" class="secondary-btn" style="flex-shrink: 0; padding: 0 12px; height: 40px; white-space: nowrap;" title="Paste URL from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_url">📋 Paste</button>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
           <input type="text" id="quick-feed-name-input" placeholder="Feed Name (optional - auto-detected if empty)" data-i18n-placeholder="input_feed_name_placeholder" style="flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
-          <button type="button" id="quick-feed-name-paste-btn" class="secondary-btn" style="flex-shrink: 0; padding: 0 12px; height: 40px; white-space: nowrap;" title="Paste name from clipboard" data-i18n="btn_paste">📋 Paste</button>
+          <button type="button" id="quick-feed-name-paste-btn" class="secondary-btn" style="flex-shrink: 0; padding: 0 12px; height: 40px; white-space: nowrap;" title="Paste name from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_name">📋 Paste</button>
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
           <select id="quick-feed-folder-select" style="flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 13px; outline: none;">
@@ -658,7 +658,7 @@
   <!-- Quick AI Summarize Modal Overlay -->
   <div id="quick-summarize-modal" class="desktop-modal-overlay">
     <div class="desktop-modal-card container" style="position: relative; max-width: 540px; width: 100%; padding: 25px;">
-      <button id="quick-summarize-modal-close" class="modal-close-btn" title="Close">&times;</button>
+      <button id="quick-summarize-modal-close" class="modal-close-btn" title="Close" data-i18n-title="reader_close">&times;</button>
       <h2 style="margin-top: 0; color: #8ab4f8;" data-i18n="modal_ai_summarize_title">🤖 AI Summarize Page or Video</h2>
       <p style="font-size: 13px; color: var(--secondary-text-color, #777); margin-bottom: 15px; line-height: 1.4;" data-i18n="modal_ai_summarize_desc">
         Paste any article link or YouTube video URL. PureTidings will extract the full content or transcript and generate an instant AI summary.
@@ -666,7 +666,7 @@
       <div style="display: flex; flex-direction: column; gap: 10px;">
         <div style="display: flex; gap: 8px;">
           <input type="url" id="quick-summarize-url-input" placeholder="https://... (article or YouTube video)" data-i18n-placeholder="input_ai_url_placeholder" style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--input-color); font-size: 14px; outline: none;">
-          <button type="button" id="quick-summarize-paste-btn" class="secondary-btn" style="padding: 0 12px; height: 40px;" title="Paste URL from clipboard" data-i18n="btn_paste">📋 Paste</button>
+          <button type="button" id="quick-summarize-paste-btn" class="secondary-btn" style="padding: 0 12px; height: 40px;" title="Paste URL from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_url">📋 Paste</button>
         </div>
         <button type="button" id="quick-summarize-submit-btn" style="padding: 10px 20px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;" data-i18n="btn_generate_ai_summary">Generate AI Summary</button>
         <p id="quick-summarize-status" style="font-size: 12px; margin: 5px 0 0 0; color: var(--link-color); font-weight: bold;"></p>
@@ -713,7 +713,7 @@
               <input type="text" id="new-feed-name" placeholder="Feed Name (e.g. Ars Technica)" data-i18n-placeholder="settings_feed_name_placeholder" style="padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
               <div style="display: flex; gap: 8px;">
                 <input type="url" id="new-feed-url" placeholder="Feed URL (RSS / Atom / YouTube channel)" data-i18n-placeholder="settings_feed_url_placeholder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
-                <button type="button" id="new-feed-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste URL from clipboard" data-i18n="btn_paste">📋 Paste</button>
+                <button type="button" id="new-feed-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste URL from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_url">📋 Paste</button>
               </div>
               <div style="display: flex; gap: 10px; align-items: center;">
                 <select id="new-feed-folder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);"></select>
@@ -791,7 +791,7 @@
                 <label for="settings-summary-interval" style="font-size: 13px;" data-i18n="settings_unread_interval_label">Unread Reminder Interval:</label>
                 <input type="number" id="settings-summary-interval" min="1" max="1440" value="60" style="width: 75px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
                 <span style="font-size: 13px; color: var(--text-color-darker);">minutes</span>
-                <button type="button" id="settings-test-unread-reminder-btn" class="secondary-btn" style="margin-left: 12px; padding: 5px 12px; font-size: 12px; font-weight: 600;" title="Trigger an immediate unread reminder notification" data-i18n="btn_test_unread_reminder">🔔 Test Unread Reminder</button>
+                <button type="button" id="settings-test-unread-reminder-btn" class="secondary-btn" style="margin-left: 12px; padding: 5px 12px; font-size: 12px; font-weight: 600;" title="Trigger an immediate unread reminder notification" data-i18n="btn_test_unread_reminder" data-i18n-title="tooltip_test_unread_reminder">🔔 Test Unread Reminder</button>
               </div>
             </div>
 
@@ -831,8 +831,8 @@
                 <input type="text" id="settings-backup-folder-path" placeholder="e.g. D:\Backups\PureTidings or C:\Users\Username\Documents\PureTidings" style="width: 100%; height: 38px; padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; display: block;">
               </div>
               <div style="display: flex; gap: 12px; align-items: center;">
-                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="height: 38px; padding: 0 18px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Browse and select directory" data-i18n="btn_browse_folder">📂 Browse...</button>
-                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="height: 38px; padding: 0 18px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Open directory in Windows Explorer" data-i18n="btn_open_folder">📁 Open</button>
+                <button type="button" id="settings-backup-browse-btn" class="secondary-btn" style="height: 38px; padding: 0 18px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Browse and select directory" data-i18n="btn_browse_folder" data-i18n-title="tooltip_browse_directory">📂 Browse...</button>
+                <button type="button" id="settings-backup-open-folder-btn" class="secondary-btn" style="height: 38px; padding: 0 18px; font-size: 13px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; white-space: nowrap;" title="Open directory in Windows Explorer" data-i18n="btn_open_folder" data-i18n-title="tooltip_open_directory">📁 Open</button>
               </div>
             </div>
           </div>
@@ -844,7 +844,7 @@
               Create both OPML 2.0 feeds and full JSON backup files right now and store them in the configured destination folder.
             </p>
             <div style="display: flex; gap: 14px; align-items: center; flex-wrap: wrap;">
-              <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 40px; padding: 0 24px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately" data-i18n="btn_create_backup_now">⚡ Create Backup Now</button>
+              <button type="button" id="settings-run-backup-now-btn" class="secondary-btn" style="height: 40px; padding: 0 24px; font-weight: 600; font-size: 13px; border-radius: 4px; box-sizing: border-box; display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap;" title="Create both OPML and JSON backups immediately" data-i18n="btn_create_backup_now" data-i18n-title="tooltip_create_backup_now">⚡ Create Backup Now</button>
               <span id="settings-backup-action-status" style="font-size: 12px; font-weight: bold; color: var(--link-color);"></span>
             </div>
           </div>
@@ -857,7 +857,7 @@
             <label for="settings-gemini-key" style="display: block; font-size: 13px; font-weight: bold; margin-bottom: 6px;" data-i18n="settings_ai_key_label">Google Gemini API Key:</label>
             <div style="display: flex; gap: 8px;">
               <input type="password" id="settings-gemini-key" placeholder="Enter your Google Gemini API Key" data-i18n-placeholder="settings_ai_key_placeholder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); box-sizing: border-box;">
-              <button type="button" id="settings-gemini-key-paste-btn" class="secondary-btn" style="padding: 0 12px;" title="Paste API Key from clipboard" data-i18n="btn_paste">📋 Paste</button>
+              <button type="button" id="settings-gemini-key-paste-btn" class="secondary-btn" style="padding: 0 12px;" title="Paste API Key from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_key">📋 Paste</button>
             </div>
             <p style="font-size: 12px; color: var(--secondary-text-color, #777); margin-top: 6px;">
               Get your free API key from <a href="https://aistudio.google.com/app/apikey" id="link-google-ai-studio" target="_blank" style="color: #007bff; cursor: pointer;">Google AI Studio</a>. Saved exclusively in your local storage.
@@ -895,7 +895,7 @@
               </div>
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="new-rule-value" placeholder="Keywords (e.g. Apple +Macbook -iPhone)" data-i18n-placeholder="settings_rule_keyword_placeholder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color);">
-                <button type="button" id="new-rule-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste from clipboard" data-i18n="btn_paste">📋 Paste</button>
+                <button type="button" id="new-rule-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste keyword from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_keyword">📋 Paste</button>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
@@ -968,7 +968,7 @@
       <div class="settings-modal-footer">
         <span id="settings-status-banner" style="font-size: 13px; color: #28a745; font-weight: bold;"></span>
         <button id="settings-save-btn" style="padding: 9px 24px; margin-right: 18px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;" data-i18n="btn_save_settings">Save Settings</button>
-        <div class="modal-resize-handle" title="Drag to resize width and height">◢</div>
+        <div class="modal-resize-handle" title="Drag to resize width and height" data-i18n-title="tooltip_resize_handle">◢</div>
       </div>
     </div>
   </div>
@@ -981,15 +981,15 @@
       <!-- Reader Mode Top Toolbar -->
       <div id="reader-toolbar" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 15px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <select id="reader-export-format" style="padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); font-size: 13px;">
+          <select id="reader-export-format" title="Export Format" data-i18n-title="tooltip_export_format" style="padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); font-size: 13px;">
             <option value="txt">TXT</option>
             <option value="markdown">Markdown</option>
             <option value="html">HTML</option>
           </select>
           <button type="button" id="reader-copy-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;" data-i18n="reader_copy">Copy</button>
           <button type="button" id="reader-save-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;" data-i18n="reader_save">Save</button>
-          <button type="button" id="reader-star-btn" class="reader-toolbar-icon-btn" title="Add to favorites" style="padding: 6px 12px; font-size: 16px;">&#9734;</button>
-          <button type="button" id="reader-summary-btn" class="reader-toolbar-icon-btn" title="Add to summary cart" style="padding: 6px 12px; font-size: 14px;">&#128203;</button>
+          <button type="button" id="reader-star-btn" class="reader-toolbar-icon-btn" title="Add to favorites" data-i18n-title="tooltip_add_favorites" style="padding: 6px 12px; font-size: 16px;">&#9734;</button>
+          <button type="button" id="reader-summary-btn" class="reader-toolbar-icon-btn" title="Add to summary cart" data-i18n-title="tooltip_add_summary" style="padding: 6px 12px; font-size: 14px;">&#128203;</button>
           <span id="reader-copy-status" style="font-size: 12px; color: var(--link-color); font-weight: bold;"></span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
@@ -1003,7 +1003,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
           <h3 style="margin: 0; font-size: 16px; display: flex; align-items: center; gap: 6px;"><span id="reader-ai-header-title" data-i18n="reader_ai_summary">🤖 AI Summary</span></h3>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <select id="reader-export-ai-format" style="padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); font-size: 12px;">
+            <select id="reader-export-ai-format" title="Export Format" data-i18n-title="tooltip_export_format" style="padding: 5px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); font-size: 12px;">
               <option value="markdown">Markdown</option>
               <option value="txt">TXT</option>
               <option value="html">HTML</option>
@@ -1055,7 +1055,7 @@
   <!-- Toast Notification Container -->
   <div id="desktop-toast-container" class="desktop-toast-container"></div>
 
-  <button id="scroll-to-top" class="hidden" title="Go to top">&uarr;</button>
+  <button id="scroll-to-top" class="hidden" title="Go to top" data-i18n-title="tooltip_scroll_to_top">&uarr;</button>
 
   <script src="utils.js"></script>
   <script src="feed-tree-utils.js"></script>
