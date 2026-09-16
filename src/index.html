@@ -148,12 +148,12 @@
       position: absolute;
       width: 840px;
       height: 680px;
-      min-width: 280px;
-      min-height: 150px;
-      max-width: none !important;
-      max-height: none !important;
+      min-width: 320px;
+      min-height: 250px;
+      max-width: 96vw !important;
+      max-height: 94vh !important;
       resize: both;
-      overflow: auto;
+      overflow: hidden !important;
       display: flex;
       flex-direction: column;
       padding: 0;
@@ -162,35 +162,34 @@
     }
     .settings-modal-header {
       flex-shrink: 0;
-      padding: 14px 20px;
+      padding: 12px 18px;
       border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: space-between;
       align-items: center;
       background: var(--header-bg, var(--bg-color));
-      position: sticky;
-      top: 0;
       z-index: 20;
       cursor: move;
       user-select: none;
+      box-sizing: border-box;
     }
     #settings-modal .tabs-nav {
-      position: sticky;
-      top: 49px;
-      z-index: 19;
+      flex-shrink: 0;
       background: var(--header-bg, var(--bg-color));
       border-bottom: 1px solid var(--border-color);
-      padding: 8px 20px 0 20px;
+      padding: 8px 18px 0 18px;
       margin-bottom: 0;
       display: flex;
       gap: 6px;
       overflow-x: auto;
       white-space: nowrap;
-      flex-shrink: 0;
+      z-index: 19;
+      box-sizing: border-box;
     }
     .settings-modal-body {
-      flex: 1 0 auto;
-      overflow: visible;
+      flex: 1 1 auto;
+      overflow-y: auto !important;
+      overflow-x: hidden;
       padding: 16px 22px;
       box-sizing: border-box;
     }
@@ -202,9 +201,35 @@
       justify-content: space-between;
       align-items: center;
       background: var(--header-bg, var(--bg-color));
-      position: sticky;
-      bottom: 0;
       z-index: 18;
+      box-sizing: border-box;
+    }
+    #settings-modal-close {
+      position: static !important;
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      margin: 0;
+      padding: 0;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      font-size: 24px;
+      line-height: 1;
+      color: var(--text-color);
+      cursor: pointer;
+      opacity: 0.7;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    #settings-modal-close:hover {
+      opacity: 1;
+      color: #d93025;
+      background: var(--hover-bg, rgba(255, 255, 255, 0.08));
+      border-color: rgba(217, 48, 37, 0.35);
     }
     .modal-resize-handle {
       position: absolute;
@@ -611,9 +636,9 @@
   <!-- Settings Modal Overlay -->
   <div id="settings-modal" class="desktop-modal-overlay">
     <div class="desktop-modal-card" id="settings-modal-card">
-      <div class="settings-modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 8px;">
+      <div class="settings-modal-header">
         <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;" data-i18n="settings_title">⚙️ Settings & Configuration</h2>
-        <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
           <div style="display: flex; align-items: center; gap: 6px; background: var(--hover-bg, rgba(255,255,255,0.06)); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">
             <span style="font-size: 13px;" title="Language / Sprache / Idioma / Langue">🌐</span>
             <select id="settings-language-select" style="border: none; background: transparent; color: var(--text-color); font-size: 12px; font-weight: 500; cursor: pointer; outline: none; padding: 2px 4px;">
@@ -623,7 +648,7 @@
               <option value="fr" style="background: var(--bg-color); color: var(--text-color);">🇫🇷 Français</option>
             </select>
           </div>
-          <button id="settings-modal-close" class="modal-close-btn" title="Close Settings">&times;</button>
+          <button id="settings-modal-close" class="settings-modal-close-btn" title="Close Settings" data-i18n-title="reader_close">&times;</button>
         </div>
       </div>
 

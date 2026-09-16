@@ -52,6 +52,9 @@
             btn_paste: "📋 Paste",
             subscribing_status: "Discovering feed and subscribing...",
             subscribed_status: "Subscribed to \"{name}\"!",
+            feed_already_exists_confirm: "This feed URL is already subscribed as \"{name}\". Do you really want to add it a second time?",
+            feed_subscription_cancelled: "Subscription cancelled.",
+            alert_feed_name_and_url_required: "Please provide both feed name and URL.",
 
             // Quick AI Summarize Modal
             modal_ai_summarize_title: "🤖 AI Summarize Page or Video",
@@ -195,6 +198,9 @@
             btn_paste: "📋 Einfügen",
             subscribing_status: "Feed wird gesucht und abonniert...",
             subscribed_status: "\"{name}\" erfolgreich abonniert!",
+            feed_already_exists_confirm: "Diese Feed-URL ist bereits als \"{name}\" vorhanden. Möchtest du diesen Feed wirklich ein 2. Mal anlegen?",
+            feed_subscription_cancelled: "Abonnement abgebrochen.",
+            alert_feed_name_and_url_required: "Bitte sowohl Feed-Namen als auch URL angeben.",
 
             // Quick AI Summarize Modal
             modal_ai_summarize_title: "🤖 KI-Zusammenfassung (Seite oder Video)",
@@ -338,6 +344,9 @@
             btn_paste: "📋 Pegar",
             subscribing_status: "Descubriendo feed y suscribiendo...",
             subscribed_status: "¡Suscrito a \"{name}\" con éxito!",
+            feed_already_exists_confirm: "Esta URL de feed ya está suscrita como \"{name}\". ¿Realmente desea agregarla por segunda vez?",
+            feed_subscription_cancelled: "Suscripción cancelada.",
+            alert_feed_name_and_url_required: "Por favor, proporcione tanto el nombre como la URL del feed.",
 
             // Quick AI Summarize Modal
             modal_ai_summarize_title: "🤖 Resumen con IA de página o vídeo",
@@ -481,6 +490,9 @@
             btn_paste: "📋 Coller",
             subscribing_status: "Découverte du flux et abonnement...",
             subscribed_status: "Abonné à \"{name}\" avec succès !",
+            feed_already_exists_confirm: "Cette URL de flux est déjà abonnée sous le nom \"{name}\". Voulez-vous vraiment l'ajouter une deuxième fois ?",
+            feed_subscription_cancelled: "Abonnement annulé.",
+            alert_feed_name_and_url_required: "Veuillez fournir le nom et l'URL du flux.",
 
             // Quick AI Summarize Modal
             modal_ai_summarize_title: "🤖 Résumé IA d'une page ou d'une vidéo",

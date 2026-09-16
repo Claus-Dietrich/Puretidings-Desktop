@@ -871,6 +871,9 @@ main {
     height: 94vh !important;
     max-height: 94vh !important;
     border-radius: 8px !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   /* Post Item Compact Padding */

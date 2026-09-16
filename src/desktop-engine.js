@@ -965,6 +965,29 @@
         throw new Error(lastErrorMsg || "AI request failed for all attempted Gemini models.");
     }
 
+    // Helper: Find existing feed by URL in hierarchical feed tree
+    function findFeedByUrlInTree(tree, targetUrl) {
+        if (!tree || !Array.isArray(tree) || !targetUrl) return null;
+        const cleanTarget = targetUrl.trim().replace(/\/+$/, '').toLowerCase();
+        function walk(nodes) {
+            for (const node of nodes) {
+                if (node.type === 'feed' && node.url) {
+                    const cleanNodeUrl = node.url.trim().replace(/\/+$/, '').toLowerCase();
+                    if (cleanNodeUrl === cleanTarget) {
+                        return node;
+                    }
+                }
+                if (node.children && Array.isArray(node.children)) {
+                    const found = walk(node.children);
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
+        return walk(tree);
+    }
+    window.findFeedByUrlInTree = findFeedByUrlInTree;
+
     // ==========================================
     // 7. Feed Discovery & Subscription (Question 4)
     // ==========================================
@@ -973,6 +996,20 @@
         if (!cleanUrl) return null;
         if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
             cleanUrl = 'https://' + cleanUrl;
+        }
+
+        const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+
+        // Check if the input URL already exists before network requests
+        const preCheckFeed = findFeedByUrlInTree(feedTree, cleanUrl);
+        if (preCheckFeed) {
+            const promptMsg = (window.i18n && typeof window.i18n.t === 'function')
+                ? window.i18n.t('feed_already_exists_confirm', { name: preCheckFeed.name || preCheckFeed.url })
+                : `This feed URL is already subscribed as "${preCheckFeed.name || preCheckFeed.url}". Do you really want to add it a second time?`;
+            const confirmed = window.confirm(promptMsg);
+            if (!confirmed) {
+                return null;
+            }
         }
 
         let feedUrl = cleanUrl;
@@ -1020,6 +1057,20 @@
             }
         }
 
+        // If discovery resolved to a different feed URL, check if that feed URL already exists
+        if (feedUrl !== cleanUrl) {
+            const resolvedCheckFeed = findFeedByUrlInTree(feedTree, feedUrl);
+            if (resolvedCheckFeed) {
+                const promptMsg = (window.i18n && typeof window.i18n.t === 'function')
+                    ? window.i18n.t('feed_already_exists_confirm', { name: resolvedCheckFeed.name || resolvedCheckFeed.url })
+                    : `This feed URL is already subscribed as "${resolvedCheckFeed.name || resolvedCheckFeed.url}". Do you really want to add it a second time?`;
+                const confirmed = window.confirm(promptMsg);
+                if (!confirmed) {
+                    return null;
+                }
+            }
+        }
+
         if (!feedName) {
             try {
                 const u = new URL(cleanUrl);
@@ -1029,7 +1080,6 @@
             }
         }
 
-        const { feedTree = [] } = await chrome.storage.local.get('feedTree');
         const newFeed = {
             id: 'feed-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
             name: feedName,
@@ -3492,16 +3542,28 @@
                 if (!val) return;
                 const customName = quickAddNameInput?.value?.trim() || '';
                 const folderId = document.getElementById('quick-feed-folder-select')?.value || '';
-                if (quickAddStatus) quickAddStatus.textContent = "Discovering feed and subscribing...";
+                const statusMsg = (window.i18n && typeof window.i18n.t === 'function')
+                    ? window.i18n.t('subscribing_status')
+                    : "Discovering feed and subscribing...";
+                if (quickAddStatus) quickAddStatus.textContent = statusMsg;
                 quickAddSubmit.disabled = true;
                 try {
                     const res = await discoverAndSubscribeFeed(val, folderId, customName);
                     if (res) {
-                        if (quickAddStatus) quickAddStatus.textContent = `Subscribed to "${res.name}"!`;
+                        const successMsg = (window.i18n && typeof window.i18n.t === 'function')
+                            ? window.i18n.t('subscribed_status', { name: res.name })
+                            : `Subscribed to "${res.name}"!`;
+                        if (quickAddStatus) quickAddStatus.textContent = successMsg;
                         setTimeout(() => {
                             if (quickAddModal) quickAddModal.style.display = 'none';
                             quickAddSubmit.disabled = false;
                         }, 1200);
+                    } else {
+                        const cancelMsg = (window.i18n && typeof window.i18n.t === 'function')
+                            ? window.i18n.t('feed_subscription_cancelled')
+                            : "Subscription cancelled.";
+                        if (quickAddStatus) quickAddStatus.textContent = cancelMsg;
+                        quickAddSubmit.disabled = false;
                     }
                 } catch (err) {
                     if (quickAddStatus) quickAddStatus.textContent = "Error: " + err.message;
@@ -3713,11 +3775,25 @@
                 const folderId = document.getElementById('new-feed-folder')?.value || '';
 
                 if (!name.trim() || !url.trim()) {
-                    alert("Please provide both feed name and URL.");
+                    const alertMsg = (window.i18n && typeof window.i18n.t === 'function')
+                        ? window.i18n.t('alert_feed_name_and_url_required')
+                        : "Please provide both feed name and URL.";
+                    alert(alertMsg);
                     return;
                 }
 
                 const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+
+                const existingFeed = findFeedByUrlInTree(feedTree, url.trim());
+                if (existingFeed) {
+                    const promptMsg = (window.i18n && typeof window.i18n.t === 'function')
+                        ? window.i18n.t('feed_already_exists_confirm', { name: existingFeed.name || existingFeed.url })
+                        : `This feed URL is already subscribed as "${existingFeed.name || existingFeed.url}". Do you really want to add it a second time?`;
+                    const confirmed = window.confirm(promptMsg);
+                    if (!confirmed) {
+                        return;
+                    }
+                }
                 const newFeed = {
                     id: 'feed-' + Date.now(),
                     name: name.trim(),
