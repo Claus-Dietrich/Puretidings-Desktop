@@ -350,8 +350,7 @@ async fn test_imap_connection(
         let tls = native_tls::TlsConnector::builder()
             .build()
             .map_err(|e| format!("TLS Error: {}", e))?;
-        let client = imap::ClientBuilder::new(domain, port)
-            .connect(domain, &tls)
+        let client = imap::connect((domain, port), domain, &tls)
             .map_err(|e| format!("IMAP Connection error: {}", e))?;
         let mut session = client
             .login(&username, &password)
@@ -375,8 +374,7 @@ async fn list_imap_folders(
         let tls = native_tls::TlsConnector::builder()
             .build()
             .map_err(|e| format!("TLS Error: {}", e))?;
-        let client = imap::ClientBuilder::new(domain, port)
-            .connect(domain, &tls)
+        let client = imap::connect((domain, port), domain, &tls)
             .map_err(|e| format!("IMAP Connection error: {}", e))?;
         let mut session = client
             .login(&username, &password)
@@ -409,8 +407,7 @@ async fn fetch_imap_emails(
         let tls = native_tls::TlsConnector::builder()
             .build()
             .map_err(|e| format!("TLS Error: {}", e))?;
-        let client = imap::ClientBuilder::new(domain, port)
-            .connect(domain, &tls)
+        let client = imap::connect((domain, port), domain, &tls)
             .map_err(|e| format!("IMAP Connection error: {}", e))?;
         let mut session = client
             .login(&username, &password)
@@ -449,47 +446,45 @@ async fn fetch_imap_emails(
             if let Some(body_bytes) = msg.body() {
                 if let Some(parsed) = mail_parser::MessageParser::default().parse(body_bytes) {
                     let subject = parsed.subject().unwrap_or("(No Subject)").to_string();
-                    let from_str = match parsed.from() {
-                        Some(mail_parser::Address::Mailbox(mb)) => {
-                            let name = mb.name.as_deref().unwrap_or("");
-                            let email = mb.address.as_deref().unwrap_or("");
-                            if !name.is_empty() && !email.is_empty() {
-                                format!("{} <{}>", name, email)
-                            } else if !email.is_empty() {
-                                email.to_string()
-                            } else {
-                                name.to_string()
-                            }
+                    let from_str = if let Some(addr) = parsed.from().and_then(|a| a.first()) {
+                        let name = addr.name.as_deref().unwrap_or("");
+                        let email = addr.address.as_deref().unwrap_or("");
+                        if !name.is_empty() && !email.is_empty() {
+                            format!("{} <{}>", name, email)
+                        } else if !email.is_empty() {
+                            email.to_string()
+                        } else {
+                            name.to_string()
                         }
-                        Some(mail_parser::Address::Group(grp)) => {
-                            grp.name.as_deref().unwrap_or("Group").to_string()
-                        }
-                        None => "Unknown Sender".to_string(),
+                    } else {
+                        "Unknown Sender".to_string()
                     };
 
                     let date_str = parsed.date().map(|d| d.to_rfc3339()).unwrap_or_default();
-                    let content_html = parsed.html_body(0).map(|c| c.to_string()).unwrap_or_default();
-                    let content_text = parsed.text_body(0).map(|c| c.to_string()).unwrap_or_default();
+                    let content_html = parsed.body_html(0).map(|c| c.to_string()).unwrap_or_default();
+                    let content_text = parsed.body_text(0).map(|c| c.to_string()).unwrap_or_default();
 
-                    let raw_snippet = if !content_text.is_empty() {
-                        content_text.replace('\n', " ")
-                    } else {
-                        content_html.replace("<[^>]+>", " ")
-                    };
-                    let snippet = raw_snippet.split_whitespace().collect::<Vec<_>>().join(" ");
-                    let truncated_snippet = if snippet.chars().count() > 280 {
-                        let end = snippet.char_indices().map(|(i, _)| i).nth(280).unwrap_or(snippet.len());
-                        format!("{}...", &snippet[..end])
-                    } else {
-                        snippet
-                    };
+                    let snippet = parsed.body_preview(280).map(|s| s.to_string()).unwrap_or_else(|| {
+                        let raw = if !content_text.is_empty() {
+                            content_text.replace('\n', " ")
+                        } else {
+                            content_html.replace("<[^>]+>", " ")
+                        };
+                        let s = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+                        if s.chars().count() > 280 {
+                            let end = s.char_indices().map(|(i, _)| i).nth(280).unwrap_or(s.len());
+                            format!("{}...", &s[..end])
+                        } else {
+                            s
+                        }
+                    });
 
                     items.push(ImapEmailItem {
                         uid,
                         subject,
                         from: from_str,
                         date: date_str,
-                        snippet: truncated_snippet,
+                        snippet,
                         content_html,
                         content_text,
                         is_unread,
@@ -520,8 +515,7 @@ async fn mark_imap_email_read(
         let tls = native_tls::TlsConnector::builder()
             .build()
             .map_err(|e| format!("TLS Error: {}", e))?;
-        let client = imap::ClientBuilder::new(domain, port)
-            .connect(domain, &tls)
+        let client = imap::connect((domain, port), domain, &tls)
             .map_err(|e| format!("IMAP Connection error: {}", e))?;
         let mut session = client
             .login(&username, &password)
