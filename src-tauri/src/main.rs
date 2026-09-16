@@ -379,11 +379,14 @@ async fn list_imap_folders(
         let mut session = client
             .login(&username, &password)
             .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
-        let mailboxes = session
-            .list(Some(""), Some("*"))
-            .or_else(|_| session.list(None, Some("*")))
-            .or_else(|_| session.list(Some(""), Some("%")))
-            .map_err(|e| format!("Failed to list folders: {}", e))?;
+        let mut mailboxes = session.list(Some(""), Some("*"));
+        if mailboxes.is_err() {
+            mailboxes = session.list(None, Some("*"));
+        }
+        if mailboxes.is_err() {
+            mailboxes = session.list(Some(""), Some("%"));
+        }
+        let mailboxes = mailboxes.map_err(|e| format!("Failed to list folders: {}", e))?;
         let mut folder_names = Vec::new();
         for mb in mailboxes.iter() {
             folder_names.push(mb.name().to_string());
@@ -437,11 +440,14 @@ async fn fetch_imap_emails(
         };
         let range = format!("{}:{}", start_seq, total_messages);
 
-        let messages = session
-            .fetch(&range, "(UID FLAGS BODY.PEEK[])")
-            .or_else(|_| session.fetch(&range, "(UID FLAGS BODY[])"))
-            .or_else(|_| session.fetch(&range, "(UID FLAGS RFC822)"))
-            .map_err(|e| format!("Failed to fetch messages: {}", e))?;
+        let mut messages = session.fetch(&range, "(UID FLAGS BODY.PEEK[])");
+        if messages.is_err() {
+            messages = session.fetch(&range, "(UID FLAGS BODY[])");
+        }
+        if messages.is_err() {
+            messages = session.fetch(&range, "(UID FLAGS RFC822)");
+        }
+        let messages = messages.map_err(|e| format!("Failed to fetch messages: {}", e))?;
 
         let mut items = Vec::new();
 
