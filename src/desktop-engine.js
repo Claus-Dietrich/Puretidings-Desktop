@@ -252,6 +252,9 @@
         for (let d = 0; d < 7; d++) defSchedule[d] = { active: true, from: '00:00', to: '23:59' };
         setSyncItem('fetchSchedule', defSchedule);
     }
+    if (getSyncItem('emailAccounts') === null) {
+        setSyncItem('emailAccounts', []);
+    }
 
     const storageListeners = [];
 
@@ -261,10 +264,26 @@
                 get: function (keys, callback) {
                     return new Promise((resolve) => {
                         const res = {};
-                        const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
-                        keyList.forEach(k => {
-                            res[k] = getLocalItem(k);
-                        });
+                        if (keys === null) {
+                            for (let i = 0; i < localStorage.length; i++) {
+                                const fullKey = localStorage.key(i);
+                                if (fullKey && fullKey.startsWith('puretidings_local_')) {
+                                    const shortKey = fullKey.replace('puretidings_local_', '');
+                                    res[shortKey] = getLocalItem(shortKey);
+                                }
+                            }
+                        } else {
+                            const isObj = keys && typeof keys === 'object' && !Array.isArray(keys);
+                            const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
+                            keyList.forEach(k => {
+                                const val = getLocalItem(k);
+                                if (val !== null && val !== undefined) {
+                                    res[k] = val;
+                                } else if (isObj && k in keys) {
+                                    res[k] = keys[k];
+                                }
+                            });
+                        }
                         if (typeof callback === 'function') callback(res);
                         resolve(res);
                     });
@@ -287,10 +306,26 @@
                 get: function (keys, callback) {
                     return new Promise((resolve) => {
                         const res = {};
-                        const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
-                        keyList.forEach(k => {
-                            res[k] = getSyncItem(k);
-                        });
+                        if (keys === null) {
+                            for (let i = 0; i < localStorage.length; i++) {
+                                const fullKey = localStorage.key(i);
+                                if (fullKey && fullKey.startsWith('pt_sync_')) {
+                                    const shortKey = fullKey.replace('pt_sync_', '');
+                                    res[shortKey] = getSyncItem(shortKey);
+                                }
+                            }
+                        } else {
+                            const isObj = keys && typeof keys === 'object' && !Array.isArray(keys);
+                            const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
+                            keyList.forEach(k => {
+                                const val = getSyncItem(k);
+                                if (val !== null && val !== undefined) {
+                                    res[k] = val;
+                                } else if (isObj && k in keys) {
+                                    res[k] = keys[k];
+                                }
+                            });
+                        }
                         if (typeof callback === 'function') callback(res);
                         resolve(res);
                     });
@@ -587,11 +622,13 @@
 
     async function syncEmailAccountsToFeedTree() {
         try {
-            const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
-            const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+            const rawAccounts = await chrome.storage.sync.get('emailAccounts');
+            const emailAccounts = Array.isArray(rawAccounts?.emailAccounts) ? rawAccounts.emailAccounts : [];
+            const rawTree = await chrome.storage.local.get('feedTree');
+            let feedTree = Array.isArray(rawTree?.feedTree) ? rawTree.feedTree : [];
 
-            const activeAccounts = emailAccounts.filter(a => a.enabled !== false);
-            const folderIndex = feedTree.findIndex(n => n.id === 'folder_email_inboxes');
+            const activeAccounts = emailAccounts.filter(a => a && a.enabled !== false);
+            const folderIndex = feedTree.findIndex(n => n && n.id === 'folder_email_inboxes');
 
             if (activeAccounts.length === 0) {
                 if (folderIndex !== -1) {
@@ -686,8 +723,9 @@
     async function markEmailReadNative(accountId, uid, read = true) {
         try {
             if (!accountId || !uid) return;
-            const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
-            const account = emailAccounts.find(a => a.id === accountId);
+            const rawAccounts = await chrome.storage.sync.get('emailAccounts');
+            const emailAccounts = Array.isArray(rawAccounts?.emailAccounts) ? rawAccounts.emailAccounts : [];
+            const account = emailAccounts.find(a => a && a.id === accountId);
             if (!account) return;
             await tauriInvoke('mark_imap_email_read', {
                 server: account.server,
@@ -713,10 +751,16 @@
         if (loading) loading.classList.remove('hidden');
 
         try {
-            const { feedTree = [], allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
-            const { rules = [], emailAccounts = [] } = await chrome.storage.sync.get(['rules', 'emailAccounts']);
-            const activeEmailAccounts = emailAccounts.filter(a => a.enabled !== false);
-            const readLinksSet = new Set(readLinks || []);
+            const rawTree = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
+            const feedTree = Array.isArray(rawTree?.feedTree) ? rawTree.feedTree : [];
+            const allPosts = (rawTree?.allPosts && typeof rawTree.allPosts === 'object') ? rawTree.allPosts : {};
+            const readLinks = Array.isArray(rawTree?.readLinks) ? rawTree.readLinks : [];
+
+            const rawSync = await chrome.storage.sync.get(['rules', 'emailAccounts']);
+            const rules = Array.isArray(rawSync?.rules) ? rawSync.rules : [];
+            const emailAccounts = Array.isArray(rawSync?.emailAccounts) ? rawSync.emailAccounts : [];
+            const activeEmailAccounts = emailAccounts.filter(a => a && a.enabled !== false);
+            const readLinksSet = new Set(readLinks);
 
             const feeds = [];
             let feedTreeUpdated = false;
@@ -865,14 +909,20 @@
     async function refreshSingleFeedNative(targetFeedId) {
         if (!targetFeedId) return;
         try {
-            const { feedTree = [], allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
-            const { rules = [], emailAccounts = [] } = await chrome.storage.sync.get(['rules', 'emailAccounts']);
-            const readLinksSet = new Set(readLinks || []);
+            const rawTree = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
+            const feedTree = Array.isArray(rawTree?.feedTree) ? rawTree.feedTree : [];
+            const allPosts = (rawTree?.allPosts && typeof rawTree.allPosts === 'object') ? rawTree.allPosts : {};
+            const readLinks = Array.isArray(rawTree?.readLinks) ? rawTree.readLinks : [];
+
+            const rawSync = await chrome.storage.sync.get(['rules', 'emailAccounts']);
+            const rules = Array.isArray(rawSync?.rules) ? rawSync.rules : [];
+            const emailAccounts = Array.isArray(rawSync?.emailAccounts) ? rawSync.emailAccounts : [];
+            const readLinksSet = new Set(readLinks);
 
             // Handle native IMAP email feeds
             if (targetFeedId.startsWith('email_')) {
                 const accountId = targetFeedId.replace('email_', '');
-                const account = emailAccounts.find(a => a.id === accountId);
+                const account = emailAccounts.find(a => a && a.id === accountId);
                 if (!account) {
                     console.warn(`[PureTidings Desktop] Email account not found for feed: ${targetFeedId}`);
                     return;
@@ -2499,10 +2549,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const container = document.getElementById('email-accounts-list');
         if (!container) return;
 
-        const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+        const raw = await chrome.storage.sync.get('emailAccounts');
+        const emailAccounts = Array.isArray(raw?.emailAccounts) ? raw.emailAccounts : [];
         container.innerHTML = '';
 
-        if (!emailAccounts || emailAccounts.length === 0) {
+        if (emailAccounts.length === 0) {
             const p = document.createElement('p');
             p.id = 'email-empty-accounts';
             p.style.cssText = 'padding: 14px; margin: 0; font-size: 13px; color: var(--secondary-text-color); font-style: italic;';
@@ -4804,12 +4855,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 try {
-                    const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+                    const rawAccounts = await chrome.storage.sync.get('emailAccounts');
+                    const emailAccounts = Array.isArray(rawAccounts?.emailAccounts) ? rawAccounts.emailAccounts : [];
                     const accountName = name || username;
 
                     let savedAccount;
                     if (editId) {
-                        const idx = emailAccounts.findIndex(a => a.id === editId);
+                        const idx = emailAccounts.findIndex(a => a && a.id === editId);
                         if (idx !== -1) {
                             emailAccounts[idx] = {
                                 ...emailAccounts[idx],
