@@ -446,7 +446,7 @@ function renderTreeView(postsByFeed) {
 
   const hasAnyPosts = Object.keys(postsByFeed).length > 0;
   if (!currentFeedTree || currentFeedTree.length === 0) {
-    emptyMessage.textContent = "No feeds configured yet. Click [+ Add Feed] to get started.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('no_feeds_configured') : "No feeds configured yet. Click [+ Add Feed] to get started.";
     emptyMessage.classList.remove('hidden');
     return;
   }
@@ -454,13 +454,13 @@ function renderTreeView(postsByFeed) {
   const isDateFiltered = summaryDateFilter && summaryDateFilter.value !== 'all';
 
   if (currentViewMode === 'unread' && !hasAnyPosts) {
-    emptyMessage.textContent = "No unread posts.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('no_unread_posts') : "No unread posts.";
     emptyMessage.classList.remove('hidden');
     return;
   }
 
   if (currentViewMode === 'all' && isDateFiltered && !hasAnyPosts) {
-    emptyMessage.textContent = "No posts found matching the selected date filter.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('no_articles_found') : "No posts found matching the selected date filter.";
     emptyMessage.classList.remove('hidden');
     return;
   }
@@ -561,7 +561,7 @@ function renderTreeView(postsByFeed) {
           emptyLi.style.padding = '8px 15px';
           emptyLi.style.fontStyle = 'italic';
           emptyLi.style.color = 'var(--secondary-text-color)';
-          emptyLi.textContent = 'No articles found or fetching...';
+          emptyLi.textContent = window.i18n ? window.i18n.t('no_articles_found_or_fetching') : 'No articles found or fetching...';
           postUl.appendChild(emptyLi);
         }
         
@@ -590,14 +590,14 @@ function renderFavoritesView() {
 
   container.innerHTML = '';
   if (favoritedLinksSet.size === 0) {
-    emptyMessage.textContent = "You haven't favorited any posts yet.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('empty_favorites') : "You haven't favorited any posts yet.";
     emptyMessage.classList.remove('hidden');
     return;
   }
   
   const favoritedPosts = getCurrentFilteredPosts();
   if (favoritedPosts.length === 0) {
-    emptyMessage.textContent = "No posts found matching the selected filters.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('no_articles_found') : "No posts found matching the selected filters.";
     emptyMessage.classList.remove('hidden');
     return;
   }
@@ -629,7 +629,7 @@ async function renderKeywordsView() {
 
   const keywordPosts = getCurrentFilteredPosts();
   if (keywordPosts.length === 0) {
-    emptyMessage.textContent = "No posts found matching your 'notify' rules or filters.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('no_articles_found') : "No posts found matching your 'notify' rules or filters.";
     emptyMessage.classList.remove('hidden');
     return;
   }
@@ -692,7 +692,7 @@ function renderSummaryView() {
 
   container.innerHTML = '';
   if (summaryLinksSet.size === 0) {
-    emptyMessage.textContent = "Your summary cart is empty. Add posts using the clipboard icon.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('empty_summary') : "Your summary cart is empty. Add posts using the clipboard icon.";
     emptyMessage.classList.remove('hidden');
     return;
   }
@@ -700,7 +700,7 @@ function renderSummaryView() {
   const summaryPosts = getCurrentFilteredPosts();
 
   if (summaryPosts.length === 0) {
-    emptyMessage.textContent = "No posts in the cart match the selected filter.";
+    emptyMessage.textContent = window.i18n ? window.i18n.t('no_articles_found') : "No posts in the cart match the selected filter.";
     emptyMessage.classList.remove('hidden');
     return;
   }

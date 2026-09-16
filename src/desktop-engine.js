@@ -687,6 +687,7 @@
 
         const feedId = 'email_' + account.id;
         const posts = (items || []).map(item => {
+            const link = `imap://${account.id}/${item.uid}`;
             const postDate = item.date || new Date().toISOString();
             const postObj = {
                 id: link,

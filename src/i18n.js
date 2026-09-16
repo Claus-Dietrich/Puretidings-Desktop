@@ -209,6 +209,11 @@
             toast_feed_updated: "Feed Updated",
             toast_feed_refresh_failed: "Feed Refresh Failed",
             no_articles_found: "No articles found.",
+            no_articles_found_or_fetching: "No articles found or fetching...",
+            no_feeds_configured: "No feeds configured yet. Click [+ Add Feed] to get started.",
+            no_unread_posts: "No unread posts.",
+            empty_favorites: "You haven't favorited any posts yet.",
+            empty_summary: "Your summary cart is empty. Add posts using the clipboard icon.",
             loading_posts: "Loading posts..."
         },
 
@@ -417,6 +422,11 @@
             toast_feed_updated: "Feed aktualisiert",
             toast_feed_refresh_failed: "Feed-Aktualisierung fehlgeschlagen",
             no_articles_found: "Keine Artikel gefunden.",
+            no_articles_found_or_fetching: "Keine Artikel gefunden oder werden geladen...",
+            no_feeds_configured: "Noch keine Feeds konfiguriert. Klicken Sie auf [+ Feed hinzufügen], um zu starten.",
+            no_unread_posts: "Keine ungelesenen Artikel.",
+            empty_favorites: "Sie haben noch keine Favoriten markiert.",
+            empty_summary: "Ihr Zusammenfassungs-Korb ist leer. Fügen Sie Artikel über das Zwischenablage-Symbol hinzu.",
             loading_posts: "Artikel werden geladen..."
         },
 
@@ -625,6 +635,11 @@
             toast_feed_updated: "Feed actualizado",
             toast_feed_refresh_failed: "Error al actualizar el feed",
             no_articles_found: "No se encontraron artículos.",
+            no_articles_found_or_fetching: "No se encontraron artículos o cargando...",
+            no_feeds_configured: "Aún no hay canales configurados. Haga clic en [+ Añadir canal] para comenzar.",
+            no_unread_posts: "No hay artículos no leídos.",
+            empty_favorites: "Aún no ha marcado ningún artículo como favorito.",
+            empty_summary: "Su cesta de resumen está vacía. Añada artículos usando el icono del portapapeles.",
             loading_posts: "Cargando artículos..."
         },
 
@@ -833,6 +848,11 @@
             toast_feed_updated: "Flux mis à jour",
             toast_feed_refresh_failed: "Échec de mise à jour du flux",
             no_articles_found: "Aucun article trouvé.",
+            no_articles_found_or_fetching: "Aucun article trouvé ou chargement en cours...",
+            no_feeds_configured: "Aucun flux configuré pour le moment. Cliquez sur [+ Ajouter un flux] pour commencer.",
+            no_unread_posts: "Aucun article non lu.",
+            empty_favorites: "Vous n'avez pas encore d'articles favoris.",
+            empty_summary: "Votre panier de résumé est vide. Ajoutez des articles à l'aide de l'icône de presse-papiers.",
             loading_posts: "Chargement des articles..."
         }
     };
