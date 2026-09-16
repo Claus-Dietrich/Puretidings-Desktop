@@ -866,10 +866,8 @@ main {
 
   /* Responsive Settings Modal */
   #settings-modal .desktop-modal-card {
-    max-width: 100% !important;
-    width: 100% !important;
-    height: 94vh !important;
-    max-height: 94vh !important;
+    max-width: none !important;
+    max-height: none !important;
     border-radius: 8px !important;
     overflow: hidden !important;
     display: flex !important;

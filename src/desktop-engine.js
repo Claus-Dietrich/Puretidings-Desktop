@@ -2673,30 +2673,20 @@
         const starBtn = document.getElementById('reader-star-btn');
         if (starBtn && data.url) {
             chrome.storage.local.get('favoritedLinks').then(({ favoritedLinks = [] }) => {
-                if (favoritedLinks.includes(data.url)) {
-                    starBtn.style.color = '#f5b301';
-                    starBtn.innerHTML = '&#9733;';
-                    starBtn.title = 'Remove from favorites';
-                } else {
-                    starBtn.style.color = '';
-                    starBtn.innerHTML = '&#9734;';
-                    starBtn.title = 'Add to favorites';
-                }
+                const isFav = favoritedLinks.includes(data.url);
+                starBtn.classList.toggle('favorited', isFav);
+                starBtn.innerHTML = isFav ? '&#9733;' : '&#9734;';
+                starBtn.title = isFav ? 'Remove from favorites' : 'Add to favorites';
             });
         }
 
         const summaryBtn = document.getElementById('reader-summary-btn');
         if (summaryBtn && data.url) {
             chrome.storage.local.get('summaryLinks').then(({ summaryLinks = [] }) => {
-                if (summaryLinks.includes(data.url)) {
-                    summaryBtn.style.borderColor = '#28a745';
-                    summaryBtn.style.color = '#28a745';
-                    summaryBtn.title = 'Remove from summary cart';
-                } else {
-                    summaryBtn.style.borderColor = '';
-                    summaryBtn.style.color = '';
-                    summaryBtn.title = 'Add to summary cart';
-                }
+                const isSum = summaryLinks.includes(data.url);
+                summaryBtn.classList.toggle('active', isSum);
+                summaryBtn.classList.toggle('in-cart', isSum);
+                summaryBtn.title = isSum ? 'Remove from summary cart' : 'Add to summary cart';
             });
         }
 
@@ -2794,6 +2784,36 @@
     window.openReaderModal = openReaderModal;
     window.closeReaderModal = closeReaderModal;
 
+    // Helper: Trigger unified animated feedback (pop + glow + text change) on any button
+    function triggerAnimatedButtonFeedback(btn, feedbackText, statusElId) {
+        if (!btn) return;
+        if (btn._feedbackTimer) clearTimeout(btn._feedbackTimer);
+        if (!btn._origText) btn._origText = btn.textContent;
+
+        btn.textContent = feedbackText;
+        btn.classList.add('btn-feedback-active');
+
+        if (statusElId) {
+            const stEl = document.getElementById(statusElId);
+            if (stEl) {
+                stEl.textContent = feedbackText;
+                stEl.style.color = '#28a745';
+            }
+        }
+
+        btn._feedbackTimer = setTimeout(() => {
+            btn.textContent = btn._origText;
+            btn.classList.remove('btn-feedback-active');
+            btn._origText = null;
+            btn._feedbackTimer = null;
+            if (statusElId) {
+                const stEl = document.getElementById(statusElId);
+                if (stEl) stEl.textContent = '';
+            }
+        }, 2000);
+    }
+    window.triggerAnimatedButtonFeedback = triggerAnimatedButtonFeedback;
+
     // Setup Reader Toolbar Events
     function setupReaderToolbar() {
         // Copy Article
@@ -2817,11 +2837,10 @@
 
                 try {
                     await navigator.clipboard.writeText(textToCopy);
-                    const statusEl = document.getElementById('reader-copy-status');
-                    if (statusEl) {
-                        statusEl.textContent = 'Copied!';
-                        setTimeout(() => { statusEl.textContent = ''; }, 2000);
-                    }
+                    const feedback = (window.i18n && typeof window.i18n.t === 'function')
+                        ? window.i18n.t('feedback_copied')
+                        : 'Copied! ✓';
+                    triggerAnimatedButtonFeedback(copyBtn, feedback, 'reader-copy-status');
                 } catch (e) {
                     console.error('Failed to copy reader text:', e);
                 }
@@ -2838,16 +2857,26 @@
                 const byline = document.getElementById('reader-byline')?.innerText || '';
                 const bodyEl = document.getElementById('reader-article-body');
 
+                let filename = '';
                 if (format === 'markdown') {
+                    filename = `${title}.md`;
                     const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
-                    downloadTextFile(`${title}.md`, md, 'text/markdown');
+                    downloadTextFile(filename, md, 'text/markdown');
                 } else if (format === 'html') {
+                    filename = `${title}.html`;
                     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(currentReaderArticle.title || 'Untitled')}</title></head><body><h1>${escapeHtml(currentReaderArticle.title || 'Untitled')}</h1><p><em>${escapeHtml(byline)}</em></p><hr>${bodyEl?.innerHTML || ''}</body></html>`;
-                    downloadTextFile(`${title}.html`, html, 'text/html');
+                    downloadTextFile(filename, html, 'text/html');
                 } else {
+                    filename = `${title}.txt`;
                     const txt = `${currentReaderArticle.title || 'Untitled'}\n\n${byline ? byline + '\n\n' : ''}${bodyEl?.innerText || ''}`;
-                    downloadTextFile(`${title}.txt`, txt, 'text/plain');
+                    downloadTextFile(filename, txt, 'text/plain');
                 }
+
+                const feedback = (window.i18n && typeof window.i18n.t === 'function')
+                    ? window.i18n.t('feedback_saved')
+                    : 'Saved! ✓';
+                triggerAnimatedButtonFeedback(saveBtn, feedback, 'reader-copy-status');
+                showInAppToast("Article Saved", `Saved as ${filename}`);
             });
         }
 
@@ -2862,17 +2891,23 @@
                 const newFavs = isFav ? favoritedLinks.filter(u => u !== url) : [...favoritedLinks, url];
                 await chrome.storage.local.set({ favoritedLinks: newFavs });
 
-                if (newFavs.includes(url)) {
-                    starBtn.style.color = '#f5b301';
-                    starBtn.innerHTML = '&#9733;';
-                    starBtn.title = 'Remove from favorites';
-                    showInAppToast('Favorites', 'Article added to favorites');
-                } else {
-                    starBtn.style.color = '';
-                    starBtn.innerHTML = '&#9734;';
-                    starBtn.title = 'Add to favorites';
-                    showInAppToast('Favorites', 'Article removed from favorites');
-                }
+                const nowFav = newFavs.includes(url);
+                starBtn.classList.toggle('favorited', nowFav);
+                starBtn.innerHTML = nowFav ? '&#9733;' : '&#9734;';
+                starBtn.title = nowFav ? 'Remove from favorites' : 'Add to favorites';
+                showInAppToast('Favorites', nowFav ? 'Article added to favorites' : 'Article removed from favorites');
+
+                try {
+                    const card = document.querySelector(`.post-item[data-link="${CSS.escape(url)}"]`);
+                    if (card) {
+                        const cardStar = card.querySelector('.favorite-btn');
+                        if (cardStar) {
+                            cardStar.classList.toggle('favorited', nowFav);
+                            cardStar.innerHTML = nowFav ? '&#9733;' : '&#9734;';
+                        }
+                    }
+                } catch (_) {}
+
                 if (typeof updateFavoritesView === 'function') updateFavoritesView();
             });
         }
@@ -2888,17 +2923,23 @@
                 const newSums = isSum ? summaryLinks.filter(u => u !== url) : [...summaryLinks, url];
                 await chrome.storage.local.set({ summaryLinks: newSums });
 
-                if (newSums.includes(url)) {
-                    summaryBtn.style.borderColor = '#28a745';
-                    summaryBtn.style.color = '#28a745';
-                    summaryBtn.title = 'Remove from summary cart';
-                    showInAppToast('Summary Cart', 'Article added to summary cart');
-                } else {
-                    summaryBtn.style.borderColor = '';
-                    summaryBtn.style.color = '';
-                    summaryBtn.title = 'Add to summary cart';
-                    showInAppToast('Summary Cart', 'Article removed from summary cart');
-                }
+                const nowSum = newSums.includes(url);
+                summaryBtn.classList.toggle('active', nowSum);
+                summaryBtn.classList.toggle('in-cart', nowSum);
+                summaryBtn.title = nowSum ? 'Remove from summary cart' : 'Add to summary cart';
+                showInAppToast('Summary Cart', nowSum ? 'Article added to summary cart' : 'Article removed from summary cart');
+
+                try {
+                    const card = document.querySelector(`.post-item[data-link="${CSS.escape(url)}"]`);
+                    if (card) {
+                        const cardSum = card.querySelector('.summary-btn');
+                        if (cardSum) {
+                            cardSum.classList.toggle('active', nowSum);
+                            cardSum.title = nowSum ? 'Remove from summary list' : 'Add to summary list';
+                        }
+                    }
+                } catch (_) {}
+
                 if (typeof updateSummaryView === 'function') updateSummaryView();
             });
         }
@@ -3088,9 +3129,10 @@
 
                 try {
                     await navigator.clipboard.writeText(textToCopy);
-                    const originalText = copyAiBtn.textContent;
-                    copyAiBtn.textContent = 'Copied!';
-                    setTimeout(() => { copyAiBtn.textContent = originalText; }, 2000);
+                    const feedback = (window.i18n && typeof window.i18n.t === 'function')
+                        ? window.i18n.t('feedback_copied')
+                        : 'Copied! ✓';
+                    triggerAnimatedButtonFeedback(copyAiBtn, feedback);
                 } catch (e) {
                     console.error('Failed to copy AI summary:', e);
                 }
@@ -3140,9 +3182,10 @@
                 }
 
                 showInAppToast("AI Summary Saved", `Saved as ${filename}`);
-                const origText = saveAiBtn.textContent;
-                saveAiBtn.textContent = 'Saved! ✓';
-                setTimeout(() => { saveAiBtn.textContent = origText; }, 2000);
+                const feedback = (window.i18n && typeof window.i18n.t === 'function')
+                    ? window.i18n.t('feedback_saved')
+                    : 'Saved! ✓';
+                triggerAnimatedButtonFeedback(saveAiBtn, feedback);
             });
         }
 

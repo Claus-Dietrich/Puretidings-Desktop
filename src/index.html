@@ -148,10 +148,10 @@
       position: absolute;
       width: 840px;
       height: 680px;
-      min-width: 320px;
-      min-height: 250px;
-      max-width: 96vw !important;
-      max-height: 94vh !important;
+      min-width: 280px;
+      min-height: 150px;
+      max-width: none !important;
+      max-height: none !important;
       resize: both;
       overflow: hidden !important;
       display: flex;
@@ -241,6 +241,47 @@
       opacity: 0.5;
       user-select: none;
       color: var(--text-color);
+    }
+    /* Reader Toolbar Icon Buttons (Favorites & Summary Cart) */
+    .reader-toolbar-icon-btn {
+      background: var(--input-bg, rgba(255, 255, 255, 0.06));
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      user-select: none;
+      outline: none;
+    }
+    .reader-toolbar-icon-btn:hover {
+      background: var(--hover-bg, rgba(255, 255, 255, 0.12));
+    }
+    #reader-star-btn.favorited {
+      color: #f5b301 !important;
+      border-color: #f5b301 !important;
+      background: rgba(245, 179, 1, 0.16) !important;
+      box-shadow: 0 0 8px rgba(245, 179, 1, 0.35) !important;
+    }
+    #reader-summary-btn.active,
+    #reader-summary-btn.in-cart {
+      color: #28a745 !important;
+      border-color: #28a745 !important;
+      background: rgba(40, 167, 69, 0.16) !important;
+      box-shadow: 0 0 8px rgba(40, 167, 69, 0.35) !important;
+      filter: sepia(1) saturate(5) hue-rotate(15deg) !important;
+    }
+
+    /* Unified Button Feedback (Animated Pop & Glow for Copy & Save) */
+    .btn-feedback-active {
+      background: #28a745 !important;
+      color: #ffffff !important;
+      border-color: #28a745 !important;
+      transform: scale(1.05);
+      transition: all 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+      box-shadow: 0 0 10px rgba(40, 167, 69, 0.5) !important;
     }
     /* Toast notifications */
     .desktop-toast-container {
@@ -947,8 +988,8 @@
           </select>
           <button type="button" id="reader-copy-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;" data-i18n="reader_copy">Copy</button>
           <button type="button" id="reader-save-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;" data-i18n="reader_save">Save</button>
-          <button type="button" id="reader-star-btn" class="secondary-btn" title="Add to favorites" style="padding: 6px 12px; font-size: 14px;">&#9734;</button>
-          <button type="button" id="reader-summary-btn" class="secondary-btn" title="Add to summary cart" style="padding: 6px 12px; font-size: 14px;">&#128203;</button>
+          <button type="button" id="reader-star-btn" class="reader-toolbar-icon-btn" title="Add to favorites" style="padding: 6px 12px; font-size: 16px;">&#9734;</button>
+          <button type="button" id="reader-summary-btn" class="reader-toolbar-icon-btn" title="Add to summary cart" style="padding: 6px 12px; font-size: 14px;">&#128203;</button>
           <span id="reader-copy-status" style="font-size: 12px; color: var(--link-color); font-weight: bold;"></span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">

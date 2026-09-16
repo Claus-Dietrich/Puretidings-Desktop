@@ -129,6 +129,8 @@
             // Reader Mode
             reader_copy: "Copy",
             reader_save: "Save",
+            feedback_copied: "Copied! ✓",
+            feedback_saved: "Saved! ✓",
             reader_ai_summary: "🤖 AI Summary",
             reader_ai_video_summary: "🎥 AI Video Summary",
             reader_close: "Close",
@@ -275,6 +277,8 @@
             // Reader Mode
             reader_copy: "Kopieren",
             reader_save: "Speichern",
+            feedback_copied: "Kopiert! ✓",
+            feedback_saved: "Gespeichert! ✓",
             reader_ai_summary: "🤖 KI-Zusammenfassung",
             reader_ai_video_summary: "🎥 KI-Videozusammenfassung",
             reader_close: "Schließen",
@@ -421,6 +425,8 @@
             // Reader Mode
             reader_copy: "Copiar",
             reader_save: "Guardar",
+            feedback_copied: "¡Copiado! ✓",
+            feedback_saved: "¡Guardado! ✓",
             reader_ai_summary: "🤖 Resumen con IA",
             reader_ai_video_summary: "🎥 Resumen de vídeo con IA",
             reader_close: "Cerrar",
@@ -567,6 +573,8 @@
             // Reader Mode
             reader_copy: "Copier",
             reader_save: "Enregistrer",
+            feedback_copied: "Copié ! ✓",
+            feedback_saved: "Enregistré ! ✓",
             reader_ai_summary: "🤖 Résumé IA",
             reader_ai_video_summary: "🎥 Résumé vidéo IA",
             reader_close: "Fermer",
