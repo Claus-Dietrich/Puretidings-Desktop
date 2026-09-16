@@ -380,11 +380,16 @@ async fn list_imap_folders(
             .login(&username, &password)
             .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
         let mailboxes = session
-            .list(None, Some("*"))
+            .list(Some(""), Some("*"))
+            .or_else(|_| session.list(None, Some("*")))
+            .or_else(|_| session.list(Some(""), Some("%")))
             .map_err(|e| format!("Failed to list folders: {}", e))?;
         let mut folder_names = Vec::new();
         for mb in mailboxes.iter() {
             folder_names.push(mb.name().to_string());
+        }
+        if !folder_names.iter().any(|f| f.eq_ignore_ascii_case("INBOX")) {
+            folder_names.insert(0, "INBOX".to_string());
         }
         let _ = session.logout();
         Ok(folder_names)
@@ -434,16 +439,19 @@ async fn fetch_imap_emails(
 
         let messages = session
             .fetch(&range, "(UID FLAGS BODY.PEEK[])")
+            .or_else(|_| session.fetch(&range, "(UID FLAGS BODY[])"))
+            .or_else(|_| session.fetch(&range, "(UID FLAGS RFC822)"))
             .map_err(|e| format!("Failed to fetch messages: {}", e))?;
 
         let mut items = Vec::new();
 
         for msg in messages.iter().rev() {
-            let uid = msg.uid.unwrap_or(0);
+            let uid = msg.uid.unwrap_or(msg.message);
             let flags = msg.flags();
             let is_unread = !flags.iter().any(|f| matches!(f, imap::types::Flag::Seen));
 
-            if let Some(body_bytes) = msg.body() {
+            let body_bytes_opt = msg.body().or_else(|| msg.text());
+            if let Some(body_bytes) = body_bytes_opt {
                 if let Some(parsed) = mail_parser::MessageParser::default().parse(body_bytes) {
                     let subject = parsed.subject().unwrap_or("(No Subject)").to_string();
                     let from_str = if let Some(addr) = parsed.from().and_then(|a| a.first()) {
@@ -460,7 +468,7 @@ async fn fetch_imap_emails(
                         "Unknown Sender".to_string()
                     };
 
-                    let date_str = parsed.date().map(|d| d.to_rfc3339()).unwrap_or_default();
+                    let date_str = parsed.date().map(|d| d.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
                     let content_html = parsed.body_html(0).map(|c| c.to_string()).unwrap_or_default();
                     let content_text = parsed.body_text(0).map(|c| c.to_string()).unwrap_or_default();
 
@@ -487,6 +495,19 @@ async fn fetch_imap_emails(
                         snippet,
                         content_html,
                         content_text,
+                        is_unread,
+                    });
+                } else {
+                    let raw = String::from_utf8_lossy(body_bytes);
+                    let snippet = raw.chars().take(280).collect::<String>();
+                    items.push(ImapEmailItem {
+                        uid,
+                        subject: format!("Email #{}", uid),
+                        from: "Email".to_string(),
+                        date: chrono::Utc::now().to_rfc3339(),
+                        snippet,
+                        content_html: String::new(),
+                        content_text: raw.into_owned(),
                         is_unread,
                     });
                 }

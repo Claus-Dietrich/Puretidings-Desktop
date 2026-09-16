@@ -882,18 +882,24 @@
               <!-- Account Name -->
               <div>
                 <label for="email-account-name" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_account_name">Account Name (Label):</label>
-                <input type="text" id="email-account-name" placeholder="e.g. My Newsletters or Work Gmail" data-i18n-placeholder="email_account_name_placeholder" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                <div style="display: flex; gap: 6px;">
+                  <input type="text" id="email-account-name" placeholder="e.g. My Newsletters or Work Gmail" data-i18n-placeholder="email_account_name_placeholder" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important;">
+                  <button type="button" id="email-account-name-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_key">📋 Paste</button>
+                </div>
               </div>
 
               <!-- Server & Port -->
               <div style="display: flex; gap: 10px;">
                 <div style="flex: 3;">
                   <label for="email-imap-server" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_server">IMAP Server:</label>
-                  <input type="text" id="email-imap-server" placeholder="imap.example.com" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                  <div style="display: flex; gap: 6px;">
+                    <input type="text" id="email-imap-server" placeholder="imap.example.com" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important;">
+                    <button type="button" id="email-imap-server-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_key">📋 Paste</button>
+                  </div>
                 </div>
                 <div style="flex: 1;">
                   <label for="email-imap-port" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_port">Port (SSL/TLS):</label>
-                  <input type="number" id="email-imap-port" value="993" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                  <input type="number" id="email-imap-port" value="993" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important;">
                 </div>
               </div>
 
@@ -901,12 +907,15 @@
               <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                 <div style="flex: 1; min-width: 220px;">
                   <label for="email-username" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_username">Email Address / Username:</label>
-                  <input type="email" id="email-username" placeholder="user@domain.com" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                  <div style="display: flex; gap: 6px;">
+                    <input type="email" id="email-username" placeholder="user@domain.com" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important;">
+                    <button type="button" id="email-username-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_key">📋 Paste</button>
+                  </div>
                 </div>
                 <div style="flex: 1; min-width: 220px;">
                   <label for="email-password" style="font-size: 12px; font-weight: bold; color: var(--text-color); display: block; margin-bottom: 4px;" data-i18n="email_password">Password / App Password:</label>
                   <div style="display: flex; gap: 6px;">
-                    <input type="password" id="email-password" placeholder="••••••••••••" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box;">
+                    <input type="password" id="email-password" placeholder="••••••••••••" style="flex: 1; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--input-color); font-size: 13px; box-sizing: border-box; user-select: text !important; -webkit-user-select: text !important;">
                     <button type="button" id="email-password-paste-btn" class="secondary-btn" style="padding: 0 10px;" title="Paste password from clipboard" data-i18n="btn_paste" data-i18n-title="tooltip_paste_key">📋 Paste</button>
                   </div>
                 </div>

@@ -267,8 +267,8 @@
                         if (keys === null) {
                             for (let i = 0; i < localStorage.length; i++) {
                                 const fullKey = localStorage.key(i);
-                                if (fullKey && fullKey.startsWith('puretidings_local_')) {
-                                    const shortKey = fullKey.replace('puretidings_local_', '');
+                                if (fullKey && (fullKey.startsWith('pt_local_') || fullKey.startsWith('puretidings_local_'))) {
+                                    const shortKey = fullKey.replace('puretidings_local_', '').replace('pt_local_', '');
                                     res[shortKey] = getLocalItem(shortKey);
                                 }
                             }
@@ -687,18 +687,20 @@
 
         const feedId = 'email_' + account.id;
         const posts = (items || []).map(item => {
-            const link = `imap://${account.id}/${item.uid}`;
+            const postDate = item.date || new Date().toISOString();
             const postObj = {
                 id: link,
                 link: link,
                 title: item.subject || '(No Subject)',
-                pubDate: item.date || new Date().toISOString(),
+                date: postDate,
+                pubDate: postDate,
                 snippet: item.snippet || '',
                 description: item.snippet || '',
                 content: item.content_html || item.content_text || item.snippet || '',
                 fullContentHtml: item.content_html || '',
                 author: item.from || account.username,
                 feedTitle: account.name || account.username,
+                feedName: account.name || account.username,
                 feedId: feedId,
                 isEmail: true,
                 emailUid: item.uid,
@@ -4203,6 +4205,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             { btnId: 'settings-gemini-key-paste-btn', inputId: 'settings-gemini-key' },
             { btnId: 'new-rule-paste-btn', inputId: 'new-rule-value' },
             { btnId: 'new-feed-paste-btn', inputId: 'new-feed-url' },
+            { btnId: 'email-account-name-paste-btn', inputId: 'email-account-name' },
+            { btnId: 'email-imap-server-paste-btn', inputId: 'email-imap-server' },
+            { btnId: 'email-username-paste-btn', inputId: 'email-username' },
             { btnId: 'email-password-paste-btn', inputId: 'email-password' }
         ];
 
@@ -4294,6 +4299,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
                 } catch (err) {
                     console.warn('Context menu paste failed:', err);
+                    const manual = prompt('Paste content here:');
+                    if (manual !== null) {
+                        const start = activeTarget.selectionStart ?? activeTarget.value.length;
+                        const end = activeTarget.selectionEnd ?? activeTarget.value.length;
+                        const val = activeTarget.value;
+                        activeTarget.value = val.substring(0, start) + manual + val.substring(end);
+                        activeTarget.selectionStart = activeTarget.selectionEnd = start + manual.length;
+                        activeTarget.focus();
+                        activeTarget.dispatchEvent(new Event('input', { bubbles: true }));
+                        activeTarget.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
                 }
             });
         }
@@ -4309,7 +4325,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     ? activeTarget.value.substring(start, end)
                     : activeTarget.value;
                 if (text) {
-                    await navigator.clipboard.writeText(text);
+                    try {
+                        await navigator.clipboard.writeText(text);
+                    } catch (_) {}
                 }
             });
         }
@@ -4786,9 +4804,6 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 try {
-                    const testRes = await tauriInvoke('test_imap_connection', { server, port, username, password });
-                    console.log('[PureTidings Desktop] IMAP connection test:', testRes);
-
                     const folders = await tauriInvoke('list_imap_folders', { server, port, username, password });
                     console.log('[PureTidings Desktop] IMAP folders loaded:', folders);
 
