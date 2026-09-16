@@ -46,6 +46,14 @@
             tooltip_remove_favorites: "Remove from favorites",
             tooltip_add_summary: "Add to summary cart",
             tooltip_remove_summary: "Remove from summary cart",
+            tooltip_email_theme: "Toggle Light/Dark email view",
+            reader_email_theme_light: "☀️ Light",
+            reader_email_theme_dark: "🌙 Dark",
+            reader_copy: "Copy",
+            reader_save: "Save",
+            reader_close: "Close",
+            reader_ai_summary: "🤖 AI Summary",
+            reader_ai_video_summary: "🎥 AI Video Summary",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -259,6 +267,14 @@
             tooltip_remove_favorites: "Aus Favoriten entfernen",
             tooltip_add_summary: "Zum Zusammenfassungs-Korb hinzufügen",
             tooltip_remove_summary: "Aus Zusammenfassungs-Korb entfernen",
+            tooltip_email_theme: "Zwischen heller und dunkler E-Mail-Ansicht wechseln",
+            reader_email_theme_light: "☀️ Hell",
+            reader_email_theme_dark: "🌙 Dunkel",
+            reader_copy: "Kopieren",
+            reader_save: "Speichern",
+            reader_close: "Schließen",
+            reader_ai_summary: "🤖 KI-Zusammenfassung",
+            reader_ai_video_summary: "🎥 KI-Video-Zusammenfassung",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -472,6 +488,14 @@
             tooltip_remove_favorites: "Eliminar de favoritos",
             tooltip_add_summary: "Añadir a la cesta de resumen",
             tooltip_remove_summary: "Eliminar de la cesta de resumen",
+            tooltip_email_theme: "Alternar vista de correo clara/oscura",
+            reader_email_theme_light: "☀️ Claro",
+            reader_email_theme_dark: "🌙 Oscuro",
+            reader_copy: "Copiar",
+            reader_save: "Guardar",
+            reader_close: "Cerrar",
+            reader_ai_summary: "🤖 Resumen IA",
+            reader_ai_video_summary: "🎥 Resumen de vídeo IA",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -685,6 +709,14 @@
             tooltip_remove_favorites: "Supprimer des favoris",
             tooltip_add_summary: "Ajouter au panier de résumé",
             tooltip_remove_summary: "Retirer du panier de résumé",
+            tooltip_email_theme: "Basculer entre l'affichage d'e-mail clair et sombre",
+            reader_email_theme_light: "☀️ Clair",
+            reader_email_theme_dark: "🌙 Sombre",
+            reader_copy: "Copier",
+            reader_save: "Enregistrer",
+            reader_close: "Fermer",
+            reader_ai_summary: "🤖 Résumé IA",
+            reader_ai_video_summary: "🎥 Résumé vidéo IA",
 
             // Mobile app bar
             mobile_title: "PureTidings",

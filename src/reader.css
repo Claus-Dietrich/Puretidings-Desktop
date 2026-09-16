@@ -137,50 +137,44 @@ hr {
   word-break: normal; /* Less aggressive than break-all, better for most text */
 }
 
-/* Ensure ALL children stay within the container, very important for nested divs/tables in emails */
-#reader-article-body *,
-#reader-description * {
-  max-width: 100% !important;
-  overflow-wrap: break-word !important;
-  box-sizing: border-box !important;
-  /* Prevent negative margins from pushing content out */
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-}
-
-/* Specific table handling for emails - force them to behave like blocks if needed */
-#reader-article-body table,
-#reader-description table {
-  width: 100% !important;
-  max-width: 100% !important;
-  table-layout: fixed !important;
-  border-collapse: collapse;
-  margin: 15px 0 !important;
-  display: table !important; /* Ensure it stays a table but constrained */
-}
-
-#reader-article-body td,
-#reader-description td {
-  word-break: break-word;
+/* Ensure children stay within container for standard RSS articles */
+#reader-article-body:not(.email-mode) *,
+#reader-description:not(.email-mode) * {
+  max-width: 100%;
   overflow-wrap: break-word;
-  max-width: 100%; /* Ensure cells don't push the table wide */
+  box-sizing: border-box;
 }
 
-#reader-article-body div,
-#reader-description div {
-  max-width: 100% !important;
-  width: auto !important; /* Allow it to shrink */
-  height: auto !important;
+/* Specific table handling for standard RSS articles */
+#reader-article-body:not(.email-mode) table,
+#reader-description:not(.email-mode) table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+  overflow-x: auto;
+  display: table;
 }
 
-#reader-article-body img,
-#reader-article-body figure,
-#reader-description img,
-#reader-description figure {
-  max-width: 100% !important;
-  height: auto !important;
+#reader-article-body:not(.email-mode) td,
+#reader-description:not(.email-mode) td {
+  overflow-wrap: break-word;
+  padding: 6px 8px;
+}
+
+#reader-article-body:not(.email-mode) div,
+#reader-description:not(.email-mode) div {
+  max-width: 100%;
+}
+
+#reader-article-body:not(.email-mode) img,
+#reader-article-body:not(.email-mode) figure,
+#reader-description:not(.email-mode) img,
+#reader-description:not(.email-mode) figure {
+  max-width: 100%;
+  height: auto;
   display: block; 
-  margin: 20px auto !important;
+  margin: 15px auto;
 }
 
 #reader-article-body a {

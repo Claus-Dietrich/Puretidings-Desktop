@@ -2078,12 +2078,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     async function generateBackupJsonData() {
         const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks']);
-        const sync = await chrome.storage.sync.get([
-            'rules', 'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt',
-            'checkInterval', 'randomizeFetch', 'fetchSchedule',
-            'showNotification', 'showSummaryNotification', 'summaryInterval',
-            'autoBackupEnabled', 'autoBackupTime', 'backupFolderPath', 'darkMode'
-        ]);
+        const sync = await chrome.storage.sync.get(null);
         const backup = {
             version: "1.0",
             app: "PureTidings Desktop",
@@ -3448,7 +3443,138 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         closeAllModals();
         const modal = document.getElementById('reader-modal');
         if (!modal) return;
-        modal.style.display = 'flex';
+        modal.style.display = 'block';
+
+        // Setup and restore custom modal dimensions & coordinates
+        const modalCard = document.getElementById('reader-modal-card');
+        if (modalCard) {
+            const { w: viewW, h: viewH, zoom } = getViewportDimensions();
+            let savedGeo = null;
+            try {
+                savedGeo = JSON.parse(localStorage.getItem('puretidings_reader_geometry') || localStorage.getItem('puretidings_reader_size') || 'null');
+            } catch (_) {}
+
+            let w = (savedGeo && savedGeo.width) ? Math.max(380, savedGeo.width) : Math.min(960, Math.max(380, viewW - 60));
+            let h = (savedGeo && savedGeo.height) ? Math.max(250, savedGeo.height) : Math.min(840, Math.max(250, viewH - 60));
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (viewW - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (viewH - h) / 2));
+
+            left = Math.max(-w + 80, Math.min(left, viewW - 80));
+            top = Math.max(0, Math.min(top, viewH - 40));
+
+            modalCard.style.width = w + 'px';
+            modalCard.style.height = h + 'px';
+            modalCard.style.left = left + 'px';
+            modalCard.style.top = top + 'px';
+
+            function saveReaderGeometry() {
+                if (!modalCard) return;
+                const geo = {
+                    left: Math.round(parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0),
+                    top: Math.round(parseFloat(modalCard.style.top) || modalCard.offsetTop || 0),
+                    width: Math.round(parseFloat(modalCard.style.width) || modalCard.offsetWidth || 960),
+                    height: Math.round(parseFloat(modalCard.style.height) || modalCard.offsetHeight || 750)
+                };
+                try {
+                    localStorage.setItem('puretidings_reader_geometry', JSON.stringify(geo));
+                    localStorage.setItem('puretidings_reader_size', JSON.stringify({ width: geo.width, height: geo.height }));
+                } catch (_) {}
+            }
+
+            // Draggable by header / toolbar
+            const header = modalCard.querySelector('#reader-modal-header') || modalCard.querySelector('.reader-modal-header');
+            if (header && !header._dragAttached) {
+                header._dragAttached = true;
+                header.style.cursor = 'move';
+                header.style.userSelect = 'none';
+
+                header.addEventListener('mousedown', (e) => {
+                    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('select')) return;
+                    e.preventDefault();
+
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0;
+                    const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 0;
+
+                    function onDrag(ev) {
+                        ev.preventDefault();
+                        const { w: curViewW, h: curViewH, zoom: activeZoom } = getViewportDimensions();
+                        const dx = (ev.clientX - startX) / activeZoom;
+                        const dy = (ev.clientY - startY) / activeZoom;
+                        let nLeft = initialLeft + dx;
+                        let nTop = initialTop + dy;
+
+                        nLeft = Math.max(-modalCard.offsetWidth + 80, Math.min(nLeft, curViewW - 80));
+                        nTop = Math.max(0, Math.min(nTop, curViewH - 40));
+
+                        modalCard.style.left = nLeft + 'px';
+                        modalCard.style.top = nTop + 'px';
+                    }
+
+                    function stopDrag() {
+                        window.removeEventListener('mousemove', onDrag);
+                        window.removeEventListener('mouseup', stopDrag);
+                        saveReaderGeometry();
+                    }
+
+                    window.addEventListener('mousemove', onDrag);
+                    window.addEventListener('mouseup', stopDrag);
+                });
+            }
+
+            // Custom resize grip handle
+            const resizeHandle = modalCard.querySelector('#reader-resize-handle') || modalCard.querySelector('.modal-resize-handle');
+            if (resizeHandle && !resizeHandle._resizeAttached) {
+                resizeHandle._resizeAttached = true;
+                resizeHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const startW = parseFloat(modalCard.style.width) || modalCard.offsetWidth;
+                    const startH = parseFloat(modalCard.style.height) || modalCard.offsetHeight;
+
+                    function onGripResize(ev) {
+                        ev.preventDefault();
+                        const { zoom: activeZoom } = getViewportDimensions();
+                        const dx = (ev.clientX - startX) / activeZoom;
+                        const dy = (ev.clientY - startY) / activeZoom;
+                        const nW = Math.max(380, startW + dx);
+                        const nH = Math.max(250, startH + dy);
+                        modalCard.style.width = nW + 'px';
+                        modalCard.style.height = nH + 'px';
+                    }
+
+                    function stopGripResize() {
+                        window.removeEventListener('mousemove', onGripResize);
+                        window.removeEventListener('mouseup', stopGripResize);
+                        saveReaderGeometry();
+                    }
+
+                    window.addEventListener('mousemove', onGripResize);
+                    window.addEventListener('mouseup', stopGripResize);
+                });
+            }
+
+            // Attach ResizeObserver to remember resized size across app restarts
+            if (window.ResizeObserver && !modalCard._resizeObserverAttached) {
+                modalCard._resizeObserverAttached = true;
+                let resizeTimer;
+                const ro = new ResizeObserver(entries => {
+                    for (let entry of entries) {
+                        if (entry.contentRect && entry.contentRect.width > 200 && entry.contentRect.height > 100) {
+                            clearTimeout(resizeTimer);
+                            resizeTimer = setTimeout(() => {
+                                saveReaderGeometry();
+                            }, 250);
+                        }
+                    }
+                });
+                ro.observe(modalCard);
+            }
+        }
 
         currentReaderArticle = data;
         currentReaderAiMarkdown = '';
@@ -3549,15 +3675,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (bodyEl) {
             const isEmail = data.isEmail || (data.url && data.url.startsWith('imap:'));
             if (isEmail) {
-                if (data.fullContentHtmlText) {
-                    bodyEl.innerHTML = data.fullContentHtmlText;
-                } else if (data.content) {
-                    bodyEl.innerHTML = data.content;
-                } else if (data.description) {
-                    bodyEl.innerHTML = formatContentIfPlain(data.description);
-                } else {
-                    bodyEl.innerHTML = '<p style="font-style: italic; color: var(--secondary-text-color);">No content in this email.</p>';
-                }
+                renderEmailInReader(data, bodyEl);
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
 
@@ -3574,46 +3692,52 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 if (emailUid && accountId && typeof markEmailReadNative === 'function') {
                     markEmailReadNative(accountId, emailUid, true);
                 }
-            } else if (data.fullContentHtmlText) {
-                bodyEl.innerHTML = data.fullContentHtmlText;
-                if (loadingEl) loadingEl.classList.add('hidden');
-                if (contentEl) contentEl.classList.remove('hidden');
-            } else if (data.description && (data.description.includes('🤖') || data.description.includes('<h3>'))) {
-                bodyEl.innerHTML = formatContentIfPlain(data.description);
-                if (loadingEl) loadingEl.classList.add('hidden');
-                if (contentEl) contentEl.classList.remove('hidden');
-            } else if (data.url && !data.url.includes('youtube.com') && !data.url.startsWith('imap:')) {
-                if (loadingEl) loadingEl.classList.remove('hidden');
-                if (contentEl) contentEl.classList.add('hidden');
-                try {
-                    const html = await tauriInvoke('fetch_url', { url: data.url });
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, "text/html");
+            } else {
+                const themeBtn = document.getElementById('reader-email-theme-btn');
+                if (themeBtn) themeBtn.style.display = 'none';
+                bodyEl.classList.remove('email-mode');
 
-                    // Check for embedded YouTube video (e.g. finanzmarktwelt.de wp-youtube-lyte)
-                    const embeddedVideoId = extractYoutubeVideoId(data.url, html, doc);
-                    if (embeddedVideoId) {
-                        currentReaderVideoId = embeddedVideoId;
-                        renderReaderVideoPlayer(embeddedVideoId);
-                        if (ytAiBtn) ytAiBtn.style.display = 'inline-block';
-                    }
+                if (data.fullContentHtmlText) {
+                    bodyEl.innerHTML = data.fullContentHtmlText;
+                    if (loadingEl) loadingEl.classList.add('hidden');
+                    if (contentEl) contentEl.classList.remove('hidden');
+                } else if (data.description && (data.description.includes('🤖') || data.description.includes('<h3>'))) {
+                    bodyEl.innerHTML = formatContentIfPlain(data.description);
+                    if (loadingEl) loadingEl.classList.add('hidden');
+                    if (contentEl) contentEl.classList.remove('hidden');
+                } else if (data.url && !data.url.includes('youtube.com') && !data.url.startsWith('imap:')) {
+                    if (loadingEl) loadingEl.classList.remove('hidden');
+                    if (contentEl) contentEl.classList.add('hidden');
+                    try {
+                        const html = await tauriInvoke('fetch_url', { url: data.url });
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, "text/html");
 
-                    if (typeof preprocessDOM === 'function') {
-                        preprocessDOM(doc, data.url);
+                        // Check for embedded YouTube video (e.g. finanzmarktwelt.de wp-youtube-lyte)
+                        const embeddedVideoId = extractYoutubeVideoId(data.url, html, doc);
+                        if (embeddedVideoId) {
+                            currentReaderVideoId = embeddedVideoId;
+                            renderReaderVideoPlayer(embeddedVideoId);
+                            if (ytAiBtn) ytAiBtn.style.display = 'inline-block';
+                        }
+
+                        if (typeof preprocessDOM === 'function') {
+                            preprocessDOM(doc, data.url);
+                        }
+                        const reader = new Readability(doc);
+                        const article = reader.parse();
+                        bodyEl.innerHTML = article ? article.content : (formatContentIfPlain(data.description) || '<p>Could not extract full text.</p>');
+                    } catch (e) {
+                        bodyEl.innerHTML = formatContentIfPlain(data.description) || '<p>Failed to load full article content.</p>';
+                    } finally {
+                        if (loadingEl) loadingEl.classList.add('hidden');
+                        if (contentEl) contentEl.classList.remove('hidden');
                     }
-                    const reader = new Readability(doc);
-                    const article = reader.parse();
-                    bodyEl.innerHTML = article ? article.content : (formatContentIfPlain(data.description) || '<p>Could not extract full text.</p>');
-                } catch (e) {
-                    bodyEl.innerHTML = formatContentIfPlain(data.description) || '<p>Failed to load full article content.</p>';
-                } finally {
+                } else {
+                    bodyEl.innerHTML = formatContentIfPlain(data.description) || '';
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 }
-            } else {
-                bodyEl.innerHTML = formatContentIfPlain(data.description) || '';
-                if (loadingEl) loadingEl.classList.add('hidden');
-                if (contentEl) contentEl.classList.remove('hidden');
             }
 
             // If video ID wasn't found from URL or fetch, inspect rendered body and payload
@@ -3633,6 +3757,113 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
     }
 
+    function renderEmailInReader(data, bodyEl) {
+        bodyEl.classList.add('email-mode');
+        bodyEl.innerHTML = '';
+
+        const themeBtn = document.getElementById('reader-email-theme-btn');
+        if (themeBtn) {
+            themeBtn.style.display = 'inline-flex';
+            const tLight = (window.i18n && typeof window.i18n.t === 'function') ? window.i18n.t('reader_email_theme_light') : '☀️ Light';
+            themeBtn.innerHTML = tLight;
+            themeBtn.title = (window.i18n && typeof window.i18n.t === 'function') ? window.i18n.t('tooltip_email_theme') : 'Toggle Light/Dark Email View';
+        }
+
+        const iframe = document.createElement('iframe');
+        iframe.id = 'reader-email-frame';
+        iframe.setAttribute('sandbox', 'allow-same-origin allow-popups');
+        iframe.style.width = '100%';
+        iframe.style.border = '1px solid var(--border-color, #444)';
+        iframe.style.borderRadius = '8px';
+        iframe.style.minHeight = '480px';
+        iframe.style.background = '#ffffff';
+        iframe.style.boxShadow = '0 4px 16px rgba(0, 0, 0, 0.25)';
+        iframe.style.display = 'block';
+
+        bodyEl.appendChild(iframe);
+
+        const emailContent = data.fullContentHtmlText || data.content || (data.description ? formatContentIfPlain(data.description) : '<p style="color:#666; font-style:italic;">(No content in this email)</p>');
+
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (doc) {
+            doc.open();
+            doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <base target="_blank">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 20px 24px;
+      background-color: #ffffff;
+      color: #222222;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      box-sizing: border-box;
+      word-wrap: break-word;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+    }
+    table {
+      border-collapse: collapse;
+    }
+    a {
+      color: #0066cc;
+    }
+    body.dark-email-theme {
+      background-color: #1a1a1a !important;
+      color: #e0e0e0 !important;
+      filter: invert(0.9) hue-rotate(180deg);
+    }
+    body.dark-email-theme img,
+    body.dark-email-theme video,
+    body.dark-email-theme iframe {
+      filter: invert(1) hue-rotate(180deg);
+    }
+  </style>
+</head>
+<body>
+  ${emailContent}
+</body>
+</html>`);
+            doc.close();
+
+            // Intercept clicks on links inside the email iframe to open in default browser
+            doc.addEventListener('click', (e) => {
+                const anchor = e.target.closest('a');
+                if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
+                    e.preventDefault();
+                    tauriOpenBrowser(anchor.href);
+                }
+            });
+
+            // Adjust iframe height dynamically to fit content
+            const updateHeight = () => {
+                try {
+                    const h = doc.body?.scrollHeight || doc.documentElement?.scrollHeight;
+                    if (h && h > 150) {
+                        iframe.style.height = (h + 40) + 'px';
+                    }
+                } catch (_) {}
+            };
+            setTimeout(updateHeight, 80);
+            setTimeout(updateHeight, 400);
+            setTimeout(updateHeight, 1200);
+
+            // Re-adjust height when images finish loading
+            const imgs = doc.querySelectorAll('img');
+            imgs.forEach(img => {
+                img.setAttribute('referrerpolicy', 'no-referrer');
+                img.addEventListener('load', updateHeight);
+            });
+        }
+    }
+
     function closeReaderModal() {
         const modal = document.getElementById('reader-modal');
         if (modal) modal.style.display = 'none';
@@ -3640,6 +3871,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (videoEl) videoEl.innerHTML = '';
         const aiContainer = document.getElementById('reader-ai-container');
         if (aiContainer) aiContainer.style.display = 'none';
+        const themeBtn = document.getElementById('reader-email-theme-btn');
+        if (themeBtn) themeBtn.style.display = 'none';
+        const bodyEl = document.getElementById('reader-article-body');
+        if (bodyEl) {
+            bodyEl.classList.remove('email-mode');
+            bodyEl.innerHTML = '';
+        }
         currentReaderArticle = null;
         currentReaderVideoId = null;
         currentReaderAiMarkdown = '';
@@ -3818,7 +4056,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const bodyEl = document.getElementById('reader-article-body');
                 let textToCopy = '';
 
-                const md = `# ${title}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+                const emailFrame = document.getElementById('reader-email-frame');
+                let emailHtml = '';
+                if (emailFrame) {
+                    try { emailHtml = emailFrame.contentDocument?.body?.innerHTML || ''; } catch (_) {}
+                }
+                const activeHtml = emailHtml || bodyEl?.innerHTML || '';
+                const md = `# ${title}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(activeHtml)}`;
 
                 if (format === 'markdown') {
                     textToCopy = md;
@@ -3850,7 +4094,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const byline = document.getElementById('reader-byline')?.innerText || '';
                 const bodyEl = document.getElementById('reader-article-body');
 
-                const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+                const emailFrame = document.getElementById('reader-email-frame');
+                let emailHtml = '';
+                if (emailFrame) {
+                    try { emailHtml = emailFrame.contentDocument?.body?.innerHTML || ''; } catch (_) {}
+                }
+                const activeHtml = emailHtml || bodyEl?.innerHTML || '';
+                const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(activeHtml)}`;
 
                 let filename = '';
                 if (format === 'markdown') {
@@ -3871,6 +4121,30 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     : 'Saved! ✓';
                 triggerAnimatedButtonFeedback(saveBtn, feedback, 'reader-copy-status');
                 showInAppToast("Article Saved", `Saved as ${filename}`);
+            });
+        }
+
+        // Email Theme Toggle Button
+        const emailThemeBtn = document.getElementById('reader-email-theme-btn');
+        if (emailThemeBtn && !emailThemeBtn._attached) {
+            emailThemeBtn._attached = true;
+            emailThemeBtn.addEventListener('click', () => {
+                const iframe = document.getElementById('reader-email-frame');
+                if (!iframe) return;
+                const doc = iframe.contentDocument || iframe.contentWindow?.document;
+                if (!doc || !doc.body) return;
+
+                const isDark = doc.body.classList.toggle('dark-email-theme');
+                const tLight = (window.i18n && typeof window.i18n.t === 'function') ? window.i18n.t('reader_email_theme_light') : '☀️ Light';
+                const tDark = (window.i18n && typeof window.i18n.t === 'function') ? window.i18n.t('reader_email_theme_dark') : '🌙 Dark';
+
+                if (isDark) {
+                    emailThemeBtn.innerHTML = tDark;
+                    iframe.style.background = '#1a1a1a';
+                } else {
+                    emailThemeBtn.innerHTML = tLight;
+                    iframe.style.background = '#ffffff';
+                }
             });
         }
 
@@ -4087,9 +4361,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                         aiResult = await callGeminiApi(geminiApiKey, prompt, contentPayload);
                     } else {
-                        // Regular article
+                        // Regular article or Email
                         const bodyEl = document.getElementById('reader-article-body');
-                        const bodyText = (bodyEl?.innerText || currentReaderArticle?.description || '').trim();
+                        const emailFrame = document.getElementById('reader-email-frame');
+                        let emailText = '';
+                        if (emailFrame) {
+                            try { emailText = emailFrame.contentDocument?.body?.innerText || ''; } catch (_) {}
+                        }
+                        const bodyText = (emailText || currentReaderArticle?.content_text || bodyEl?.innerText || currentReaderArticle?.description || '').trim();
                         let contentPayload = `URL: ${currentReaderArticle?.url || ''}\n`;
                         if (currentReaderArticle?.source) contentPayload += `Source: ${currentReaderArticle.source}\n`;
                         contentPayload += `Title: ${currentReaderArticle?.title || ''}\n\nContent:\n${bodyText.substring(0, 30000)}`;
@@ -5408,6 +5687,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 if (data.rules && !data.sync) {
                     await chrome.storage.sync.set({ rules: data.rules });
                 }
+                if (data.emailAccounts && (!data.sync || !data.sync.emailAccounts)) {
+                    await chrome.storage.sync.set({ emailAccounts: data.emailAccounts });
+                }
 
                 const feedCount = (data.local?.feedTree || data.feedTree || []).length;
                 showStatusBadge('backup-json-status-box', 'success', `✓ Backup restored successfully (${feedCount} items)!`);
@@ -5415,6 +5697,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 loadSettingsValues();
                 renderSettingsFeeds();
+                await syncEmailAccountsToFeedTree();
+                renderSettingsEmailAccounts();
                 refreshAllFeedsNative();
                 scheduleNextBackgroundFetch();
                 scheduleNextSummaryNotification();
