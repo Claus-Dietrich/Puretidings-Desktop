@@ -733,6 +733,12 @@ async function handleCopySummary() {
   try {
     await navigator.clipboard.writeText(content);
     showCopyStatus(`Copied as ${format.toUpperCase()}!`, 'success');
+    if (typeof window.triggerAnimatedButtonFeedback === 'function') {
+        const feedback = (window.i18n && typeof window.i18n.t === 'function')
+            ? window.i18n.t('feedback_copied')
+            : 'Copied! ✓';
+        window.triggerAnimatedButtonFeedback(copySummaryBtn, feedback);
+    }
   } catch (err) {
     console.error('Failed to copy: ', err);
     showCopyStatus("Failed to copy.", 'error');
@@ -771,6 +777,13 @@ function handleDownloadSummary() {
   a.download = finalName;
   a.click();
   URL.revokeObjectURL(url);
+
+  if (typeof window.triggerAnimatedButtonFeedback === 'function') {
+      const feedback = (window.i18n && typeof window.i18n.t === 'function')
+          ? window.i18n.t('feedback_saved')
+          : 'Saved! ✓';
+      window.triggerAnimatedButtonFeedback(downloadSummaryBtn, feedback);
+  }
 }
 
 /**
@@ -803,8 +816,12 @@ function generateSummaryContent(posts, format, subMode) {
             if (isReport) {
                 const sourceText = post.fullContentText || post.description || '';
                 if (sourceText) {
-                    const cleanDesc = sourceText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-                    content += `   Content: ${cleanDesc.substring(0, 2000)}${cleanDesc.length > 2000 ? '...' : ''}\n`;
+                    const textDesc = typeof window.cleanMarkdownToPlainText === 'function'
+                        ? window.cleanMarkdownToPlainText(window.htmlToMarkdownSimple ? window.htmlToMarkdownSimple(sourceText) : sourceText)
+                        : (typeof cleanMarkdownToPlainText === 'function'
+                            ? cleanMarkdownToPlainText(typeof htmlToMarkdownSimple === 'function' ? htmlToMarkdownSimple(sourceText) : sourceText)
+                            : sourceText.replace(/<[^>]+>/g, ''));
+                    content += `   Content:\n${textDesc.substring(0, 3000)}${textDesc.length > 3000 ? '...' : ''}\n`;
                 }
             }
             content += `\n--------------------------------------\n\n`;
@@ -820,8 +837,12 @@ function generateSummaryContent(posts, format, subMode) {
             if (isReport) {
                 const sourceText = post.fullContentText || post.description || '';
                 if (sourceText) {
-                    const cleanDesc = sourceText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-                    content += `${cleanDesc}\n\n`;
+                    const mdDesc = typeof window.htmlToMarkdownSimple === 'function'
+                        ? window.htmlToMarkdownSimple(sourceText)
+                        : (typeof htmlToMarkdownSimple === 'function'
+                            ? htmlToMarkdownSimple(sourceText)
+                            : sourceText);
+                    content += `${mdDesc}\n\n`;
                 }
             }
             content += `---\n\n`;
@@ -879,7 +900,7 @@ function generateSummaryContent(posts, format, subMode) {
                 } else if (post.description) {
                     const tempTextArea = document.createElement('textarea');
                     tempTextArea.innerHTML = post.description;
-                    content += `<div class="desc">${tempTextArea.textContent}</div>`;
+                    content += `<div class="desc">${typeof formatDescription === 'function' ? formatDescription(tempTextArea.textContent) : tempTextArea.textContent}</div>`;
                 }
             }
             content += `</article>`;
@@ -1699,7 +1720,8 @@ downloadAiReportBtn.addEventListener('click', () => {
 });
 
 function formatMarkdownToHtml(markdown) {
-    let html = markdown;
+    if (!markdown) return '';
+    let html = markdown.replace(/\r\n/g, '\n');
     
     // Headers
     html = html.replace(/^### (.*$)/gim, '<h4>$1</h4>');
@@ -1713,17 +1735,33 @@ function formatMarkdownToHtml(markdown) {
     html = html.replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '<em>$1</em>');
     
     // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     
+    // Blockquotes
+    html = html.replace(/^>\s*(.*)$/gim, '<blockquote>$1</blockquote>');
+    html = html.replace(/<\/blockquote>\s*<blockquote>/g, '<br>');
+
     // Lists
     html = html.replace(/^\s*[-*]\s+(.*)/gim, '<ul><li>$1</li></ul>');
     html = html.replace(/<\/ul>\s*<ul>/g, '');
     
-    // Line breaks
-    html = html.replace(/\n\n/g, '<br><br>');
-    
+    // Line breaks and paragraphs
+    html = html.replace(/\n{2,}/g, '</p><p>');
+    html = html.replace(/\n/g, '<br>');
+
+    if (!html.startsWith('<h') && !html.startsWith('<ul') && !html.startsWith('<blockquote') && !html.startsWith('<p')) {
+        html = '<p>' + html + '</p>';
+    }
+
+    // Clean up empty or redundant wrappers
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    html = html.replace(/<p>\s*(<h[1-6]>.*?<\/h[1-6]>)\s*<\/p>/gi, '$1');
+    html = html.replace(/<p>\s*(<ul[\s\S]*?<\/ul>)\s*<\/p>/gi, '$1');
+    html = html.replace(/<p>\s*(<blockquote[\s\S]*?<\/blockquote>)\s*<\/p>/gi, '$1');
+
     return html;
 }
+window.formatMarkdownToHtml = formatMarkdownToHtml;
 
 function preprocessDOM(doc, url) {
     if (!url) return;

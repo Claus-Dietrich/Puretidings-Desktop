@@ -204,6 +204,25 @@ hr {
   }
 }
 
+#reader-article-body p {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+#reader-article-body .timeline-block {
+  line-height: 1.5;
+  margin: 14px 0;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent-color, #1a73e8);
+}
+@media (prefers-color-scheme: dark) {
+  #reader-article-body .timeline-block {
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
 /* Responsive Video Embeds */
 .video-container {
   position: relative;

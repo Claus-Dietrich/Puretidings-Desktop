@@ -763,3 +763,8 @@ function sanitizeLinksArray(arr) {
         })
         .filter(item => typeof item === 'string' && item.length > 0);
 }
+
+// Ensure critical formatting utilities are globally accessible
+if (typeof window !== 'undefined') {
+    window.formatDescription = formatDescription;
+}

@@ -2429,22 +2429,49 @@
     function htmlToMarkdownSimple(html) {
         if (!html) return '';
         let md = html;
-        md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n');
-        md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n');
-        md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n');
-        md = md.replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n');
-        md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**');
-        md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**');
-        md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*');
-        md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*');
-        md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)');
-        md = md.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n');
-        md = md.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n');
+        md = md.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '# $1\n\n');
+        md = md.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '## $1\n\n');
+        md = md.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '### $1\n\n');
+        md = md.replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, '#### $1\n\n');
+        md = md.replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**');
+        md = md.replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**');
+        md = md.replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, '*$1*');
+        md = md.replace(/<i[^>]*>([\s\S]*?)<\/i>/gi, '*$1*');
+        md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (match, p1) => {
+            return p1.trim().split('\n').map(line => `> ${line.trim()}`).join('\n') + '\n\n';
+        });
+        md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)');
+        md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n');
+        md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n');
+        md = md.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1\n');
         md = md.replace(/<br\s*[\/]?>/gi, '\n');
         md = md.replace(/<[^>]+>/g, '');
+        // Decode common HTML entities
+        md = md.replace(/&nbsp;/gi, ' ')
+               .replace(/&amp;/gi, '&')
+               .replace(/&lt;/gi, '<')
+               .replace(/&gt;/gi, '>')
+               .replace(/&quot;/gi, '"')
+               .replace(/&#39;/gi, "'");
         md = md.replace(/\n{3,}/g, '\n\n');
         return md.trim();
     }
+    window.htmlToMarkdownSimple = htmlToMarkdownSimple;
+
+    function cleanMarkdownToPlainText(markdown) {
+        if (!markdown) return '';
+        return markdown
+            .replace(/^#+\s+/gim, '')
+            .replace(/\*\*([^\n]+?)\*\*/g, '$1')
+            .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+                return text === url ? url : `${text} (${url})`;
+            })
+            .replace(/<[^>]+>/g, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+    }
+    window.cleanMarkdownToPlainText = cleanMarkdownToPlainText;
 
     function extractYoutubeVideoId(url = '', html = '', doc = null) {
         // 1. Direct URL check
@@ -2615,6 +2642,21 @@
         }
     }
 
+    function formatContentIfPlain(content) {
+        if (!content) return '';
+        // If it already contains HTML block tags, keep it
+        if (/<(?:p|div|article|section|table|ul|ol|h[1-6]|br)\b/i.test(content)) {
+            return content;
+        }
+        if (content.includes('🤖') && typeof formatMarkdownToHtml === 'function') {
+            return formatMarkdownToHtml(content);
+        }
+        if (typeof formatDescription === 'function') {
+            return formatDescription(content);
+        }
+        return content.trim().split(/\n{2,}/).map(p => `<p>${p.trim().replace(/\n/g, '<br>')}</p>`).join('');
+    }
+
     // Reader Mode Controller
     async function openReaderModal(data) {
         closeAllModals();
@@ -2641,12 +2683,14 @@
             if (aiContent) aiContent.innerHTML = '';
         }
 
-        if (titleEl) titleEl.textContent = data.title || 'Untitled Article';
+        if (titleEl) titleEl.textContent = data.title || 'Untitled';
+
         if (bylineEl) {
             const metaParts = [];
             if (data.source) metaParts.push(escapeHtml(data.source));
             if (data.author) metaParts.push(escapeHtml(data.author));
-            const prefix = metaParts.length > 0 ? metaParts.join(' | ') + ' | ' : '';
+            if (data.date) metaParts.push(escapeHtml(new Date(data.date).toLocaleString()));
+            const prefix = metaParts.length ? metaParts.join(' &middot; ') + ' &middot; ' : '';
             if (data.url) {
                 bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="${window.i18n ? window.i18n.t('tooltip_open_browser') : 'Open original article in browser'}" data-i18n-title="tooltip_open_browser">${escapeHtml(data.url)}</a>`;
                 const origLink = document.getElementById('reader-original-link');
@@ -2657,24 +2701,26 @@
                     });
                 }
             } else {
-                bylineEl.textContent = prefix;
+                bylineEl.innerHTML = metaParts.join(' &middot; ');
             }
         }
-        
+
         if (thumbEl) {
             if (data.featuredImage) {
                 thumbEl.src = data.featuredImage;
                 thumbEl.classList.remove('hidden');
             } else {
+                thumbEl.src = '';
                 thumbEl.classList.add('hidden');
             }
         }
 
-        // Render video if known immediately from URL
+        // Render embedded video if present
         renderReaderVideoPlayer(currentReaderVideoId);
 
-        // Update toolbar action states (Favorite & Summary)
+        // Sync Favorites & Summary Cart buttons in reader toolbar
         const starBtn = document.getElementById('reader-star-btn');
+        const summaryBtn = document.getElementById('reader-summary-btn');
         if (starBtn && data.url) {
             chrome.storage.local.get('favoritedLinks').then(({ favoritedLinks = [] }) => {
                 const isFav = favoritedLinks.includes(data.url);
@@ -2684,8 +2730,6 @@
                 starBtn.setAttribute('data-i18n-title', isFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites');
             });
         }
-
-        const summaryBtn = document.getElementById('reader-summary-btn');
         if (summaryBtn && data.url) {
             chrome.storage.local.get('summaryLinks').then(({ summaryLinks = [] }) => {
                 const isSum = summaryLinks.includes(data.url);
@@ -2721,7 +2765,7 @@
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
             } else if (data.description && (data.description.includes('🤖') || data.description.includes('<h3>'))) {
-                bodyEl.innerHTML = data.description;
+                bodyEl.innerHTML = formatContentIfPlain(data.description);
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
             } else if (data.url && !data.url.includes('youtube.com')) {
@@ -2745,15 +2789,15 @@
                     }
                     const reader = new Readability(doc);
                     const article = reader.parse();
-                    bodyEl.innerHTML = article ? article.content : (data.description || '<p>Could not extract full text.</p>');
+                    bodyEl.innerHTML = article ? article.content : (formatContentIfPlain(data.description) || '<p>Could not extract full text.</p>');
                 } catch (e) {
-                    bodyEl.innerHTML = data.description || '<p>Failed to load full article content.</p>';
+                    bodyEl.innerHTML = formatContentIfPlain(data.description) || '<p>Failed to load full article content.</p>';
                 } finally {
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 }
             } else {
-                bodyEl.innerHTML = data.description || '';
+                bodyEl.innerHTML = formatContentIfPlain(data.description) || '';
                 if (loadingEl) loadingEl.classList.add('hidden');
                 if (contentEl) contentEl.classList.remove('hidden');
             }
@@ -2820,6 +2864,133 @@
     }
     window.triggerAnimatedButtonFeedback = triggerAnimatedButtonFeedback;
 
+    function formatArticleHtml(title, byline, bodyEl, md) {
+        let bodyHtml = bodyEl ? bodyEl.innerHTML : '';
+        if (!bodyHtml || (!bodyHtml.includes('<p') && !bodyHtml.includes('<div') && !bodyHtml.includes('<br'))) {
+            bodyHtml = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(md || '') : (bodyHtml || '');
+        }
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title || 'Article')}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      line-height: 1.6;
+      padding: 0 20px;
+      color: #24292e;
+      background-color: #ffffff;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      line-height: 1.25;
+      color: #1a1a1a;
+    }
+    .byline {
+      color: #6a737d;
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+      font-style: italic;
+    }
+    hr {
+      border: 0;
+      border-top: 1px solid #e1e4e8;
+      margin: 1.5rem 0;
+    }
+    a {
+      color: #0366d6;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 6px;
+    }
+    p {
+      margin-top: 0;
+      margin-bottom: 1rem;
+    }
+    blockquote {
+      border-left: 4px solid #dfe2e5;
+      color: #6a737d;
+      padding: 0 1rem;
+      margin: 0 0 1rem 0;
+    }
+    pre, code {
+      font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+      background-color: #f6f8fa;
+      border-radius: 3px;
+    }
+    pre {
+      padding: 16px;
+      overflow: auto;
+    }
+    .timeline-block {
+      line-height: 1.5;
+      background-color: #f8f9fa;
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin: 1rem 0;
+      font-family: SFMono-Regular, Consolas, monospace;
+      font-size: 0.95rem;
+    }
+    .article-body {
+      word-wrap: break-word;
+      word-break: break-word;
+    }
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1a1b1e;
+        color: #e6edf3;
+      }
+      h1 {
+        color: #ffffff;
+      }
+      .byline {
+        color: #8b949e;
+      }
+      hr {
+        border-top-color: #30363d;
+      }
+      a {
+        color: #58a6ff;
+      }
+      pre, code {
+        background-color: #21262d;
+        color: #e6edf3;
+      }
+      blockquote {
+        border-left-color: #30363d;
+        color: #8b949e;
+      }
+      .timeline-block {
+        background-color: #21262d;
+        color: #e6edf3;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title || 'Untitled')}</h1>
+  ${byline ? `<div class="byline">${escapeHtml(byline)}</div>` : ''}
+  <hr>
+  <div class="article-body">
+    ${bodyHtml}
+  </div>
+</body>
+</html>`;
+    }
+    window.formatArticleHtml = formatArticleHtml;
+
     // Setup Reader Toolbar Events
     function setupReaderToolbar() {
         // Copy Article
@@ -2827,18 +2998,20 @@
         if (copyBtn) {
             copyBtn.addEventListener('click', async () => {
                 if (!currentReaderArticle) return;
-                const format = document.getElementById('reader-export-format')?.value || 'txt';
+                const format = document.getElementById('reader-export-format')?.value || 'markdown';
                 const title = currentReaderArticle.title || 'Untitled';
                 const byline = document.getElementById('reader-byline')?.innerText || '';
                 const bodyEl = document.getElementById('reader-article-body');
                 let textToCopy = '';
 
+                const md = `# ${title}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+
                 if (format === 'markdown') {
-                    textToCopy = `# ${title}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+                    textToCopy = md;
                 } else if (format === 'html') {
-                    textToCopy = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title></head><body><h1>${escapeHtml(title)}</h1><p><em>${escapeHtml(byline)}</em></p><hr>${bodyEl?.innerHTML || ''}</body></html>`;
+                    textToCopy = formatArticleHtml(title, byline, bodyEl, md);
                 } else {
-                    textToCopy = `${title}\n\n${byline ? byline + '\n\n' : ''}${bodyEl?.innerText || ''}`;
+                    textToCopy = cleanMarkdownToPlainText(md);
                 }
 
                 try {
@@ -2858,23 +3031,24 @@
         if (saveBtn) {
             saveBtn.addEventListener('click', () => {
                 if (!currentReaderArticle) return;
-                const format = document.getElementById('reader-export-format')?.value || 'txt';
+                const format = document.getElementById('reader-export-format')?.value || 'markdown';
                 const title = (currentReaderArticle.title || 'article').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
                 const byline = document.getElementById('reader-byline')?.innerText || '';
                 const bodyEl = document.getElementById('reader-article-body');
 
+                const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
+
                 let filename = '';
                 if (format === 'markdown') {
                     filename = `${title}.md`;
-                    const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(bodyEl?.innerHTML || '')}`;
                     downloadTextFile(filename, md, 'text/markdown');
                 } else if (format === 'html') {
                     filename = `${title}.html`;
-                    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(currentReaderArticle.title || 'Untitled')}</title></head><body><h1>${escapeHtml(currentReaderArticle.title || 'Untitled')}</h1><p><em>${escapeHtml(byline)}</em></p><hr>${bodyEl?.innerHTML || ''}</body></html>`;
+                    const html = formatArticleHtml(currentReaderArticle.title || 'Untitled', byline, bodyEl, md);
                     downloadTextFile(filename, html, 'text/html');
                 } else {
                     filename = `${title}.txt`;
-                    const txt = `${currentReaderArticle.title || 'Untitled'}\n\n${byline ? byline + '\n\n' : ''}${bodyEl?.innerText || ''}`;
+                    const txt = cleanMarkdownToPlainText(md);
                     downloadTextFile(filename, txt, 'text/plain');
                 }
 
@@ -3130,12 +3304,7 @@
                 } else if (format === 'html') {
                     textToCopy = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(currentReaderAiMarkdown) : currentReaderAiMarkdown;
                 } else {
-                    textToCopy = currentReaderAiMarkdown
-                        .replace(/^#+\s+/gim, '')
-                        .replace(/\*\*([^\n]+?)\*\*/g, '$1')
-                        .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
-                        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-                        .replace(/<[^>]+>/g, "");
+                    textToCopy = cleanMarkdownToPlainText(currentReaderAiMarkdown);
                 }
 
                 try {
@@ -3183,12 +3352,7 @@
                     downloadTextFile(filename, html, 'text/html');
                 } else {
                     filename = `${baseTitle}.txt`;
-                    const txt = markdown
-                        .replace(/^#+\s+/gim, '')
-                        .replace(/\*\*([^\n]+?)\*\*/g, '$1')
-                        .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
-                        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-                        .replace(/<[^>]+>/g, "");
+                    const txt = cleanMarkdownToPlainText(markdown);
                     downloadTextFile(filename, txt, 'text/plain');
                 }
 
