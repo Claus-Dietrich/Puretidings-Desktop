@@ -168,8 +168,18 @@ jobs:
             sleep 10
           done
 
+          echo "Waiting 30 seconds for desktop asset streams to stabilize before attaching APK..."
+          sleep 30
+
           echo "Uploading PureTidings_aarch64.apk to GitHub Release $TAG_NAME..."
-          gh release upload "$TAG_NAME" build-artifacts/PureTidings_aarch64.apk --clobber
+          for attempt in {1..5}; do
+            if gh release upload "$TAG_NAME" build-artifacts/PureTidings_aarch64.apk --clobber; then
+              echo "APK upload succeeded on attempt $attempt."
+              break
+            fi
+            echo "Upload failed on attempt $attempt, retrying in 15 seconds..."
+            sleep 15
+          done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
