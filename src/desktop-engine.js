@@ -699,6 +699,9 @@
                 description: item.snippet || '',
                 content: item.content_html || item.content_text || item.snippet || '',
                 fullContentHtml: item.content_html || '',
+                fullContentHtmlText: item.content_html || '',
+                contentText: item.content_text || '',
+                content_text: item.content_text || '',
                 author: item.from || account.username,
                 feedTitle: account.name || account.username,
                 feedName: account.name || account.username,
@@ -3119,11 +3122,33 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     function htmlToMarkdownSimple(html) {
         if (!html) return '';
-        let md = html;
+        let cleanHtml = html;
+
+        try {
+            if (typeof DOMParser !== 'undefined') {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(cleanHtml, 'text/html');
+                const removeEls = doc.querySelectorAll('style, script, noscript, template, link, meta, xml, svg');
+                removeEls.forEach(el => el.remove());
+                cleanHtml = doc.body ? doc.body.innerHTML : doc.documentElement.innerHTML;
+            }
+        } catch (_) {}
+
+        let md = cleanHtml;
+        md = md.replace(/<!--[\s\S]*?-->/g, '');
+        md = md.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+        md = md.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+        md = md.replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '');
+        md = md.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '');
+        md = md.replace(/<xml\b[^>]*>[\s\S]*?<\/xml>/gi, '');
+        md = md.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, '');
+
         md = md.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '# $1\n\n');
         md = md.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '## $1\n\n');
         md = md.replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '### $1\n\n');
         md = md.replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, '#### $1\n\n');
+        md = md.replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, '##### $1\n\n');
+        md = md.replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, '###### $1\n\n');
         md = md.replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**');
         md = md.replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**');
         md = md.replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, '*$1*');
@@ -3131,19 +3156,46 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (match, p1) => {
             return p1.trim().split('\n').map(line => `> ${line.trim()}`).join('\n') + '\n\n';
         });
-        md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)');
+        md = md.replace(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (match, url, text) => {
+            const cleanText = text.replace(/<[^>]+>/g, '').trim();
+            return cleanText ? `[${cleanText}](${url})` : url;
+        });
+        md = md.replace(/<img[^>]*alt="([^"]*)"[^>]*src="([^"]*)"[^>]*>/gi, '![$1]($2)');
+        md = md.replace(/<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*>/gi, '![$2]($1)');
+        md = md.replace(/<img[^>]*src="([^"]*)"[^>]*>/gi, '![]($1)');
         md = md.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n');
         md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n\n');
         md = md.replace(/<div[^>]*>([\s\S]*?)<\/div>/gi, '$1\n');
+        md = md.replace(/<hr\s*[\/]?>/gi, '\n---\n\n');
         md = md.replace(/<br\s*[\/]?>/gi, '\n');
+
+        // Tables (convert rows to line breaks and cells to spaces)
+        md = md.replace(/<\/tr>/gi, '\n');
+        md = md.replace(/<\/(td|th)>/gi, '  ');
+
+        // Strip remaining HTML tags
         md = md.replace(/<[^>]+>/g, '');
-        // Decode common HTML entities
+
+        // Decode common and numeric HTML entities
         md = md.replace(/&nbsp;/gi, ' ')
                .replace(/&amp;/gi, '&')
                .replace(/&lt;/gi, '<')
                .replace(/&gt;/gi, '>')
                .replace(/&quot;/gi, '"')
-               .replace(/&#39;/gi, "'");
+               .replace(/&#39;/gi, "'")
+               .replace(/&ndash;/gi, '–')
+               .replace(/&mdash;/gi, '—')
+               .replace(/&hellip;/gi, '…')
+               .replace(/&#(\d+);/g, (m, dec) => {
+                   try { return String.fromCharCode(parseInt(dec, 10)); } catch(_) { return m; }
+               })
+               .replace(/&#x([0-9a-fA-F]+);/g, (m, hex) => {
+                   try { return String.fromCharCode(parseInt(hex, 16)); } catch(_) { return m; }
+               });
+
+        // Normalize whitespace and blank lines
+        const lines = md.split('\n').map(line => line.replace(/[ \t]+/g, ' ').trim());
+        md = lines.join('\n');
         md = md.replace(/\n{3,}/g, '\n\n');
         return md.trim();
     }
@@ -3245,9 +3297,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             .replace(/^#+\s+/gim, '')
             .replace(/\*\*([^\n]+?)\*\*/g, '$1')
             .replace(/(?<=^|\s)\*([^\n*]+?)\*(?=\s|$|[.,!?])/g, '$1')
+            .replace(/__([^\n_]+?)__/g, '$1')
+            .replace(/(?<=^|\s)_([^\n_]+?)_(?=\s|$|[.,!?])/g, '$1')
+            .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
             .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
                 return text === url ? url : `${text} (${url})`;
             })
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/^>\s*/gm, '')
             .replace(/<[^>]+>/g, '')
             .replace(/\n{3,}/g, '\n\n')
             .trim();
@@ -3916,9 +3973,37 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
     window.triggerAnimatedButtonFeedback = triggerAnimatedButtonFeedback;
 
-    function formatArticleHtml(title, byline, bodyEl, md) {
-        let bodyHtml = bodyEl ? bodyEl.innerHTML : '';
-        if (!bodyHtml || (!bodyHtml.includes('<p') && !bodyHtml.includes('<div') && !bodyHtml.includes('<br'))) {
+    function formatArticleHtml(title, byline, bodyElOrHtml, md) {
+        let bodyHtml = '';
+        if (typeof bodyElOrHtml === 'string') {
+            let str = bodyElOrHtml.trim();
+            if (/<html\b/i.test(str) || /<!doctype\b/i.test(str)) {
+                try {
+                    const p = new DOMParser();
+                    const d = p.parseFromString(str, 'text/html');
+                    const headStyles = Array.from(d.head.querySelectorAll('style')).map(s => s.outerHTML).join('\n');
+                    const bodyContent = d.body ? d.body.innerHTML : '';
+                    bodyHtml = (headStyles ? headStyles + '\n' : '') + bodyContent;
+                } catch (_) {
+                    bodyHtml = str;
+                }
+            } else {
+                bodyHtml = str;
+            }
+        } else if (bodyElOrHtml && bodyElOrHtml.nodeType) {
+            const iframe = bodyElOrHtml.querySelector('#reader-email-frame') || (bodyElOrHtml.id === 'reader-email-frame' ? bodyElOrHtml : null);
+            if (iframe) {
+                try {
+                    bodyHtml = iframe.contentDocument?.body?.innerHTML || '';
+                } catch (_) {}
+            }
+            if (!bodyHtml) {
+                bodyHtml = bodyElOrHtml.innerHTML || '';
+            }
+        }
+
+        const hasHtmlTags = /<[a-z][\s\S]*>/i.test(bodyHtml);
+        if (!bodyHtml || !hasHtmlTags) {
             bodyHtml = typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(md || '') : (bodyHtml || '');
         }
 
@@ -3926,12 +4011,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title || 'Article')}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      max-width: 800px;
+      max-width: 860px;
       margin: 40px auto;
       line-height: 1.6;
       padding: 0 20px;
@@ -3966,6 +4052,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
       max-width: 100%;
       height: auto;
       border-radius: 6px;
+    }
+    table {
+      border-collapse: collapse;
     }
     p {
       margin-top: 0;
@@ -4061,13 +4150,16 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 if (emailFrame) {
                     try { emailHtml = emailFrame.contentDocument?.body?.innerHTML || ''; } catch (_) {}
                 }
+                if (!emailHtml && currentReaderArticle && (currentReaderArticle.isEmail || (currentReaderArticle.url && currentReaderArticle.url.startsWith('imap:')))) {
+                    emailHtml = currentReaderArticle.fullContentHtmlText || currentReaderArticle.fullContentHtml || currentReaderArticle.content || '';
+                }
                 const activeHtml = emailHtml || bodyEl?.innerHTML || '';
                 const md = `# ${title}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(activeHtml)}`;
 
                 if (format === 'markdown') {
                     textToCopy = md;
                 } else if (format === 'html') {
-                    textToCopy = formatArticleHtml(title, byline, bodyEl, md);
+                    textToCopy = formatArticleHtml(title, byline, activeHtml || bodyEl, md);
                 } else {
                     textToCopy = cleanMarkdownToPlainText(md);
                 }
@@ -4099,6 +4191,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 if (emailFrame) {
                     try { emailHtml = emailFrame.contentDocument?.body?.innerHTML || ''; } catch (_) {}
                 }
+                if (!emailHtml && currentReaderArticle && (currentReaderArticle.isEmail || (currentReaderArticle.url && currentReaderArticle.url.startsWith('imap:')))) {
+                    emailHtml = currentReaderArticle.fullContentHtmlText || currentReaderArticle.fullContentHtml || currentReaderArticle.content || '';
+                }
                 const activeHtml = emailHtml || bodyEl?.innerHTML || '';
                 const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(activeHtml)}`;
 
@@ -4108,7 +4203,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     downloadTextFile(filename, md, 'text/markdown');
                 } else if (format === 'html') {
                     filename = `${title}.html`;
-                    const html = formatArticleHtml(currentReaderArticle.title || 'Untitled', byline, bodyEl, md);
+                    const html = formatArticleHtml(currentReaderArticle.title || 'Untitled', byline, activeHtml || bodyEl, md);
                     downloadTextFile(filename, html, 'text/html');
                 } else {
                     filename = `${title}.txt`;

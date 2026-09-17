@@ -1,6 +1,6 @@
 [package]
 name = "puretidings-desktop"
-version = "1.0.33"
+version = "1.0.34"
 description = "PureTidings Desktop RSS Reader"
 authors = ["PureTidings"]
 edition = "2021"
