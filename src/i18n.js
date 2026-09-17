@@ -199,8 +199,13 @@
             btn_create_backup_now: "⚡ Create Backup Now",
             btn_export_opml: "📤 Export OPML",
             btn_import_opml: "📥 Import OPML...",
+            btn_paste_opml: "📋 Paste OPML",
             btn_backup_json: "💾 Backup All Data (JSON)",
             btn_restore_json: "🔄 Restore Backup...",
+            btn_paste_json: "📋 Paste Backup",
+            text_restore_title: "📋 Paste Backup or OPML",
+            text_restore_desc: "Paste your JSON backup data or OPML XML text below:",
+            btn_restore_submit: "✓ Restore / Import",
 
             // Reader Mode
             reader_copy: "Copy",
@@ -428,8 +433,13 @@
             btn_create_backup_now: "⚡ Jetzt Backup erstellen",
             btn_export_opml: "📤 OPML exportieren",
             btn_import_opml: "📥 OPML importieren...",
+            btn_paste_opml: "📋 OPML einfügen",
             btn_backup_json: "💾 Alle Daten sichern (JSON)",
             btn_restore_json: "🔄 Backup wiederherstellen...",
+            btn_paste_json: "📋 Backup einfügen",
+            text_restore_title: "📋 Backup oder OPML einfügen",
+            text_restore_desc: "Fügen Sie Ihre JSON-Backup-Daten oder den OPML-XML-Text unten ein:",
+            btn_restore_submit: "✓ Jetzt einlesen / wiederherstellen",
 
             // Reader Mode
             reader_copy: "Kopieren",
@@ -657,8 +667,13 @@
             btn_create_backup_now: "⚡ Crear copia ahora",
             btn_export_opml: "📤 Exportar OPML",
             btn_import_opml: "📥 Importar OPML...",
+            btn_paste_opml: "📋 Pegar OPML",
             btn_backup_json: "💾 Guardar todos los datos (JSON)",
             btn_restore_json: "🔄 Restaurar copia...",
+            btn_paste_json: "📋 Pegar copia",
+            text_restore_title: "📋 Pegar copia o OPML",
+            text_restore_desc: "Pegue sus datos de copia de seguridad JSON o texto XML OPML a continuación:",
+            btn_restore_submit: "✓ Restaurar / Importar",
 
             // Reader Mode
             reader_copy: "Copiar",
@@ -886,8 +901,13 @@
             btn_create_backup_now: "⚡ Créer une sauvegarde maintenant",
             btn_export_opml: "📤 Exporter OPML",
             btn_import_opml: "📥 Importer OPML...",
+            btn_paste_opml: "📋 Coller OPML",
             btn_backup_json: "💾 Sauvegarder toutes les données (JSON)",
             btn_restore_json: "🔄 Restaurer la sauvegarde...",
+            btn_paste_json: "📋 Coller sauvegarde",
+            text_restore_title: "📋 Coller sauvegarde ou OPML",
+            text_restore_desc: "Collez vos données de sauvegarde JSON ou le texte XML OPML ci-dessous :",
+            btn_restore_submit: "✓ Restaurer / Importer",
 
             // Reader Mode
             reader_copy: "Copier",

@@ -2,6 +2,11 @@
 (function () {
     console.log("[PureTidings Desktop] Initializing Desktop Native Engine...");
 
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    if (isAndroid) {
+        document.documentElement.classList.add('is-android');
+    }
+
     // ==========================================
     // 1. Unified Tauri IPC Helper
     // ==========================================
@@ -5962,35 +5967,38 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             });
         }
 
-        // --- Dynamic File Picker Helpers (Uses native Windows/Linux file dialog with initial directory) ---
+        // --- Dynamic File Picker Helpers (Uses native Windows/Linux/macOS file dialog with fallback to HTML file input) ---
         async function openOpmlFilePicker() {
-            try {
-                const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
-                const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
-                const initialDir = sanitizeFolderPath(backupFolderPath || domPath);
-                const selectedPath = await tauriInvoke('pick_file', {
-                    defaultPath: initialDir || null,
-                    default_path: initialDir || null,
-                    filterName: 'OPML & XML Feeds',
-                    filter_name: 'OPML & XML Feeds',
-                    filterExt: '*.opml;*.xml',
-                    filter_ext: '*.opml;*.xml'
-                });
-                if (selectedPath && typeof selectedPath === 'string' && selectedPath.trim()) {
-                    await processOpmlFile(selectedPath.trim());
-                    return;
-                } else if (selectedPath === null || selectedPath === '') {
-                    // User cancelled the file picker dialog
-                    return;
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            if (!isMobile) {
+                try {
+                    const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                    const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                    const initialDir = sanitizeFolderPath(backupFolderPath || domPath);
+                    const selectedPath = await tauriInvoke('pick_file', {
+                        defaultPath: initialDir || null,
+                        default_path: initialDir || null,
+                        filterName: 'OPML & XML Feeds',
+                        filter_name: 'OPML & XML Feeds',
+                        filterExt: '*.opml;*.xml',
+                        filter_ext: '*.opml;*.xml'
+                    });
+                    if (selectedPath && typeof selectedPath === 'string' && selectedPath.trim()) {
+                        await processOpmlFile(selectedPath.trim());
+                        return;
+                    } else if (selectedPath === null || selectedPath === '') {
+                        // User explicitly cancelled the native desktop file picker dialog
+                        return;
+                    }
+                } catch (err) {
+                    console.warn("[PureTidings Desktop] Native file picker failed, falling back to HTML input:", err);
                 }
-            } catch (err) {
-                console.warn("[PureTidings Desktop] Native file picker failed, falling back to HTML input:", err);
             }
 
-            // Fallback to HTML input if native pick_file unavailable
+            // Fallback to HTML input if native pick_file is unavailable or on mobile
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.opml,.xml';
+            input.accept = '.opml,.xml,text/xml,application/xml';
             input.style.position = 'fixed';
             input.style.top = '-9999px';
             input.style.left = '-9999px';
@@ -6003,36 +6011,49 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             };
             document.body.appendChild(input);
             input.click();
+
+            // On mobile devices, offer immediate direct text paste fallback in case WebView file chooser is suppressed
+            if (isMobile) {
+                setTimeout(() => {
+                    const statusBox = document.getElementById('opml-status-box');
+                    if (statusBox && statusBox.style.display === 'none') {
+                        showStatusBadge('opml-status-box', 'loading', 'Tip: You can also tap "📋 Paste OPML" to import feeds directly from clipboard.', 5000);
+                    }
+                }, 1000);
+            }
         }
 
         async function openJsonFilePicker() {
-            try {
-                const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
-                const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
-                const initialDir = sanitizeFolderPath(backupFolderPath || domPath);
-                const selectedPath = await tauriInvoke('pick_file', {
-                    defaultPath: initialDir || null,
-                    default_path: initialDir || null,
-                    filterName: 'JSON Backup Files',
-                    filter_name: 'JSON Backup Files',
-                    filterExt: '*.json',
-                    filter_ext: '*.json'
-                });
-                if (selectedPath && typeof selectedPath === 'string' && selectedPath.trim()) {
-                    await processJsonFile(selectedPath.trim());
-                    return;
-                } else if (selectedPath === null || selectedPath === '') {
-                    // User cancelled the file picker dialog
-                    return;
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            if (!isMobile) {
+                try {
+                    const { backupFolderPath = '' } = await chrome.storage.sync.get('backupFolderPath');
+                    const domPath = document.getElementById('settings-backup-folder-path')?.value || '';
+                    const initialDir = sanitizeFolderPath(backupFolderPath || domPath);
+                    const selectedPath = await tauriInvoke('pick_file', {
+                        defaultPath: initialDir || null,
+                        default_path: initialDir || null,
+                        filterName: 'JSON Backup Files',
+                        filter_name: 'JSON Backup Files',
+                        filterExt: '*.json',
+                        filter_ext: '*.json'
+                    });
+                    if (selectedPath && typeof selectedPath === 'string' && selectedPath.trim()) {
+                        await processJsonFile(selectedPath.trim());
+                        return;
+                    } else if (selectedPath === null || selectedPath === '') {
+                        // User explicitly cancelled the native desktop file picker dialog
+                        return;
+                    }
+                } catch (err) {
+                    console.warn("[PureTidings Desktop] Native file picker failed, falling back to HTML input:", err);
                 }
-            } catch (err) {
-                console.warn("[PureTidings Desktop] Native file picker failed, falling back to HTML input:", err);
             }
 
-            // Fallback to HTML input if native pick_file unavailable
+            // Fallback to HTML input if native pick_file is unavailable or on mobile
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.json';
+            input.accept = '.json,application/json,text/json';
             input.style.position = 'fixed';
             input.style.top = '-9999px';
             input.style.left = '-9999px';
@@ -6045,6 +6066,74 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             };
             document.body.appendChild(input);
             input.click();
+
+            // On mobile devices, offer immediate direct text paste fallback in case WebView file chooser is suppressed
+            if (isMobile) {
+                setTimeout(() => {
+                    const statusBox = document.getElementById('backup-json-status-box');
+                    if (statusBox && statusBox.style.display === 'none') {
+                        showStatusBadge('backup-json-status-box', 'loading', 'Tip: You can also tap "📋 Paste Backup" to restore directly from clipboard.', 5000);
+                    }
+                }, 1000);
+            }
+        }
+
+        // --- Text / Clipboard Direct Restore Modal ---
+        function openTextRestoreModal(type = 'json') {
+            const modal = document.getElementById('text-restore-modal');
+            const titleEl = document.getElementById('text-restore-modal-title');
+            const descEl = document.getElementById('text-restore-modal-desc');
+            const inputEl = document.getElementById('text-restore-input');
+            const statusEl = document.getElementById('text-restore-status');
+            if (!modal) return;
+
+            modal.dataset.restoreType = type;
+            if (statusEl) {
+                statusEl.textContent = '';
+                statusEl.style.color = '';
+            }
+            if (inputEl) {
+                inputEl.value = '';
+            }
+
+            if (type === 'opml') {
+                if (titleEl) titleEl.textContent = (typeof i18n !== 'undefined' ? i18n.t('btn_paste_opml') : '📋 Paste OPML');
+                if (descEl) descEl.textContent = 'Paste your OPML or XML feed outline content below:';
+                if (inputEl) inputEl.placeholder = '<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>Feeds</title></head>\n  <body>\n    <outline xmlUrl="https://example.com/feed.xml" text="Example" />\n  </body>\n</opml>';
+            } else {
+                if (titleEl) titleEl.textContent = (typeof i18n !== 'undefined' ? i18n.t('btn_paste_json') : '📋 Paste Backup (JSON)');
+                if (descEl) descEl.textContent = (typeof i18n !== 'undefined' ? i18n.t('text_restore_desc') : 'Paste your JSON backup data below:');
+                if (inputEl) inputEl.placeholder = '{\n  "local": { "feedTree": [...] },\n  "sync": { "emailAccounts": [...] }\n}';
+            }
+
+            // Attempt to pre-fill from clipboard if available
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(clipText => {
+                    if (clipText && clipText.trim()) {
+                        const trimmed = clipText.trim();
+                        if (type === 'json' && (trimmed.startsWith('{') || trimmed.includes('"feedTree"'))) {
+                            if (inputEl) inputEl.value = trimmed;
+                            if (statusEl) {
+                                statusEl.textContent = '✓ Detected JSON backup in clipboard!';
+                                statusEl.style.color = '#28a745';
+                            }
+                        } else if (type === 'opml' && (trimmed.includes('<opml') || trimmed.includes('<outline'))) {
+                            if (inputEl) inputEl.value = trimmed;
+                            if (statusEl) {
+                                statusEl.textContent = '✓ Detected OPML data in clipboard!';
+                                statusEl.style.color = '#28a745';
+                            }
+                        }
+                    }
+                }).catch(() => {});
+            }
+
+            modal.style.display = 'flex';
+        }
+
+        function closeTextRestoreModal() {
+            const modal = document.getElementById('text-restore-modal');
+            if (modal) modal.style.display = 'none';
         }
 
         // --- Content Parsers & Handlers ---
@@ -6255,6 +6344,98 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (dropzoneJson) {
             dropzoneJson.addEventListener('click', openJsonFilePicker);
             setupFileDropZone(dropzoneJson, processJsonFile);
+        }
+
+        // --- Paste Buttons Triggers (Direct Clipboard / Text Ingestion) ---
+        const pasteOpmlBtn = document.getElementById('btn-paste-opml');
+        if (pasteOpmlBtn) {
+            pasteOpmlBtn.addEventListener('click', () => openTextRestoreModal('opml'));
+        }
+
+        const pasteJsonBtn = document.getElementById('btn-paste-json');
+        if (pasteJsonBtn) {
+            pasteJsonBtn.addEventListener('click', () => openTextRestoreModal('json'));
+        }
+
+        // --- Text Restore Modal Wiring ---
+        const textRestoreCloseBtn = document.getElementById('text-restore-modal-close');
+        const textRestoreCancelBtn = document.getElementById('text-restore-cancel-btn');
+        const textRestoreClearBtn = document.getElementById('text-restore-clear-btn');
+        const textRestoreClipBtn = document.getElementById('text-restore-paste-clip-btn');
+        const textRestoreSubmitBtn = document.getElementById('text-restore-submit-btn');
+        const textRestoreModal = document.getElementById('text-restore-modal');
+
+        if (textRestoreCloseBtn) textRestoreCloseBtn.addEventListener('click', closeTextRestoreModal);
+        if (textRestoreCancelBtn) textRestoreCancelBtn.addEventListener('click', closeTextRestoreModal);
+        if (textRestoreClearBtn) {
+            textRestoreClearBtn.addEventListener('click', () => {
+                const inputEl = document.getElementById('text-restore-input');
+                const statusEl = document.getElementById('text-restore-status');
+                if (inputEl) inputEl.value = '';
+                if (statusEl) {
+                    statusEl.textContent = '';
+                    statusEl.style.color = '';
+                }
+            });
+        }
+        if (textRestoreClipBtn) {
+            textRestoreClipBtn.addEventListener('click', async () => {
+                try {
+                    const text = await navigator.clipboard.readText();
+                    const inputEl = document.getElementById('text-restore-input');
+                    const statusEl = document.getElementById('text-restore-status');
+                    if (inputEl && text) {
+                        inputEl.value = text;
+                        if (statusEl) {
+                            statusEl.textContent = '✓ Pasted text from clipboard!';
+                            statusEl.style.color = '#28a745';
+                        }
+                    }
+                } catch (e) {
+                    const statusEl = document.getElementById('text-restore-status');
+                    if (statusEl) {
+                        statusEl.textContent = 'Notice: Could not access clipboard automatically. Please paste directly into the box.';
+                        statusEl.style.color = '#f39c12';
+                    }
+                }
+            });
+        }
+        if (textRestoreSubmitBtn) {
+            textRestoreSubmitBtn.addEventListener('click', async () => {
+                const inputEl = document.getElementById('text-restore-input');
+                const statusEl = document.getElementById('text-restore-status');
+                const val = (inputEl?.value || '').trim();
+                if (!val) {
+                    if (statusEl) {
+                        statusEl.textContent = '✗ Please enter or paste data before restoring.';
+                        statusEl.style.color = '#d93025';
+                    }
+                    return;
+                }
+                const modal = document.getElementById('text-restore-modal');
+                const type = modal?.dataset?.restoreType || 'json';
+
+                if (type === 'opml' || val.includes('<opml') || val.includes('<outline')) {
+                    if (statusEl) {
+                        statusEl.textContent = '⏳ Importing OPML...';
+                        statusEl.style.color = '#2196f3';
+                    }
+                    await importOpmlContent(val, 'Pasted OPML');
+                    closeTextRestoreModal();
+                } else {
+                    if (statusEl) {
+                        statusEl.textContent = '⏳ Restoring JSON backup...';
+                        statusEl.style.color = '#2196f3';
+                    }
+                    await restoreJsonContent(val, 'Pasted JSON');
+                    closeTextRestoreModal();
+                }
+            });
+        }
+        if (textRestoreModal) {
+            textRestoreModal.addEventListener('click', (e) => {
+                if (e.target === textRestoreModal) closeTextRestoreModal();
+            });
         }
 
         // Generous Backup Tab dropzone handler (if dropped outside the specific dashed box)

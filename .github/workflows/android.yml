@@ -71,6 +71,12 @@ jobs:
             npx tauri android init --ci
           fi
 
+      - name: Copy PureTidings Android Icons
+        run: |
+          echo "Copying PureTidings icons to Android res directory..."
+          mkdir -p src-tauri/gen/android/app/src/main/res
+          cp -r src-tauri/icons/android/* src-tauri/gen/android/app/src/main/res/
+
       - name: Generate Release Keystore and Signing Config
         run: |
           mkdir -p src-tauri/gen/android/app

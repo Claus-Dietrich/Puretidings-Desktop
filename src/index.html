@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>PureTidings</title>
   <link rel="icon" type="image/png" sizes="16x16" href="16.png">
   <link rel="icon" type="image/png" sizes="48x48" href="48.png">
@@ -45,7 +45,7 @@
       overflow: hidden;
       box-sizing: border-box;
     }
-    .main-content {
+    .page-layout > .main-content {
       flex: 1;
       height: 100%;
       display: flex;
@@ -53,6 +53,12 @@
       overflow: hidden;
       background-color: var(--bg-color);
       box-sizing: border-box;
+    }
+    .post-item .main-content {
+      height: auto !important;
+      min-height: 0 !important;
+      flex: 1 1 auto;
+      overflow: visible;
     }
     .main-header {
       flex-shrink: 0;
@@ -1100,12 +1106,13 @@
           <div class="backup-card">
             <h4 style="margin: 0 0 6px 0; font-size: 15px; display: flex; align-items: center; gap: 6px;">📁 Standard Feed Exchange (OPML 2.0)</h4>
             <p class="settings-description">Export your feeds or import an existing feed list from another RSS reader.</p>
-            <div style="display: flex; gap: 12px; margin-top: 10px;">
-              <button type="button" id="btn-export-opml" class="secondary-btn" style="flex: 1; padding: 10px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_export_opml">📤 Export OPML</button>
-              <button type="button" id="btn-import-opml" class="secondary-btn" style="flex: 1; padding: 10px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_import_opml">📥 Import OPML...</button>
+            <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+              <button type="button" id="btn-export-opml" class="secondary-btn" style="flex: 1; min-width: 125px; padding: 10px 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_export_opml">📤 Export OPML</button>
+              <button type="button" id="btn-import-opml" class="secondary-btn" style="flex: 1; min-width: 125px; padding: 10px 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_import_opml">📥 Import OPML...</button>
+              <button type="button" id="btn-paste-opml" class="secondary-btn" style="padding: 10px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Paste OPML XML from clipboard" data-i18n="btn_paste_opml">📋 Paste OPML</button>
             </div>
             <div id="dropzone-opml" class="backup-drop-zone">
-              📄 Click "Import OPML..." or drag & drop an <strong>.opml</strong> or <strong>.xml</strong> file here
+              📄 Click "Import OPML...", "Paste OPML", or drag & drop an <strong>.opml</strong> or <strong>.xml</strong> file
             </div>
             <div id="opml-status-box" style="display: none;"></div>
           </div>
@@ -1114,12 +1121,13 @@
           <div class="backup-card">
             <h4 style="margin: 0 0 6px 0; font-size: 15px; display: flex; align-items: center; gap: 6px;">💾 Full Application Backup (JSON)</h4>
             <p class="settings-description">Complete backup including all feeds, custom folders, favorites, read marks, rules, and AI settings.</p>
-            <div style="display: flex; gap: 12px; margin-top: 10px;">
-              <button type="button" id="btn-backup-json" class="secondary-btn" style="flex: 1; padding: 10px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_backup_json">💾 Backup All Data (JSON)</button>
-              <button type="button" id="btn-restore-json" class="secondary-btn" style="flex: 1; padding: 10px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_restore_json">🔄 Restore Backup...</button>
+            <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+              <button type="button" id="btn-backup-json" class="secondary-btn" style="flex: 1; min-width: 125px; padding: 10px 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_backup_json">💾 Backup All Data (JSON)</button>
+              <button type="button" id="btn-restore-json" class="secondary-btn" style="flex: 1; min-width: 125px; padding: 10px 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" data-i18n="btn_restore_json">🔄 Restore Backup...</button>
+              <button type="button" id="btn-paste-json" class="secondary-btn" style="padding: 10px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;" title="Paste JSON backup from clipboard" data-i18n="btn_paste_json">📋 Paste Backup</button>
             </div>
             <div id="dropzone-json" class="backup-drop-zone">
-              📦 Click "Restore Backup..." or drag & drop a <strong>.json</strong> backup file here
+              📦 Click "Restore Backup...", "Paste Backup", or drag & drop a <strong>.json</strong> backup file
             </div>
             <div id="backup-json-status-box" style="display: none;"></div>
           </div>
@@ -1132,7 +1140,7 @@
             <div>
               <h3 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 700;">PureTidings Desktop</h3>
               <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-color); opacity: 0.85;">
-                <span data-i18n="settings_about_version_label">Version</span>: <strong id="settings-about-version" style="color: var(--link-color); font-size: 14px;">1.0.36</strong>
+                <span data-i18n="settings_about_version_label">Version</span>: <strong id="settings-about-version" style="color: var(--link-color); font-size: 14px;">1.0.37</strong>
                 <span style="opacity: 0.4;">•</span>
                 <span style="font-size: 12px;">Standalone Local-First Workstation</span>
               </div>
@@ -1174,7 +1182,7 @@
       <!-- Settings Modal Footer -->
       <div class="settings-modal-footer">
         <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; margin-right: auto; user-select: none;">
-          <span style="opacity: 0.75; font-weight: 500;">PureTidings <strong id="settings-footer-version">v1.0.36</strong></span>
+          <span style="opacity: 0.75; font-weight: 500;">PureTidings <strong id="settings-footer-version">v1.0.37</strong></span>
           <span style="opacity: 0.35;">•</span>
           <a href="https://clausdietrich.com/impressum" target="_blank" style="color: var(--link-color); text-decoration: none; font-weight: 500;" data-i18n="settings_impressum_link">⚖️ Impressum</a>
           <span style="opacity: 0.35;">•</span>
@@ -1183,6 +1191,31 @@
         <span id="settings-status-banner" style="font-size: 13px; color: #28a745; font-weight: bold;"></span>
         <button id="settings-save-btn" style="padding: 9px 24px; margin-right: 18px; background: #28a745; color: white; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;" data-i18n="btn_save_settings">Save Settings</button>
         <div class="modal-resize-handle" title="Drag to resize width and height" data-i18n-title="tooltip_resize_handle">◢</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text / Clipboard Import Modal (for Mobile & Desktop direct paste) -->
+  <div id="text-restore-modal" class="desktop-modal-overlay" style="display: none; z-index: 2500;">
+    <div class="desktop-modal-card" style="max-width: 580px; width: 92%; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="settings-modal-header" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;">
+        <h3 id="text-restore-modal-title" style="margin: 0; font-size: 16px;" data-i18n="text_restore_title">📋 Paste Backup or OPML</h3>
+        <button id="text-restore-modal-close" class="modal-close-btn" style="position: static; font-size: 24px; cursor: pointer; border: none; background: transparent; color: var(--text-color); outline: none;">&times;</button>
+      </div>
+      <div style="padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;">
+        <p id="text-restore-modal-desc" style="margin: 0; font-size: 13px; color: var(--text-color); opacity: 0.85;" data-i18n="text_restore_desc">
+          Paste your JSON backup data or OPML XML text below:
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="text-restore-paste-clip-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px; display: flex; align-items: center; gap: 6px;">📋 Paste from Clipboard</button>
+          <button type="button" id="text-restore-clear-btn" class="secondary-btn" style="padding: 6px 12px; font-size: 13px;">Clear</button>
+        </div>
+        <textarea id="text-restore-input" style="width: 100%; height: 180px; min-height: 120px; font-family: monospace; font-size: 12px; padding: 10px; box-sizing: border-box; border-radius: 6px; border: 1px solid var(--border-color); background: var(--input-bg); color: var(--input-color); resize: vertical; user-select: text !important; -webkit-user-select: text !important;" placeholder='{"local":{...},"sync":{...}}'></textarea>
+        <div id="text-restore-status" style="font-size: 12px; min-height: 18px; font-weight: 500;"></div>
+      </div>
+      <div class="settings-modal-footer" style="padding: 12px 16px; display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" id="text-restore-cancel-btn" class="secondary-btn" style="padding: 8px 16px; font-size: 13px;">Cancel</button>
+        <button type="button" id="text-restore-submit-btn" style="padding: 8px 20px; background: #28a745; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px;" data-i18n="btn_restore_submit">✓ Restore / Import</button>
       </div>
     </div>
   </div>
