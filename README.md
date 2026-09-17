@@ -11,19 +11,20 @@
 - **BYOK Gemini AI Summaries:** Free AI-powered summaries of articles and YouTube videos (TL;DW) using your own Google Gemini API key.
 - **Draggable & Resizable Reader:** Free-floating Reader Mode with mouse resizing and persistent geometry.
 - **Automated Local Backups & OPML:** Full OPML 2.0 import/export and automated daily JSON backups to a dedicated local directory.
-- **Multi-Platform Native Packages:** Installers for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), and Linux (`.AppImage`, `.deb`, `.rpm`).
+- **Multi-Platform Native Packages:** Installers for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), Linux (`.AppImage`, `.deb`, `.rpm`), and Android (`.apk`).
 
 ---
 
-## 🛠️ Automated Cloud Releases (Windows, macOS & Linux)
+## 🛠️ Automated Cloud Releases (Windows, macOS, Linux & Android)
 
-The repository includes a GitHub Actions workflow in `.github/workflows/release.yml`.
+The repository includes GitHub Actions release workflows in `.github/workflows/`.
 
-Whenever a tag is pushed (e.g. `v1.0.0`) or triggered manually from GitHub's **Actions** tab:
+Whenever a tag is pushed (e.g. `v1.0.37`) or triggered manually from GitHub's **Actions** tab:
 1. **Windows Runner:** Automatically compiles the NSIS Setup `.exe` and `.msi`.
 2. **macOS Runner:** Automatically compiles universal Apple Silicon & Intel DMG (`.dmg`) and App bundle.
 3. **Linux Runner:** Automatically compiles portable `.AppImage`, `.deb`, and `.rpm` packages.
-4. **GitHub Release:** Publishes a release with all download files ready for users.
+4. **Android Runner:** Automatically compiles and signs the standalone 64-bit ARM APK (`PureTidings_aarch64.apk`).
+5. **GitHub Release:** Publishes a release with all 8 download assets ready for users.
 
 ### Triggering a Release via Git:
 ```bash
