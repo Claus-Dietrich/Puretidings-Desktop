@@ -32,8 +32,19 @@ jobs:
           fi
           echo "NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+          TOOLCHAIN="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "TOOLCHAIN=$TOOLCHAIN" >> $GITHUB_ENV
+          echo "$TOOLCHAIN/bin" >> $GITHUB_PATH
           echo "Using Android SDK at: $ANDROID_HOME"
           echo "Using Android NDK at: $NDK_PATH"
+          echo "Using Toolchain at: $TOOLCHAIN"
+
+          # Create symlinks for legacy toolchain names expected by OpenSSL and build scripts
+          for arch in aarch64-linux-android arm-linux-androideabi armv7-linux-androideabi x86_64-linux-android i686-linux-android; do
+            for tool in ar as nm objcopy objdump ranlib readelf strip; do
+              sudo ln -sf llvm-$tool "$TOOLCHAIN/bin/${arch}-${tool}" 2>/dev/null || true
+            done
+          done
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -60,11 +71,37 @@ jobs:
             npx tauri android init --ci
           fi
 
+      - name: Generate Release Keystore and Signing Config
+        run: |
+          mkdir -p src-tauri/gen/android/app
+          keytool -genkeypair -v \
+            -keystore src-tauri/gen/android/release.keystore \
+            -alias puretidings \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass puretidings123 \
+            -keypass puretidings123 \
+            -dname "CN=PureTidings, OU=Mobile, O=PureTidings, L=Berlin, S=Berlin, C=DE"
+
+          cp src-tauri/gen/android/release.keystore src-tauri/gen/android/app/release.keystore
+
+          cat <<EOF > src-tauri/gen/android/keystore.properties
+          password=puretidings123
+          keyAlias=puretidings
+          storeFile=release.keystore
+          EOF
+
       - name: Build Android APK (Release)
         run: |
           export ANDROID_HOME=$ANDROID_HOME
           export NDK_HOME=$(find $ANDROID_HOME/ndk -maxdepth 1 -mindepth 1 2>/dev/null | sort -V | tail -n 1)
-          echo "Using NDK at: $NDK_HOME"
+          export TOOLCHAIN=$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export PATH=$TOOLCHAIN/bin:$PATH
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB=$TOOLCHAIN/bin/llvm-ranlib
+          export AR_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ar
+          export RANLIB_aarch64_linux_android=$TOOLCHAIN/bin/llvm-ranlib
           npx tauri android build --apk --target aarch64
         env:
           AWS_LC_SYS_PREBUILT_NASM: "1"
@@ -72,11 +109,29 @@ jobs:
       - name: Locate and Prepare APK
         run: |
           mkdir -p build-artifacts
-          find src-tauri/gen/android -name "*release*.apk" -o -name "*unsigned*.apk" -o -name "*.apk" | head -n 5
-          for apk in $(find src-tauri/gen/android -name "*.apk"); do
-            cp "$apk" build-artifacts/PureTidings_aarch64.apk
-            break
-          done
+          echo "Searching for generated APKs..."
+          find src-tauri/gen/android -name "*.apk" -ls
+
+          APK_FILE=$(find src-tauri/gen/android -name "*release*.apk" -o -name "*unsigned*.apk" -o -name "*.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            echo "Found APK: $APK_FILE"
+            cp "$APK_FILE" build-artifacts/PureTidings_aarch64.apk
+
+            # Verify or apply APK signature using apksigner
+            APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$APKSIGNER" ]; then
+              echo "Using apksigner at: $APKSIGNER"
+              if ! "$APKSIGNER" verify build-artifacts/PureTidings_aarch64.apk 2>/dev/null; then
+                echo "Signing APK with apksigner..."
+                "$APKSIGNER" sign --ks src-tauri/gen/android/release.keystore --ks-pass pass:puretidings123 --ks-key-alias puretidings build-artifacts/PureTidings_aarch64.apk
+              fi
+              echo "Verifying final APK signature..."
+              "$APKSIGNER" verify -v build-artifacts/PureTidings_aarch64.apk
+            fi
+          else
+            echo "ERROR: No APK found!"
+            exit 1
+          fi
           ls -la build-artifacts/
 
       - name: Upload Android APK Artifact
@@ -86,9 +141,10 @@ jobs:
           path: build-artifacts/*.apk
 
       - name: Attach APK to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.35' }}
           files: build-artifacts/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
