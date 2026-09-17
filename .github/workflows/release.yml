@@ -18,6 +18,8 @@ jobs:
             args: ''
           - platform: 'ubuntu-22.04'
             args: ''
+          - platform: 'macos-latest'
+            args: '--target universal-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -38,6 +40,10 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add macOS Universal Targets
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -54,7 +60,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'PureTidings Desktop v__VERSION__'
-          releaseBody: 'See the assets to download PureTidings Desktop for Windows (.exe / .msi) and Linux (.AppImage / .deb).'
+          releaseBody: 'See the assets to download PureTidings Desktop for Windows (.exe / .msi), Linux (.AppImage / .deb / .rpm), and macOS (.dmg / .app universal binary).'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

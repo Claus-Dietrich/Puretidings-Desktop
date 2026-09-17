@@ -98,6 +98,13 @@ fn open_browser(url: String) -> Result<(), String> {
             .spawn()
             .map_err(|e| e.to_string())?;
     }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -154,7 +161,7 @@ fn pick_folder(default_path: Option<String>) -> Result<Option<String>, String> {
             Ok(Some(res))
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         let _ = default_path;
         let output = std::process::Command::new("zenity")
@@ -166,6 +173,34 @@ fn pick_folder(default_path: Option<String>) -> Result<Option<String>, String> {
                 return Ok(Some(res));
             }
         }
+        Ok(None)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let default_clause = if let Some(ref def) = default_path {
+            let clean = def.trim().replace('"', "\\\"");
+            format!("default location POSIX file \"{}\"", clean)
+        } else {
+            String::new()
+        };
+        let script = format!(
+            "try\nset f to choose folder with prompt \"PureTidings - Select Backup Folder\" {}\nPOSIX path of f\non error\n\"\"\nend try",
+            default_clause
+        );
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| format!("Failed to run macOS folder picker: {}", e))?;
+        let res = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if res.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(res))
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = default_path;
         Ok(None)
     }
 }
@@ -213,7 +248,7 @@ fn pick_file(default_path: Option<String>, filter_name: Option<String>, filter_e
             Ok(Some(res))
         }
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
     {
         let _ = (&filter_name, &filter_ext);
         let mut cmd = std::process::Command::new("zenity");
@@ -228,6 +263,35 @@ fn pick_file(default_path: Option<String>, filter_name: Option<String>, filter_e
                 return Ok(Some(res));
             }
         }
+        Ok(None)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (&filter_name, &filter_ext);
+        let default_clause = if let Some(ref def) = default_path {
+            let clean = def.trim().replace('"', "\\\"");
+            format!("default location POSIX file \"{}\"", clean)
+        } else {
+            String::new()
+        };
+        let script = format!(
+            "try\nset f to choose file with prompt \"PureTidings - Select Backup File\" {}\nPOSIX path of f\non error\n\"\"\nend try",
+            default_clause
+        );
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| format!("Failed to run macOS file picker: {}", e))?;
+        let res = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if res.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(res))
+        }
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (default_path, filter_name, filter_ext);
         Ok(None)
     }
 }
@@ -322,6 +386,22 @@ fn show_native_notification(title: String, message: String) -> Result<(), String
         let _ = std::process::Command::new("notify-send")
             .args(["--icon", icon_png_path.to_string_lossy().as_ref(), &title, &message])
             .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let clean_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+        let clean_msg = message.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "display notification \"{}\" with title \"{}\"",
+            clean_msg, clean_title
+        );
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .spawn();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (&title, &message);
     }
     Ok(())
 }
