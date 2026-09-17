@@ -142,9 +142,28 @@ jobs:
 
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.35' }}
-          files: build-artifacts/*.apk
+        run: |
+          TAG_NAME="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}"
+          if [ -z "$TAG_NAME" ]; then
+            APP_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+            TAG_NAME="v$APP_VER"
+          fi
+          echo "Target release tag: $TAG_NAME"
+
+          echo "Waiting for Desktop release $TAG_NAME to be published..."
+          for i in {1..60}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/tags/$TAG_NAME")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Published release $TAG_NAME is available!"
+              break
+            fi
+            echo "Release not published yet (status $HTTP_STATUS, attempt $i/60). Waiting 10 seconds..."
+            sleep 10
+          done
+
+          echo "Uploading PureTidings_aarch64.apk to GitHub Release $TAG_NAME..."
+          gh release upload "$TAG_NAME" build-artifacts/PureTidings_aarch64.apk --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
