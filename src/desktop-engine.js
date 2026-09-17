@@ -192,91 +192,239 @@
         }
     ];
 
-    function getLocalItem(key, fallback = null) {
-        try {
-            const val = localStorage.getItem('pt_local_' + key);
-            return val !== null ? JSON.parse(val) : fallback;
-        } catch (e) {
-            return fallback;
+    // =========================================================================
+    // IndexedDB Unlimited Desktop Storage Engine
+    // Eliminates 5MB Chromium/WebView2 localStorage quota limits.
+    // Automatically migrates existing localStorage data into IndexedDB on first run.
+    // In-memory key-value cache for instant synchronous access.
+    // =========================================================================
+    const memLocal = {};
+    const memSync = {};
+    const storageListeners = [];
+
+    // Populate initial memory cache from localStorage for instant synchronous startup
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k) continue;
+            if (k.startsWith('pt_local_') || k.startsWith('puretidings_local_')) {
+                const shortKey = k.replace('puretidings_local_', '').replace('pt_local_', '');
+                try {
+                    memLocal[shortKey] = JSON.parse(localStorage.getItem(k));
+                } catch (_) {}
+            } else if (k.startsWith('pt_sync_')) {
+                const shortKey = k.replace('pt_sync_', '');
+                try {
+                    memSync[shortKey] = JSON.parse(localStorage.getItem(k));
+                } catch (_) {}
+            }
         }
+    } catch (_) {}
+
+    // Seed defaults in memory if fresh install
+    if (!memLocal.feedTree) {
+        memLocal.feedTree = DEFAULT_FEED_TREE;
+        memLocal.allPosts = {};
+        memLocal.unreadCounts = {};
+        memLocal.readLinks = [];
+        memLocal.favoritedLinks = [];
+        memLocal.summaryLinks = [];
+    }
+    if (memSync.darkMode === undefined) memSync.darkMode = true;
+    if (memSync.rules === undefined) memSync.rules = [];
+    if (memSync.checkInterval === undefined) memSync.checkInterval = 30;
+    if (memSync.randomizeFetch === undefined) memSync.randomizeFetch = false;
+    if (memSync.showNotification === undefined) memSync.showNotification = true;
+    if (memSync.showSummaryNotification === undefined) memSync.showSummaryNotification = false;
+    if (memSync.summaryInterval === undefined) memSync.summaryInterval = 60;
+    if (!memSync.fetchSchedule) {
+        const defSchedule = {};
+        for (let d = 0; d < 7; d++) defSchedule[d] = { active: true, from: '00:00', to: '23:59' };
+        memSync.fetchSchedule = defSchedule;
+    }
+    if (!memSync.emailAccounts) {
+        memSync.emailAccounts = [];
+    }
+
+    const DB_NAME = 'PureTidingsDB';
+    const DB_VERSION = 1;
+    let dbInstance = null;
+    let dbInitPromise = null;
+
+    function openDatabase() {
+        if (dbInitPromise) return dbInitPromise;
+        dbInitPromise = new Promise((resolve) => {
+            if (typeof indexedDB === 'undefined') {
+                console.warn('[PureTidings Storage] IndexedDB is not supported in this environment, falling back to memory.');
+                resolve(null);
+                return;
+            }
+            try {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains('local')) {
+                        db.createObjectStore('local');
+                    }
+                    if (!db.objectStoreNames.contains('sync')) {
+                        db.createObjectStore('sync');
+                    }
+                };
+                request.onsuccess = async (e) => {
+                    dbInstance = e.target.result;
+                    try {
+                        await syncDatabaseWithMemory(dbInstance);
+                    } catch (syncErr) {
+                        console.warn('[PureTidings Storage] Database sync error:', syncErr);
+                    }
+                    resolve(dbInstance);
+                };
+                request.onerror = (e) => {
+                    console.error('[PureTidings Storage] Failed to open IndexedDB:', e.target.error);
+                    resolve(null);
+                };
+            } catch (err) {
+                console.error('[PureTidings Storage] Exception opening IndexedDB:', err);
+                resolve(null);
+            }
+        });
+        return dbInitPromise;
+    }
+
+    function getAllStoreEntries(db, storeName) {
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(storeName, 'readonly');
+                const store = tx.objectStore(storeName);
+                const req = store.openCursor();
+                const result = {};
+                req.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                        result[cursor.key] = cursor.value;
+                        cursor.continue();
+                    } else {
+                        resolve(result);
+                    }
+                };
+                req.onerror = () => resolve({});
+            } catch (_) {
+                resolve({});
+            }
+        });
+    }
+
+    async function syncDatabaseWithMemory(db) {
+        if (!db) return;
+        const [idbLocal, idbSync] = await Promise.all([
+            getAllStoreEntries(db, 'local'),
+            getAllStoreEntries(db, 'sync')
+        ]);
+
+        const hasIdbLocal = Object.keys(idbLocal).length > 0;
+        const hasIdbSync = Object.keys(idbSync).length > 0;
+
+        if (!hasIdbLocal && !hasIdbSync) {
+            // First run migration: migrate everything from memLocal & memSync into IndexedDB
+            console.log('[PureTidings Storage] Performing initial migration of data to IndexedDB...');
+            const tx = db.transaction(['local', 'sync'], 'readwrite');
+            const localStore = tx.objectStore('local');
+            const syncStore = tx.objectStore('sync');
+            for (const k in memLocal) {
+                localStore.put(memLocal[k], k);
+            }
+            for (const k in memSync) {
+                syncStore.put(memSync[k], k);
+            }
+            await new Promise(r => {
+                tx.oncomplete = r;
+                tx.onerror = r;
+            });
+            console.log('[PureTidings Storage] Migration to IndexedDB completed successfully.');
+        } else {
+            // IndexedDB already contains data: merge/load into memory
+            for (const k in idbLocal) {
+                memLocal[k] = idbLocal[k];
+            }
+            for (const k in idbSync) {
+                memSync[k] = idbSync[k];
+            }
+        }
+
+        // Clean up pt_local_allPosts from localStorage to permanently free up the 5MB quota
+        try {
+            localStorage.removeItem('pt_local_allPosts');
+            localStorage.removeItem('puretidings_local_allPosts');
+        } catch (_) {}
+    }
+
+    // Start loading IndexedDB immediately in background
+    openDatabase();
+
+    function getLocalItem(key, fallback = null) {
+        if (key in memLocal && memLocal[key] !== null && memLocal[key] !== undefined) {
+            return memLocal[key];
+        }
+        return fallback;
     }
 
     function setLocalItem(key, val) {
-        try {
-            localStorage.setItem('pt_local_' + key, JSON.stringify(val));
-        } catch (e) {
-            console.error("Storage error:", e);
+        memLocal[key] = val;
+        openDatabase().then(db => {
+            if (!db) return;
+            try {
+                const tx = db.transaction('local', 'readwrite');
+                tx.objectStore('local').put(val, key);
+            } catch (e) {
+                console.error(`[PureTidings Storage] IndexedDB put local error for ${key}:`, e);
+            }
+        });
+        if (key !== 'allPosts') {
+            try {
+                localStorage.setItem('pt_local_' + key, JSON.stringify(val));
+            } catch (_) {}
         }
     }
 
     function getSyncItem(key, fallback = null) {
-        try {
-            const val = localStorage.getItem('pt_sync_' + key);
-            return val !== null ? JSON.parse(val) : fallback;
-        } catch (e) {
-            return fallback;
+        if (key in memSync && memSync[key] !== null && memSync[key] !== undefined) {
+            return memSync[key];
         }
+        return fallback;
     }
 
     function setSyncItem(key, val) {
+        memSync[key] = val;
+        openDatabase().then(db => {
+            if (!db) return;
+            try {
+                const tx = db.transaction('sync', 'readwrite');
+                tx.objectStore('sync').put(val, key);
+            } catch (e) {
+                console.error(`[PureTidings Storage] IndexedDB put sync error for ${key}:`, e);
+            }
+        });
         try {
             localStorage.setItem('pt_sync_' + key, JSON.stringify(val));
-        } catch (e) {
-            console.error("Sync storage error:", e);
-        }
+        } catch (_) {}
     }
-
-    // Seed defaults if fresh
-    if (getLocalItem('feedTree') === null) {
-        setLocalItem('feedTree', DEFAULT_FEED_TREE);
-        setLocalItem('allPosts', {});
-        setLocalItem('unreadCounts', {});
-        setLocalItem('readLinks', []);
-        setLocalItem('favoritedLinks', []);
-        setLocalItem('summaryLinks', []);
-        setSyncItem('darkMode', true);
-        setSyncItem('rules', []);
-        setSyncItem('checkInterval', 30);
-        setSyncItem('randomizeFetch', false);
-        setSyncItem('showNotification', true);
-        setSyncItem('showSummaryNotification', false);
-        setSyncItem('summaryInterval', 60);
-        const defSchedule = {};
-        for (let d = 0; d < 7; d++) defSchedule[d] = { active: true, from: '00:00', to: '23:59' };
-        setSyncItem('fetchSchedule', defSchedule);
-    }
-    if (getSyncItem('checkInterval') === null) setSyncItem('checkInterval', 30);
-    if (getSyncItem('showNotification') === null) setSyncItem('showNotification', true);
-    if (getSyncItem('fetchSchedule') === null) {
-        const defSchedule = {};
-        for (let d = 0; d < 7; d++) defSchedule[d] = { active: true, from: '00:00', to: '23:59' };
-        setSyncItem('fetchSchedule', defSchedule);
-    }
-    if (getSyncItem('emailAccounts') === null) {
-        setSyncItem('emailAccounts', []);
-    }
-
-    const storageListeners = [];
 
     window.chrome = {
         storage: {
             local: {
                 get: function (keys, callback) {
-                    return new Promise((resolve) => {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
                         const res = {};
                         if (keys === null) {
-                            for (let i = 0; i < localStorage.length; i++) {
-                                const fullKey = localStorage.key(i);
-                                if (fullKey && (fullKey.startsWith('pt_local_') || fullKey.startsWith('puretidings_local_'))) {
-                                    const shortKey = fullKey.replace('puretidings_local_', '').replace('pt_local_', '');
-                                    res[shortKey] = getLocalItem(shortKey);
-                                }
+                            for (const k in memLocal) {
+                                res[k] = memLocal[k];
                             }
                         } else {
                             const isObj = keys && typeof keys === 'object' && !Array.isArray(keys);
                             const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
                             keyList.forEach(k => {
-                                const val = getLocalItem(k);
+                                const val = memLocal[k];
                                 if (val !== null && val !== undefined) {
                                     res[k] = val;
                                 } else if (isObj && k in keys) {
@@ -289,14 +437,95 @@
                     });
                 },
                 set: function (items, callback) {
-                    return new Promise((resolve) => {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
                         const changes = {};
-                        for (const k in items) {
-                            const oldVal = getLocalItem(k);
-                            setLocalItem(k, items[k]);
-                            changes[k] = { oldValue: oldVal, newValue: items[k] };
+                        const db = await openDatabase();
+                        let tx = null;
+                        if (db) {
+                            try {
+                                tx = db.transaction('local', 'readwrite');
+                            } catch (e) {
+                                console.error('[PureTidings Storage] Transaction error in local.set:', e);
+                            }
                         }
-                        storageListeners.forEach(fn => fn(changes, 'local'));
+                        const store = tx ? tx.objectStore('local') : null;
+
+                        for (const k in items) {
+                            const oldVal = memLocal[k];
+                            memLocal[k] = items[k];
+                            changes[k] = { oldValue: oldVal, newValue: items[k] };
+                            if (store) {
+                                try {
+                                    store.put(items[k], k);
+                                } catch (e) {
+                                    console.error(`[PureTidings Storage] Error putting ${k} to IndexedDB:`, e);
+                                }
+                            }
+                            if (k !== 'allPosts') {
+                                try {
+                                    localStorage.setItem('pt_local_' + k, JSON.stringify(items[k]));
+                                } catch (_) {}
+                            }
+                        }
+                        storageListeners.forEach(fn => {
+                            try { fn(changes, 'local'); } catch (err) { console.error(err); }
+                        });
+                        if (typeof callback === 'function') callback();
+                        resolve();
+                    });
+                },
+                remove: function (keys, callback) {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
+                        const keyList = Array.isArray(keys) ? keys : [keys];
+                        const db = await openDatabase();
+                        let tx = null;
+                        if (db) {
+                            try {
+                                tx = db.transaction('local', 'readwrite');
+                            } catch (e) {
+                                console.error('[PureTidings Storage] Transaction error in local.remove:', e);
+                            }
+                        }
+                        const store = tx ? tx.objectStore('local') : null;
+                        const changes = {};
+
+                        keyList.forEach(k => {
+                            const oldVal = memLocal[k];
+                            delete memLocal[k];
+                            changes[k] = { oldValue: oldVal, newValue: undefined };
+                            if (store) {
+                                try { store.delete(k); } catch (_) {}
+                            }
+                            try { localStorage.removeItem('pt_local_' + k); } catch (_) {}
+                        });
+                        storageListeners.forEach(fn => {
+                            try { fn(changes, 'local'); } catch (err) { console.error(err); }
+                        });
+                        if (typeof callback === 'function') callback();
+                        resolve();
+                    });
+                },
+                clear: function (callback) {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
+                        const db = await openDatabase();
+                        if (db) {
+                            try {
+                                const tx = db.transaction('local', 'readwrite');
+                                tx.objectStore('local').clear();
+                            } catch (_) {}
+                        }
+                        for (const k in memLocal) delete memLocal[k];
+                        try {
+                            for (let i = localStorage.length - 1; i >= 0; i--) {
+                                const k = localStorage.key(i);
+                                if (k && (k.startsWith('pt_local_') || k.startsWith('puretidings_local_'))) {
+                                    localStorage.removeItem(k);
+                                }
+                            }
+                        } catch (_) {}
                         if (typeof callback === 'function') callback();
                         resolve();
                     });
@@ -304,21 +533,18 @@
             },
             sync: {
                 get: function (keys, callback) {
-                    return new Promise((resolve) => {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
                         const res = {};
                         if (keys === null) {
-                            for (let i = 0; i < localStorage.length; i++) {
-                                const fullKey = localStorage.key(i);
-                                if (fullKey && fullKey.startsWith('pt_sync_')) {
-                                    const shortKey = fullKey.replace('pt_sync_', '');
-                                    res[shortKey] = getSyncItem(shortKey);
-                                }
+                            for (const k in memSync) {
+                                res[k] = memSync[k];
                             }
                         } else {
                             const isObj = keys && typeof keys === 'object' && !Array.isArray(keys);
                             const keyList = Array.isArray(keys) ? keys : (typeof keys === 'string' ? [keys] : Object.keys(keys || {}));
                             keyList.forEach(k => {
-                                const val = getSyncItem(k);
+                                const val = memSync[k];
                                 if (val !== null && val !== undefined) {
                                     res[k] = val;
                                 } else if (isObj && k in keys) {
@@ -331,17 +557,94 @@
                     });
                 },
                 set: function (items, callback) {
-                    return new Promise((resolve) => {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
                         const changes = {};
+                        const db = await openDatabase();
+                        let tx = null;
+                        if (db) {
+                            try {
+                                tx = db.transaction('sync', 'readwrite');
+                            } catch (e) {
+                                console.error('[PureTidings Storage] Transaction error in sync.set:', e);
+                            }
+                        }
+                        const store = tx ? tx.objectStore('sync') : null;
+
                         for (const k in items) {
-                            const oldVal = getSyncItem(k);
-                            setSyncItem(k, items[k]);
+                            const oldVal = memSync[k];
+                            memSync[k] = items[k];
                             changes[k] = { oldValue: oldVal, newValue: items[k] };
+                            if (store) {
+                                try {
+                                    store.put(items[k], k);
+                                } catch (e) {
+                                    console.error(`[PureTidings Storage] Error putting sync key ${k} to IndexedDB:`, e);
+                                }
+                            }
+                            try {
+                                localStorage.setItem('pt_sync_' + k, JSON.stringify(items[k]));
+                            } catch (_) {}
                             if (k === 'darkMode') {
                                 applyDesktopTheme(items[k]);
                             }
                         }
-                        storageListeners.forEach(fn => fn(changes, 'sync'));
+                        storageListeners.forEach(fn => {
+                            try { fn(changes, 'sync'); } catch (err) { console.error(err); }
+                        });
+                        if (typeof callback === 'function') callback();
+                        resolve();
+                    });
+                },
+                remove: function (keys, callback) {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
+                        const keyList = Array.isArray(keys) ? keys : [keys];
+                        const db = await openDatabase();
+                        let tx = null;
+                        if (db) {
+                            try {
+                                tx = db.transaction('sync', 'readwrite');
+                            } catch (_) {}
+                        }
+                        const store = tx ? tx.objectStore('sync') : null;
+                        const changes = {};
+
+                        keyList.forEach(k => {
+                            const oldVal = memSync[k];
+                            delete memSync[k];
+                            changes[k] = { oldValue: oldVal, newValue: undefined };
+                            if (store) {
+                                try { store.delete(k); } catch (_) {}
+                            }
+                            try { localStorage.removeItem('pt_sync_' + k); } catch (_) {}
+                        });
+                        storageListeners.forEach(fn => {
+                            try { fn(changes, 'sync'); } catch (err) { console.error(err); }
+                        });
+                        if (typeof callback === 'function') callback();
+                        resolve();
+                    });
+                },
+                clear: function (callback) {
+                    return new Promise(async (resolve) => {
+                        await openDatabase();
+                        const db = await openDatabase();
+                        if (db) {
+                            try {
+                                const tx = db.transaction('sync', 'readwrite');
+                                tx.objectStore('sync').clear();
+                            } catch (_) {}
+                        }
+                        for (const k in memSync) delete memSync[k];
+                        try {
+                            for (let i = localStorage.length - 1; i >= 0; i--) {
+                                const k = localStorage.key(i);
+                                if (k && k.startsWith('pt_sync_')) {
+                                    localStorage.removeItem(k);
+                                }
+                            }
+                        } catch (_) {}
                         if (typeof callback === 'function') callback();
                         resolve();
                     });
@@ -4844,6 +5147,26 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Synchronize any configured email accounts to the feed tree
         syncEmailAccountsToFeedTree();
+
+        // Auto-recover any email inboxes that have unread counts but missing articles due to previous storage quota errors
+        setTimeout(async () => {
+            try {
+                const { allPosts = {}, unreadCounts = {} } = await chrome.storage.local.get(['allPosts', 'unreadCounts']);
+                const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+                const activeEmailAccounts = emailAccounts.filter(a => a && a.enabled !== false);
+                for (const account of activeEmailAccounts) {
+                    const feedId = 'email_' + account.id;
+                    const posts = allPosts[feedId];
+                    const count = unreadCounts[feedId] || 0;
+                    if (count > 0 && (!posts || posts.length === 0)) {
+                        console.log(`[PureTidings Desktop] Auto-recovering missing articles for email account: ${account.name || account.username} (${feedId})`);
+                        refreshSingleFeedNative(feedId);
+                    }
+                }
+            } catch (recoveryErr) {
+                console.warn('[PureTidings Desktop] Auto-recovery check error:', recoveryErr);
+            }
+        }, 1500);
 
         // Sidebar actions
         const themeBtn = document.getElementById('theme-toggle-btn');

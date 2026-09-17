@@ -570,6 +570,8 @@ main {
 .tree-node-title {
   font-size: 18px;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
 }
 
 .unread-count {

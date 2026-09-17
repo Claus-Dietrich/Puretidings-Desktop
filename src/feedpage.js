@@ -1103,14 +1103,18 @@ function handleTreeToggle(event) {
   }
 
   const toggle = event.target.closest('.tree-toggle');
-  if (!toggle) return;
-  const parentLi = toggle.closest('li');
+  const title = event.target.closest('.tree-node-title');
+  if (!toggle && !title) return;
+
+  const parentLi = (toggle || title).closest('li');
+  if (!parentLi) return;
   const childUl = parentLi.querySelector('ul');
   const nodeId = parentLi.dataset.id;
+  const toggleEl = parentLi.querySelector('.tree-toggle');
 
   if (childUl && nodeId) {
     const isNowHidden = childUl.classList.toggle('hidden');
-    toggle.textContent = isNowHidden ? '[+]' : '[-]';
+    if (toggleEl) toggleEl.textContent = isNowHidden ? '[+]' : '[-]';
     
     if (parentLi.classList.contains('folder-item')) {
         if (isNowHidden) collapsedFolders.add(nodeId);
@@ -1120,6 +1124,12 @@ function handleTreeToggle(event) {
         if (isNowHidden) expandedFeeds.delete(nodeId);
         else {
             expandedFeeds.add(nodeId);
+            // If this is an email feed and currently has no posts loaded, trigger single feed refresh
+            if (nodeId.startsWith('email_') && (!allPostsData[nodeId] || allPostsData[nodeId].length === 0)) {
+                if (window.refreshSingleFeedNative) {
+                    window.refreshSingleFeedNative(nodeId);
+                }
+            }
             // Trigger background refetch of missing OG images when feed is expanded
             chrome.runtime.sendMessage({ action: "refetchOgImages", feedId: nodeId }).catch(() => {});
         }
