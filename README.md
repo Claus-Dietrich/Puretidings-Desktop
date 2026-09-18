@@ -8,10 +8,12 @@
 - **High-Fidelity Sandboxed Email Viewer:** Isolated iframe rendering with anti-hotlink CDN bypass (`no-referrer`), Light/Dark mode toggle, and pristine multi-format export (MD, HTML, TXT).
 - **No CORS & No IP Bans:** Feed and article requests run natively via Rust (`reqwest` with `rustls`) using your residential internet connection.
 - **Native Multi-Language (i18n):** Instant runtime switching between English, German, Spanish, and French.
-- **BYOK Gemini AI Summaries:** Free AI-powered summaries of articles and YouTube videos (TL;DW) using your own Google Gemini API key.
-- **Draggable & Resizable Reader:** Free-floating Reader Mode with mouse resizing and persistent geometry.
-- **Automated Local Backups & OPML:** Full OPML 2.0 import/export and automated daily JSON backups to a dedicated local directory.
-- **Multi-Platform Native Packages:** Installers for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), Linux (`.AppImage`, `.deb`, `.rpm`), and Android (`.apk`).
+- **BYOK Gemini AI Summaries:** Free AI-powered summaries of articles and YouTube videos (TL;DW) using your own Google Gemini API key, with 1-tap Android Native Share sheet export (`navigator.share`) and multi-format save (MD, HTML, TXT).
+- **Draggable & Resizable Reader & Settings:** Free-floating modal windows with mouse and touch dragging/resizing, viewport auto-clamping, and responsive mobile landscape support.
+- **Native Mobile & Desktop Notifications:** System notifications across Windows Toast, macOS, Linux, and Android status bar (`tauri-plugin-notification`).
+- **External Browser Integration:** Seamless link opening in your system default browser on desktop and Android (`tauri-plugin-opener`).
+- **Automated Local Backups & OPML:** Full OPML 2.0 import/export, direct clipboard/text restoration, and automated daily JSON backups to a dedicated local directory.
+- **Multi-Platform Native Packages:** Automated CI/CD release builds for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), Linux (`.AppImage`, `.deb`, `.rpm`), and Android (`.apk`).
 
 ---
 
