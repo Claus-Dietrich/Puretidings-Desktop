@@ -70,6 +70,12 @@ jobs:
             echo "Initializing Android project structure..."
             npx tauri android init --ci
           fi
+          if [ -f "src-tauri/gen/android/app/src/main/AndroidManifest.xml" ]; then
+            if ! grep -q "POST_NOTIFICATIONS" src-tauri/gen/android/app/src/main/AndroidManifest.xml; then
+              echo "Injecting POST_NOTIFICATIONS permission into AndroidManifest.xml..."
+              sed -i '/<manifest/a \    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>' src-tauri/gen/android/app/src/main/AndroidManifest.xml
+            fi
+          fi
 
       - name: Copy PureTidings Android Icons
         run: |

@@ -19,7 +19,7 @@
 
 The repository includes GitHub Actions release workflows in `.github/workflows/`.
 
-Whenever a tag is pushed (e.g. `v1.0.37`) or triggered manually from GitHub's **Actions** tab:
+Whenever a tag is pushed (e.g. `v1.0.38`) or triggered manually from GitHub's **Actions** tab:
 1. **Windows Runner:** Automatically compiles the NSIS Setup `.exe` and `.msi`.
 2. **macOS Runner:** Automatically compiles universal Apple Silicon & Intel DMG (`.dmg`) and App bundle.
 3. **Linux Runner:** Automatically compiles portable `.AppImage`, `.deb`, and `.rpm` packages.

@@ -156,8 +156,8 @@
       height: 680px;
       min-width: 280px;
       min-height: 150px;
-      max-width: none !important;
-      max-height: none !important;
+      max-width: calc(100vw - 12px) !important;
+      max-height: calc(100vh - 12px) !important;
       resize: both;
       overflow: hidden !important;
       display: flex;
@@ -177,6 +177,7 @@
       z-index: 20;
       cursor: move;
       user-select: none;
+      touch-action: none;
       box-sizing: border-box;
     }
     #settings-modal .tabs-nav {
@@ -194,6 +195,7 @@
     }
     .settings-modal-body {
       flex: 1 1 auto;
+      min-height: 0 !important;
       overflow-y: auto !important;
       overflow-x: hidden;
       padding: 16px 22px;
@@ -218,14 +220,12 @@
       width: 32px;
       height: 32px;
       min-width: 32px;
-      margin: 0;
-      padding: 0;
-      background: transparent;
-      border: 1px solid transparent;
       border-radius: 6px;
-      font-size: 24px;
-      line-height: 1;
+      border: 1px solid var(--border-color);
+      background: transparent;
       color: var(--text-color);
+      font-size: 20px;
+      line-height: 1;
       cursor: pointer;
       opacity: 0.7;
       transition: all 0.15s ease;
@@ -239,14 +239,23 @@
     }
     .modal-resize-handle {
       position: absolute;
-      bottom: 2px;
-      right: 4px;
+      bottom: 0;
+      right: 0;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      padding: 0 4px 2px 0;
+      box-sizing: border-box;
       cursor: nwse-resize;
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1;
-      opacity: 0.5;
+      opacity: 0.6;
       user-select: none;
+      touch-action: none;
       color: var(--text-color);
+      z-index: 25;
     }
     /* Reader Toolbar Icon Buttons (Favorites & Summary Cart) */
     .reader-toolbar-icon-btn {
@@ -1182,7 +1191,7 @@
       <!-- Settings Modal Footer -->
       <div class="settings-modal-footer">
         <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; margin-right: auto; user-select: none;">
-          <span style="opacity: 0.75; font-weight: 500;">PureTidings <strong id="settings-footer-version">v1.0.37</strong></span>
+          <span style="opacity: 0.75; font-weight: 500;">PureTidings <strong id="settings-footer-version">v1.0.38</strong></span>
           <span style="opacity: 0.35;">•</span>
           <a href="https://clausdietrich.com/impressum" target="_blank" style="color: var(--link-color); text-decoration: none; font-weight: 500;" data-i18n="settings_impressum_link">⚖️ Impressum</a>
           <span style="opacity: 0.35;">•</span>

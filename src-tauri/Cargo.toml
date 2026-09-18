@@ -1,6 +1,6 @@
 [package]
 name = "puretidings-desktop"
-version = "1.0.37"
+version = "1.0.38"
 description = "PureTidings Desktop RSS Reader"
 authors = ["PureTidings"]
 edition = "2021"
@@ -22,6 +22,8 @@ imap = "2.4"
 native-tls = "0.2"
 mail-parser = "0.11"
 chrono = "0.4"
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 openssl = { version = "0.10", features = ["vendored"] }

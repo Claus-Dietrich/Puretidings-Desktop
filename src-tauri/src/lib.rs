@@ -80,28 +80,36 @@ async fn post_url(url: String, body: String, user_agent: Option<String>) -> Resu
 }
 
 #[tauri::command]
-fn open_browser(url: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        let escaped_url = url.replace('^', "^^").replace('&', "^&");
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &escaped_url])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+fn open_browser(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if let Err(err) = app.opener().open_url(&url, None::<&str>) {
+        #[cfg(target_os = "windows")]
+        {
+            let escaped_url = url.replace('^', "^^").replace('&', "^&");
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "start", "", &escaped_url])
+                .spawn();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(&url)
+                .spawn();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open")
+                .arg(&url)
+                .spawn();
+        }
+        #[cfg(target_os = "android")]
+        {
+            return Err(format!("Failed to open URL on Android: {}", err));
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")))]
+        {
+            return Err(err.to_string());
+        }
     }
     Ok(())
 }
@@ -323,7 +331,14 @@ fn to_base64(data: &[u8]) -> String {
 }
 
 #[tauri::command]
-fn show_native_notification(title: String, message: String) -> Result<(), String> {
+fn show_native_notification(app: tauri::AppHandle, title: String, message: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification()
+        .builder()
+        .title(&title)
+        .body(&message)
+        .show();
+
     #[cfg(target_os = "windows")]
     {
         let temp_dir = std::env::temp_dir();
@@ -657,6 +672,8 @@ async fn mark_imap_email_read(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             fetch_url,
             post_url,

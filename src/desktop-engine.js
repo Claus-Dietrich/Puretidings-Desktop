@@ -2063,7 +2063,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     async function showDesktopNotification(title, message) {
         try {
-            // First attempt native OS desktop notification via Tauri IPC
+            // Check / request notification permission on Android and modern platforms
+            if (window.__TAURI__?.notification?.requestPermission) {
+                try {
+                    await window.__TAURI__.notification.requestPermission();
+                } catch (_) {}
+            }
+
+            // Attempt native notification via Tauri IPC
             try {
                 await tauriInvoke('show_native_notification', {
                     title: title || "PureTidings",
@@ -2550,12 +2557,24 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
             let w = (savedGeo && savedGeo.width) ? Math.max(280, savedGeo.width) : Math.min(840, Math.max(320, viewW - 40));
             let h = (savedGeo && savedGeo.height) ? Math.max(150, savedGeo.height) : Math.min(680, Math.max(200, viewH - 40));
-            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (viewW - w) / 2));
-            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (viewH - h) / 2));
 
-            // Keep header reachable (at least 80px visible horizontally, top at least 0)
-            left = Math.max(-w + 80, Math.min(left, viewW - 80));
-            top = Math.max(0, Math.min(top, viewH - 50));
+            // Constrain within current viewport so it never exceeds screen dimensions
+            w = Math.min(w, viewW - 12);
+            h = Math.min(h, viewH - 12);
+
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(6, (viewW - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(6, (viewH - h) / 2));
+
+            // On mobile or landscape with low height, center and auto-fit
+            if (viewH < 600 || viewW < 768) {
+                w = Math.max(280, Math.min(viewW - 12, w));
+                h = Math.max(160, Math.min(viewH - 12, h));
+                left = Math.max(6, Math.min(left, viewW - w - 6));
+                top = Math.max(6, Math.min(top, viewH - h - 6));
+            } else {
+                left = Math.max(-w + 80, Math.min(left, viewW - 80));
+                top = Math.max(0, Math.min(top, viewH - 50));
+            }
 
             modalCard.style.width = w + 'px';
             modalCard.style.height = h + 'px';
@@ -2576,27 +2595,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 } catch (_) {}
             }
 
-            // Draggable by header
+            // Draggable by header (supports mouse and touch)
             const header = modalCard.querySelector('.settings-modal-header');
             if (header && !header._dragAttached) {
                 header._dragAttached = true;
                 header.style.cursor = 'move';
                 header.style.userSelect = 'none';
 
-                header.addEventListener('mousedown', (e) => {
+                function startDrag(e) {
                     if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('select')) return;
-                    e.preventDefault();
+                    const isTouch = !!e.touches;
+                    const point = isTouch ? e.touches[0] : e;
+                    if (!point) return;
+                    if (!isTouch) e.preventDefault();
 
-                    const startX = e.clientX;
-                    const startY = e.clientY;
+                    const startX = point.clientX;
+                    const startY = point.clientY;
                     const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0;
                     const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 0;
 
                     function onDrag(ev) {
-                        ev.preventDefault();
+                        const curPoint = isTouch ? (ev.touches && ev.touches[0]) : ev;
+                        if (!curPoint) return;
+                        if (ev.cancelable) ev.preventDefault();
                         const { w: curViewW, h: curViewH, zoom: activeZoom } = getViewportDimensions();
-                        const dx = (ev.clientX - startX) / activeZoom;
-                        const dy = (ev.clientY - startY) / activeZoom;
+                        const dx = (curPoint.clientX - startX) / activeZoom;
+                        const dy = (curPoint.clientY - startY) / activeZoom;
                         let nLeft = initialLeft + dx;
                         let nTop = initialTop + dy;
 
@@ -2609,49 +2633,87 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
 
                     function stopDrag() {
-                        window.removeEventListener('mousemove', onDrag);
-                        window.removeEventListener('mouseup', stopDrag);
+                        if (isTouch) {
+                            window.removeEventListener('touchmove', onDrag);
+                            window.removeEventListener('touchend', stopDrag);
+                            window.removeEventListener('touchcancel', stopDrag);
+                        } else {
+                            window.removeEventListener('mousemove', onDrag);
+                            window.removeEventListener('mouseup', stopDrag);
+                        }
                         saveSettingsGeometry();
                     }
 
-                    window.addEventListener('mousemove', onDrag);
-                    window.addEventListener('mouseup', stopDrag);
-                });
+                    if (isTouch) {
+                        window.addEventListener('touchmove', onDrag, { passive: false });
+                        window.addEventListener('touchend', stopDrag);
+                        window.addEventListener('touchcancel', stopDrag);
+                    } else {
+                        window.addEventListener('mousemove', onDrag);
+                        window.addEventListener('mouseup', stopDrag);
+                    }
+                }
+
+                header.addEventListener('mousedown', startDrag);
+                header.addEventListener('touchstart', startDrag, { passive: true });
             }
 
-            // Custom resize grip handle
+            // Custom resize grip handle (supports mouse and touch)
             const resizeHandle = modalCard.querySelector('.modal-resize-handle');
             if (resizeHandle && !resizeHandle._resizeAttached) {
                 resizeHandle._resizeAttached = true;
-                resizeHandle.addEventListener('mousedown', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
 
-                    const startX = e.clientX;
-                    const startY = e.clientY;
+                function startResize(e) {
+                    const isTouch = !!e.touches;
+                    const point = isTouch ? e.touches[0] : e;
+                    if (!point) return;
+                    e.stopPropagation();
+                    if (e.cancelable) e.preventDefault();
+
+                    const startX = point.clientX;
+                    const startY = point.clientY;
                     const startW = parseFloat(modalCard.style.width) || modalCard.offsetWidth;
                     const startH = parseFloat(modalCard.style.height) || modalCard.offsetHeight;
 
                     function onGripResize(ev) {
-                        ev.preventDefault();
-                        const { zoom: activeZoom } = getViewportDimensions();
-                        const dx = (ev.clientX - startX) / activeZoom;
-                        const dy = (ev.clientY - startY) / activeZoom;
-                        const nW = Math.max(280, startW + dx);
-                        const nH = Math.max(150, startH + dy);
+                        const curPoint = isTouch ? (ev.touches && ev.touches[0]) : ev;
+                        if (!curPoint) return;
+                        if (ev.cancelable) ev.preventDefault();
+                        const { zoom: activeZoom, w: curViewW, h: curViewH } = getViewportDimensions();
+                        const dx = (curPoint.clientX - startX) / activeZoom;
+                        const dy = (curPoint.clientY - startY) / activeZoom;
+                        const maxAllowedW = curViewW - (parseFloat(modalCard.style.left) || 0) - 8;
+                        const maxAllowedH = curViewH - (parseFloat(modalCard.style.top) || 0) - 8;
+                        const nW = Math.max(280, Math.min(maxAllowedW, startW + dx));
+                        const nH = Math.max(150, Math.min(maxAllowedH, startH + dy));
                         modalCard.style.width = nW + 'px';
                         modalCard.style.height = nH + 'px';
                     }
 
                     function stopGripResize() {
-                        window.removeEventListener('mousemove', onGripResize);
-                        window.removeEventListener('mouseup', stopGripResize);
+                        if (isTouch) {
+                            window.removeEventListener('touchmove', onGripResize);
+                            window.removeEventListener('touchend', stopGripResize);
+                            window.removeEventListener('touchcancel', stopGripResize);
+                        } else {
+                            window.removeEventListener('mousemove', onGripResize);
+                            window.removeEventListener('mouseup', stopGripResize);
+                        }
                         saveSettingsGeometry();
                     }
 
-                    window.addEventListener('mousemove', onGripResize);
-                    window.addEventListener('mouseup', stopGripResize);
-                });
+                    if (isTouch) {
+                        window.addEventListener('touchmove', onGripResize, { passive: false });
+                        window.addEventListener('touchend', stopGripResize);
+                        window.addEventListener('touchcancel', stopGripResize);
+                    } else {
+                        window.addEventListener('mousemove', onGripResize);
+                        window.addEventListener('mouseup', stopGripResize);
+                    }
+                }
+
+                resizeHandle.addEventListener('mousedown', startResize);
+                resizeHandle.addEventListener('touchstart', startResize, { passive: false });
             }
 
             // Attach ResizeObserver to remember resized size across app restarts
@@ -2679,6 +2741,33 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const modal = document.getElementById('settings-modal');
         if (modal) modal.style.display = 'none';
     }
+
+    function clampActiveModals() {
+        const { w: viewW, h: viewH } = getViewportDimensions();
+        ['settings-modal-card', 'reader-modal-card'].forEach(cardId => {
+            const card = document.getElementById(cardId);
+            if (!card) return;
+            const overlay = card.closest('.desktop-modal-overlay');
+            if (overlay && (overlay.style.display === 'none' || getComputedStyle(overlay).display === 'none')) return;
+
+            let curW = parseFloat(card.style.width) || card.offsetWidth;
+            let curH = parseFloat(card.style.height) || card.offsetHeight;
+            let curLeft = parseFloat(card.style.left) || card.offsetLeft || 0;
+            let curTop = parseFloat(card.style.top) || card.offsetTop || 0;
+
+            let nW = Math.min(curW, viewW - 12);
+            let nH = Math.min(curH, viewH - 12);
+            let nLeft = Math.max(6, Math.min(curLeft, viewW - nW - 6));
+            let nTop = Math.max(6, Math.min(curTop, viewH - nH - 6));
+
+            card.style.width = nW + 'px';
+            card.style.height = nH + 'px';
+            card.style.left = nLeft + 'px';
+            card.style.top = nTop + 'px';
+        });
+    }
+    window.addEventListener('resize', clampActiveModals);
+    window.addEventListener('orientationchange', () => setTimeout(clampActiveModals, 150));
 
     window.openSettingsModal = openSettingsModal;
     window.closeSettingsModal = closeSettingsModal;
@@ -3412,7 +3501,43 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     let currentReaderVideoId = null;
     let currentReaderAiMarkdown = '';
 
-    function downloadTextFile(filename, content, mimeType = 'text/plain') {
+    async function downloadTextFile(filename, content, mimeType = 'text/plain') {
+        const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+
+        // On Android WebView, blob downloads fail silently.
+        // Offer native Android Share sheet (Save to Files / Drive / Notes) and copy to clipboard
+        if (isAndroid) {
+            let shared = false;
+            if (navigator.share) {
+                try {
+                    let shareData = { title: filename, text: content };
+                    try {
+                        const file = new File([content], filename, { type: mimeType });
+                        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                            shareData = { title: filename, files: [file] };
+                        }
+                    } catch (_) {}
+                    await navigator.share(shareData);
+                    shared = true;
+                } catch (e) {
+                    if (e.name === 'AbortError') return;
+                }
+            }
+
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(content);
+                }
+            } catch (_) {}
+
+            if (shared) {
+                showInAppToast("AI Summary Shared", `Shared ${filename} & copied to clipboard!`);
+            } else {
+                showInAppToast("AI Summary Copied", `Copied to clipboard (ready to paste in Keep/Notes)`);
+            }
+            return;
+        }
+
         const blob = new Blob([content], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -3821,11 +3946,24 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
             let w = (savedGeo && savedGeo.width) ? Math.max(380, savedGeo.width) : Math.min(960, Math.max(380, viewW - 60));
             let h = (savedGeo && savedGeo.height) ? Math.max(250, savedGeo.height) : Math.min(840, Math.max(250, viewH - 60));
-            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (viewW - w) / 2));
-            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (viewH - h) / 2));
 
-            left = Math.max(-w + 80, Math.min(left, viewW - 80));
-            top = Math.max(0, Math.min(top, viewH - 40));
+            // Constrain within current viewport so it never exceeds screen dimensions
+            w = Math.min(w, viewW - 12);
+            h = Math.min(h, viewH - 12);
+
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(6, (viewW - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(6, (viewH - h) / 2));
+
+            // On mobile or landscape with low height, center and auto-fit
+            if (viewH < 600 || viewW < 768) {
+                w = Math.max(300, Math.min(viewW - 12, w));
+                h = Math.max(200, Math.min(viewH - 12, h));
+                left = Math.max(6, Math.min(left, viewW - w - 6));
+                top = Math.max(6, Math.min(top, viewH - h - 6));
+            } else {
+                left = Math.max(-w + 80, Math.min(left, viewW - 80));
+                top = Math.max(0, Math.min(top, viewH - 40));
+            }
 
             modalCard.style.width = w + 'px';
             modalCard.style.height = h + 'px';
@@ -3846,27 +3984,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 } catch (_) {}
             }
 
-            // Draggable by header / toolbar
+            // Draggable by header / toolbar (supports mouse and touch)
             const header = modalCard.querySelector('#reader-modal-header') || modalCard.querySelector('.reader-modal-header');
             if (header && !header._dragAttached) {
                 header._dragAttached = true;
                 header.style.cursor = 'move';
                 header.style.userSelect = 'none';
 
-                header.addEventListener('mousedown', (e) => {
+                function startReaderDrag(e) {
                     if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('select')) return;
-                    e.preventDefault();
+                    const isTouch = !!e.touches;
+                    const point = isTouch ? e.touches[0] : e;
+                    if (!point) return;
+                    if (!isTouch) e.preventDefault();
 
-                    const startX = e.clientX;
-                    const startY = e.clientY;
+                    const startX = point.clientX;
+                    const startY = point.clientY;
                     const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0;
                     const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 0;
 
                     function onDrag(ev) {
-                        ev.preventDefault();
+                        const curPoint = isTouch ? (ev.touches && ev.touches[0]) : ev;
+                        if (!curPoint) return;
+                        if (ev.cancelable) ev.preventDefault();
                         const { w: curViewW, h: curViewH, zoom: activeZoom } = getViewportDimensions();
-                        const dx = (ev.clientX - startX) / activeZoom;
-                        const dy = (ev.clientY - startY) / activeZoom;
+                        const dx = (curPoint.clientX - startX) / activeZoom;
+                        const dy = (curPoint.clientY - startY) / activeZoom;
                         let nLeft = initialLeft + dx;
                         let nTop = initialTop + dy;
 
@@ -3878,49 +4021,87 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
 
                     function stopDrag() {
-                        window.removeEventListener('mousemove', onDrag);
-                        window.removeEventListener('mouseup', stopDrag);
+                        if (isTouch) {
+                            window.removeEventListener('touchmove', onDrag);
+                            window.removeEventListener('touchend', stopDrag);
+                            window.removeEventListener('touchcancel', stopDrag);
+                        } else {
+                            window.removeEventListener('mousemove', onDrag);
+                            window.removeEventListener('mouseup', stopDrag);
+                        }
                         saveReaderGeometry();
                     }
 
-                    window.addEventListener('mousemove', onDrag);
-                    window.addEventListener('mouseup', stopDrag);
-                });
+                    if (isTouch) {
+                        window.addEventListener('touchmove', onDrag, { passive: false });
+                        window.addEventListener('touchend', stopDrag);
+                        window.addEventListener('touchcancel', stopDrag);
+                    } else {
+                        window.addEventListener('mousemove', onDrag);
+                        window.addEventListener('mouseup', stopDrag);
+                    }
+                }
+
+                header.addEventListener('mousedown', startReaderDrag);
+                header.addEventListener('touchstart', startReaderDrag, { passive: true });
             }
 
-            // Custom resize grip handle
+            // Custom resize grip handle (supports mouse and touch)
             const resizeHandle = modalCard.querySelector('#reader-resize-handle') || modalCard.querySelector('.modal-resize-handle');
             if (resizeHandle && !resizeHandle._resizeAttached) {
                 resizeHandle._resizeAttached = true;
-                resizeHandle.addEventListener('mousedown', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
 
-                    const startX = e.clientX;
-                    const startY = e.clientY;
+                function startReaderResize(e) {
+                    const isTouch = !!e.touches;
+                    const point = isTouch ? e.touches[0] : e;
+                    if (!point) return;
+                    e.stopPropagation();
+                    if (e.cancelable) e.preventDefault();
+
+                    const startX = point.clientX;
+                    const startY = point.clientY;
                     const startW = parseFloat(modalCard.style.width) || modalCard.offsetWidth;
                     const startH = parseFloat(modalCard.style.height) || modalCard.offsetHeight;
 
                     function onGripResize(ev) {
-                        ev.preventDefault();
-                        const { zoom: activeZoom } = getViewportDimensions();
-                        const dx = (ev.clientX - startX) / activeZoom;
-                        const dy = (ev.clientY - startY) / activeZoom;
-                        const nW = Math.max(380, startW + dx);
-                        const nH = Math.max(250, startH + dy);
+                        const curPoint = isTouch ? (ev.touches && ev.touches[0]) : ev;
+                        if (!curPoint) return;
+                        if (ev.cancelable) ev.preventDefault();
+                        const { zoom: activeZoom, w: curViewW, h: curViewH } = getViewportDimensions();
+                        const dx = (curPoint.clientX - startX) / activeZoom;
+                        const dy = (curPoint.clientY - startY) / activeZoom;
+                        const maxAllowedW = curViewW - (parseFloat(modalCard.style.left) || 0) - 8;
+                        const maxAllowedH = curViewH - (parseFloat(modalCard.style.top) || 0) - 8;
+                        const nW = Math.max(300, Math.min(maxAllowedW, startW + dx));
+                        const nH = Math.max(200, Math.min(maxAllowedH, startH + dy));
                         modalCard.style.width = nW + 'px';
                         modalCard.style.height = nH + 'px';
                     }
 
                     function stopGripResize() {
-                        window.removeEventListener('mousemove', onGripResize);
-                        window.removeEventListener('mouseup', stopGripResize);
+                        if (isTouch) {
+                            window.removeEventListener('touchmove', onGripResize);
+                            window.removeEventListener('touchend', stopGripResize);
+                            window.removeEventListener('touchcancel', stopGripResize);
+                        } else {
+                            window.removeEventListener('mousemove', onGripResize);
+                            window.removeEventListener('mouseup', stopGripResize);
+                        }
                         saveReaderGeometry();
                     }
 
-                    window.addEventListener('mousemove', onGripResize);
-                    window.addEventListener('mouseup', stopGripResize);
-                });
+                    if (isTouch) {
+                        window.addEventListener('touchmove', onGripResize, { passive: false });
+                        window.addEventListener('touchend', stopGripResize);
+                        window.addEventListener('touchcancel', stopGripResize);
+                    } else {
+                        window.addEventListener('mousemove', onGripResize);
+                        window.addEventListener('mouseup', stopGripResize);
+                    }
+                }
+
+                resizeHandle.addEventListener('mousedown', startReaderResize);
+                resizeHandle.addEventListener('touchstart', startReaderResize, { passive: false });
             }
 
             // Attach ResizeObserver to remember resized size across app restarts
