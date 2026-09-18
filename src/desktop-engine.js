@@ -5248,7 +5248,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 const format = document.getElementById('reader-export-ai-format')?.value || 'markdown';
-                const baseTitle = ((currentReaderArticle?.title || 'ai_summary') + '_summary').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+                const cleanTitle = (currentReaderArticle?.title || 'article')
+                    .replace(/[^a-zA-Z0-9_-]/g, '_')
+                    .replace(/_+/g, '_')
+                    .replace(/^_+|_+$/g, '')
+                    .substring(0, 45) || 'article';
+                const baseTitle = `${cleanTitle}_KI_Summary`;
 
                 let filename = '';
                 if (format === 'markdown') {
