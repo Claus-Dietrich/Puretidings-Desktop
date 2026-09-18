@@ -877,9 +877,9 @@ main {
     padding: 10px;
   }
 
-  /* Responsive Floating Modals (Settings & Reader Mode) */
-  #settings-modal .desktop-modal-card,
-  #reader-modal .desktop-modal-card.reader-container {
+  /* Responsive Floating Modals (Settings & Reader Mode on Android) */
+  html.is-android #settings-modal .desktop-modal-card,
+  html.is-android #reader-modal .desktop-modal-card.reader-container {
     max-width: calc(100vw - 12px) !important;
     max-height: calc(100vh - 12px) !important;
     min-width: 260px !important;

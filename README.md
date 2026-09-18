@@ -9,7 +9,7 @@
 - **No CORS & No IP Bans:** Feed and article requests run natively via Rust (`reqwest` with `rustls`) using your residential internet connection.
 - **Native Multi-Language (i18n):** Instant runtime switching between English, German, Spanish, and French.
 - **BYOK Gemini AI Summaries with Direct Storage:** Free AI-powered summaries of articles and YouTube videos (TL;DW) using your own Google Gemini API key, saved directly to disk (`/storage/emulated/0/Download/` on Android, Downloads folder on Desktop) via native Rust IPC (`save_download_file`) with multi-format export (MD, HTML, TXT) and Share sheet fallback.
-- **Touch-Enabled Resizable & Draggable Modals:** Free-floating Reader and Settings dialogs with corner grip (`◢`), right-edge width drag handle, 1-tap Fit/Maximize button (`⛶`), and strict viewport auto-clamping preventing screen overflow in mobile landscape.
+- **Touch-Enabled Resizable & Draggable Modals:** Free-floating Reader and Settings dialogs with completely unrestricted desktop resizing, right-edge width drag handle, corner grip (`◢`), 1-tap Fit/Maximize button (`⛶`), and mobile landscape auto-clamping.
 - **Native Mobile & Desktop Notifications:** System notifications across Windows Toast, macOS, Linux, and Android status bar (`tauri-plugin-notification`).
 - **External Browser Integration:** Seamless link opening in your system default browser on desktop and Android (`tauri-plugin-opener`).
 - **Automated Local Backups & OPML:** Full OPML 2.0 import/export, direct clipboard/text restoration, and automated daily JSON backups to a dedicated local directory.
@@ -21,7 +21,7 @@
 
 The repository includes GitHub Actions release workflows in `.github/workflows/`.
 
-Whenever a tag is pushed (e.g. `v1.0.39`) or triggered manually from GitHub's **Actions** tab:
+Whenever a tag is pushed (e.g. `v1.0.40`) or triggered manually from GitHub's **Actions** tab:
 1. **Windows Runner:** Automatically compiles the NSIS Setup `.exe` and `.msi`.
 2. **macOS Runner:** Automatically compiles universal Apple Silicon & Intel DMG (`.dmg`) and App bundle.
 3. **Linux Runner:** Automatically compiles portable `.AppImage`, `.deb`, and `.rpm` packages.

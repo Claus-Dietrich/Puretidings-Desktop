@@ -2550,28 +2550,31 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const modalCard = document.getElementById('settings-modal-card');
         if (modalCard) {
             const { w: viewW, h: viewH, zoom } = getViewportDimensions();
+            const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
             let savedGeo = null;
             try {
                 savedGeo = JSON.parse(localStorage.getItem('puretidings_settings_geometry') || localStorage.getItem('puretidings_settings_size') || 'null');
             } catch (_) {}
 
-            let w = (savedGeo && savedGeo.width) ? savedGeo.width : Math.min(840, Math.max(300, viewW - 24));
-            let h = (savedGeo && savedGeo.height) ? savedGeo.height : Math.min(680, Math.max(200, viewH - 24));
+            let w = (savedGeo && savedGeo.width) ? Math.max(280, savedGeo.width) : Math.min(840, Math.max(320, viewW - 40));
+            let h = (savedGeo && savedGeo.height) ? Math.max(150, savedGeo.height) : Math.min(680, Math.max(200, viewH - 40));
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (viewW - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (viewH - h) / 2));
 
-            // Constrain within current viewport so it never exceeds screen dimensions
-            w = Math.max(260, Math.min(w, viewW - 12));
-            h = Math.max(140, Math.min(h, viewH - 12));
+            if (isAndroid) {
+                w = Math.max(260, Math.min(w, viewW - 12));
+                h = Math.max(140, Math.min(h, viewH - 12));
+                left = Math.max(6, Math.min(left, viewW - w - 6));
+                top = Math.max(6, Math.min(top, viewH - h - 6));
+            } else {
+                left = Math.max(-w + 80, Math.min(left, viewW - 80));
+                top = Math.max(0, Math.min(top, viewH - 50));
+            }
 
-            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(6, (viewW - w) / 2));
-            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(6, (viewH - h) / 2));
-
-            left = Math.max(6, Math.min(left, viewW - w - 6));
-            top = Math.max(6, Math.min(top, viewH - h - 6));
-
-            modalCard.style.setProperty('width', w + 'px', 'important');
-            modalCard.style.setProperty('height', h + 'px', 'important');
-            modalCard.style.setProperty('left', left + 'px', 'important');
-            modalCard.style.setProperty('top', top + 'px', 'important');
+            modalCard.style.width = w + 'px';
+            modalCard.style.height = h + 'px';
+            modalCard.style.left = left + 'px';
+            modalCard.style.top = top + 'px';
 
             function saveSettingsGeometry() {
                 if (!modalCard) return;
@@ -2603,8 +2606,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                     const startX = point.clientX;
                     const startY = point.clientY;
-                    const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
-                    const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 6;
+                    const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0;
+                    const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 0;
 
                     function onDrag(ev) {
                         const curPoint = isTouch ? (ev.touches && ev.touches[0]) : ev;
@@ -2616,15 +2619,19 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         let nLeft = initialLeft + dx;
                         let nTop = initialTop + dy;
 
-                        const cardW = modalCard.offsetWidth;
-                        const cardH = modalCard.offsetHeight;
+                        const isAndroidMobile = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                        if (isAndroidMobile) {
+                            const cardW = modalCard.offsetWidth;
+                            const cardH = modalCard.offsetHeight;
+                            nLeft = Math.max(6, Math.min(nLeft, curViewW - cardW - 6));
+                            nTop = Math.max(6, Math.min(nTop, curViewH - cardH - 6));
+                        } else {
+                            nLeft = Math.max(-modalCard.offsetWidth + 80, Math.min(nLeft, curViewW - 80));
+                            nTop = Math.max(0, Math.min(nTop, curViewH - 50));
+                        }
 
-                        // Keep modal card completely inside screen
-                        nLeft = Math.max(6, Math.min(nLeft, curViewW - cardW - 6));
-                        nTop = Math.max(6, Math.min(nTop, curViewH - cardH - 6));
-
-                        modalCard.style.setProperty('left', nLeft + 'px', 'important');
-                        modalCard.style.setProperty('top', nTop + 'px', 'important');
+                        modalCard.style.left = nLeft + 'px';
+                        modalCard.style.top = nTop + 'px';
                     }
 
                     function stopDrag() {
@@ -2677,14 +2684,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const { zoom: activeZoom, w: curViewW, h: curViewH } = getViewportDimensions();
                         const dx = (curPoint.clientX - startX) / activeZoom;
                         const dy = (curPoint.clientY - startY) / activeZoom;
-                        const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
-                        const curTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 6;
-                        const maxAllowedW = curViewW - curLeft - 6;
-                        const maxAllowedH = curViewH - curTop - 6;
-                        const nW = Math.max(260, Math.min(maxAllowedW, startW + dx));
-                        const nH = Math.max(140, Math.min(maxAllowedH, startH + dy));
-                        modalCard.style.setProperty('width', nW + 'px', 'important');
-                        modalCard.style.setProperty('height', nH + 'px', 'important');
+
+                        let nW = Math.max(280, startW + dx);
+                        let nH = Math.max(150, startH + dy);
+
+                        const isAndroidMobile = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                        if (isAndroidMobile) {
+                            const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
+                            const curTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 6;
+                            const maxAllowedW = curViewW - curLeft - 6;
+                            const maxAllowedH = curViewH - curTop - 6;
+                            nW = Math.min(maxAllowedW, nW);
+                            nH = Math.min(maxAllowedH, nH);
+                        }
+
+                        modalCard.style.width = nW + 'px';
+                        modalCard.style.height = nH + 'px';
                     }
 
                     function stopGripResize() {
@@ -2732,10 +2747,16 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         if (ev.cancelable) ev.preventDefault();
                         const { zoom: activeZoom, w: curViewW } = getViewportDimensions();
                         const dx = (curPoint.clientX - startX) / activeZoom;
-                        const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
-                        const maxAllowedW = curViewW - curLeft - 6;
-                        const nW = Math.max(260, Math.min(maxAllowedW, startW + dx));
-                        modalCard.style.setProperty('width', nW + 'px', 'important');
+
+                        let nW = Math.max(280, startW + dx);
+                        const isAndroidMobile = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                        if (isAndroidMobile) {
+                            const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
+                            const maxAllowedW = curViewW - curLeft - 6;
+                            nW = Math.min(maxAllowedW, nW);
+                        }
+
+                        modalCard.style.width = nW + 'px';
                     }
 
                     function stopEdgeDrag() {
@@ -2775,20 +2796,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                     if (isMax) {
                         // Restore to floating size
-                        const nW = Math.max(280, Math.min(780, curViewW - 32));
-                        const nH = Math.max(160, Math.min(600, curViewH - 32));
-                        const nLeft = Math.round(Math.max(6, (curViewW - nW) / 2));
-                        const nTop = Math.round(Math.max(6, (curViewH - nH) / 2));
-                        modalCard.style.setProperty('width', nW + 'px', 'important');
-                        modalCard.style.setProperty('height', nH + 'px', 'important');
-                        modalCard.style.setProperty('left', nLeft + 'px', 'important');
-                        modalCard.style.setProperty('top', nTop + 'px', 'important');
+                        const nW = Math.max(280, Math.min(840, curViewW - 32));
+                        const nH = Math.max(160, Math.min(680, curViewH - 32));
+                        const nLeft = Math.round(Math.max(10, (curViewW - nW) / 2));
+                        const nTop = Math.round(Math.max(10, (curViewH - nH) / 2));
+                        modalCard.style.width = nW + 'px';
+                        modalCard.style.height = nH + 'px';
+                        modalCard.style.left = nLeft + 'px';
+                        modalCard.style.top = nTop + 'px';
                     } else {
                         // Maximize to full viewport
-                        modalCard.style.setProperty('width', (curViewW - 12) + 'px', 'important');
-                        modalCard.style.setProperty('height', (curViewH - 12) + 'px', 'important');
-                        modalCard.style.setProperty('left', '6px', 'important');
-                        modalCard.style.setProperty('top', '6px', 'important');
+                        modalCard.style.width = (curViewW - 12) + 'px';
+                        modalCard.style.height = (curViewH - 12) + 'px';
+                        modalCard.style.left = '6px';
+                        modalCard.style.top = '6px';
                     }
                     saveSettingsGeometry();
                 });
@@ -2821,6 +2842,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
 
     function clampActiveModals() {
+        const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+        if (!isAndroid) return; // Desktop is completely unconstrained!
+
         const { w: viewW, h: viewH } = getViewportDimensions();
         ['settings-modal-card', 'reader-modal-card'].forEach(cardId => {
             const card = document.getElementById(cardId);
@@ -2838,10 +2862,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             let nLeft = Math.max(6, Math.min(curLeft, viewW - nW - 6));
             let nTop = Math.max(6, Math.min(curTop, viewH - nH - 6));
 
-            card.style.setProperty('width', nW + 'px', 'important');
-            card.style.setProperty('height', nH + 'px', 'important');
-            card.style.setProperty('left', nLeft + 'px', 'important');
-            card.style.setProperty('top', nTop + 'px', 'important');
+            card.style.width = nW + 'px';
+            card.style.height = nH + 'px';
+            card.style.left = nLeft + 'px';
+            card.style.top = nTop + 'px';
         });
     }
     window.addEventListener('resize', clampActiveModals);
@@ -4040,28 +4064,31 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const modalCard = document.getElementById('reader-modal-card');
         if (modalCard) {
             const { w: viewW, h: viewH, zoom } = getViewportDimensions();
+            const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
             let savedGeo = null;
             try {
                 savedGeo = JSON.parse(localStorage.getItem('puretidings_reader_geometry') || localStorage.getItem('puretidings_reader_size') || 'null');
             } catch (_) {}
 
-            let w = (savedGeo && savedGeo.width) ? savedGeo.width : Math.min(960, Math.max(320, viewW - 24));
-            let h = (savedGeo && savedGeo.height) ? savedGeo.height : Math.min(840, Math.max(220, viewH - 24));
+            let w = (savedGeo && savedGeo.width) ? Math.max(380, savedGeo.width) : Math.min(960, Math.max(380, viewW - 60));
+            let h = (savedGeo && savedGeo.height) ? Math.max(250, savedGeo.height) : Math.min(840, Math.max(250, viewH - 60));
+            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(10, (viewW - w) / 2));
+            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(10, (viewH - h) / 2));
 
-            // Constrain within current viewport so it never exceeds screen dimensions
-            w = Math.max(280, Math.min(w, viewW - 12));
-            h = Math.max(160, Math.min(h, viewH - 12));
+            if (isAndroid) {
+                w = Math.max(280, Math.min(w, viewW - 12));
+                h = Math.max(160, Math.min(h, viewH - 12));
+                left = Math.max(6, Math.min(left, viewW - w - 6));
+                top = Math.max(6, Math.min(top, viewH - h - 6));
+            } else {
+                left = Math.max(-w + 80, Math.min(left, viewW - 80));
+                top = Math.max(0, Math.min(top, viewH - 40));
+            }
 
-            let left = (savedGeo && savedGeo.left !== undefined) ? savedGeo.left : Math.round(Math.max(6, (viewW - w) / 2));
-            let top = (savedGeo && savedGeo.top !== undefined) ? savedGeo.top : Math.round(Math.max(6, (viewH - h) / 2));
-
-            left = Math.max(6, Math.min(left, viewW - w - 6));
-            top = Math.max(6, Math.min(top, viewH - h - 6));
-
-            modalCard.style.setProperty('width', w + 'px', 'important');
-            modalCard.style.setProperty('height', h + 'px', 'important');
-            modalCard.style.setProperty('left', left + 'px', 'important');
-            modalCard.style.setProperty('top', top + 'px', 'important');
+            modalCard.style.width = w + 'px';
+            modalCard.style.height = h + 'px';
+            modalCard.style.left = left + 'px';
+            modalCard.style.top = top + 'px';
 
             function saveReaderGeometry() {
                 if (!modalCard) return;
@@ -4093,8 +4120,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                     const startX = point.clientX;
                     const startY = point.clientY;
-                    const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
-                    const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 6;
+                    const initialLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 0;
+                    const initialTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 0;
 
                     function onDrag(ev) {
                         const curPoint = isTouch ? (ev.touches && ev.touches[0]) : ev;
@@ -4106,15 +4133,19 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         let nLeft = initialLeft + dx;
                         let nTop = initialTop + dy;
 
-                        const cardW = modalCard.offsetWidth;
-                        const cardH = modalCard.offsetHeight;
+                        const isAndroidMobile = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                        if (isAndroidMobile) {
+                            const cardW = modalCard.offsetWidth;
+                            const cardH = modalCard.offsetHeight;
+                            nLeft = Math.max(6, Math.min(nLeft, curViewW - cardW - 6));
+                            nTop = Math.max(6, Math.min(nTop, curViewH - cardH - 6));
+                        } else {
+                            nLeft = Math.max(-modalCard.offsetWidth + 80, Math.min(nLeft, curViewW - 80));
+                            nTop = Math.max(0, Math.min(nTop, curViewH - 40));
+                        }
 
-                        // Keep modal card completely inside screen
-                        nLeft = Math.max(6, Math.min(nLeft, curViewW - cardW - 6));
-                        nTop = Math.max(6, Math.min(nTop, curViewH - cardH - 6));
-
-                        modalCard.style.setProperty('left', nLeft + 'px', 'important');
-                        modalCard.style.setProperty('top', nTop + 'px', 'important');
+                        modalCard.style.left = nLeft + 'px';
+                        modalCard.style.top = nTop + 'px';
                     }
 
                     function stopDrag() {
@@ -4167,14 +4198,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const { zoom: activeZoom, w: curViewW, h: curViewH } = getViewportDimensions();
                         const dx = (curPoint.clientX - startX) / activeZoom;
                         const dy = (curPoint.clientY - startY) / activeZoom;
-                        const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
-                        const curTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 6;
-                        const maxAllowedW = curViewW - curLeft - 6;
-                        const maxAllowedH = curViewH - curTop - 6;
-                        const nW = Math.max(280, Math.min(maxAllowedW, startW + dx));
-                        const nH = Math.max(160, Math.min(maxAllowedH, startH + dy));
-                        modalCard.style.setProperty('width', nW + 'px', 'important');
-                        modalCard.style.setProperty('height', nH + 'px', 'important');
+
+                        let nW = Math.max(300, startW + dx);
+                        let nH = Math.max(200, startH + dy);
+
+                        const isAndroidMobile = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                        if (isAndroidMobile) {
+                            const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
+                            const curTop = parseFloat(modalCard.style.top) || modalCard.offsetTop || 6;
+                            const maxAllowedW = curViewW - curLeft - 6;
+                            const maxAllowedH = curViewH - curTop - 6;
+                            nW = Math.min(maxAllowedW, nW);
+                            nH = Math.min(maxAllowedH, nH);
+                        }
+
+                        modalCard.style.width = nW + 'px';
+                        modalCard.style.height = nH + 'px';
                     }
 
                     function stopGripResize() {
@@ -4222,10 +4261,16 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         if (ev.cancelable) ev.preventDefault();
                         const { zoom: activeZoom, w: curViewW } = getViewportDimensions();
                         const dx = (curPoint.clientX - startX) / activeZoom;
-                        const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
-                        const maxAllowedW = curViewW - curLeft - 6;
-                        const nW = Math.max(280, Math.min(maxAllowedW, startW + dx));
-                        modalCard.style.setProperty('width', nW + 'px', 'important');
+
+                        let nW = Math.max(300, startW + dx);
+                        const isAndroidMobile = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                        if (isAndroidMobile) {
+                            const curLeft = parseFloat(modalCard.style.left) || modalCard.offsetLeft || 6;
+                            const maxAllowedW = curViewW - curLeft - 6;
+                            nW = Math.min(maxAllowedW, nW);
+                        }
+
+                        modalCard.style.width = nW + 'px';
                     }
 
                     function stopEdgeDrag() {
@@ -4265,20 +4310,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                     if (isMax) {
                         // Restore to comfortable floating size
-                        const nW = Math.max(300, Math.min(900, curViewW - 32));
-                        const nH = Math.max(200, Math.min(700, curViewH - 32));
-                        const nLeft = Math.round(Math.max(6, (curViewW - nW) / 2));
-                        const nTop = Math.round(Math.max(6, (curViewH - nH) / 2));
-                        modalCard.style.setProperty('width', nW + 'px', 'important');
-                        modalCard.style.setProperty('height', nH + 'px', 'important');
-                        modalCard.style.setProperty('left', nLeft + 'px', 'important');
-                        modalCard.style.setProperty('top', nTop + 'px', 'important');
+                        const nW = Math.max(380, Math.min(960, curViewW - 40));
+                        const nH = Math.max(250, Math.min(840, curViewH - 40));
+                        const nLeft = Math.round(Math.max(10, (curViewW - nW) / 2));
+                        const nTop = Math.round(Math.max(10, (curViewH - nH) / 2));
+                        modalCard.style.width = nW + 'px';
+                        modalCard.style.height = nH + 'px';
+                        modalCard.style.left = nLeft + 'px';
+                        modalCard.style.top = nTop + 'px';
                     } else {
                         // Maximize to full viewport
-                        modalCard.style.setProperty('width', (curViewW - 12) + 'px', 'important');
-                        modalCard.style.setProperty('height', (curViewH - 12) + 'px', 'important');
-                        modalCard.style.setProperty('left', '6px', 'important');
-                        modalCard.style.setProperty('top', '6px', 'important');
+                        modalCard.style.width = (curViewW - 12) + 'px';
+                        modalCard.style.height = (curViewH - 12) + 'px';
+                        modalCard.style.left = '6px';
+                        modalCard.style.top = '6px';
                     }
                     saveReaderGeometry();
                 });
