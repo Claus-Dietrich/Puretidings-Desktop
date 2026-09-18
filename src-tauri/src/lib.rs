@@ -131,6 +131,54 @@ fn write_file_text(path: String, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_download_file(app: tauri::AppHandle, filename: String, contents: String) -> Result<String, String> {
+    use tauri::Manager;
+    use std::path::PathBuf;
+
+    let mut candidate_dirs: Vec<PathBuf> = Vec::new();
+
+    #[cfg(target_os = "android")]
+    {
+        // 1. Standard Android public Download directory
+        candidate_dirs.push(PathBuf::from("/storage/emulated/0/Download"));
+        candidate_dirs.push(PathBuf::from("/sdcard/Download"));
+        // 2. PureTidings subfolder inside Download
+        candidate_dirs.push(PathBuf::from("/storage/emulated/0/Download/PureTidings"));
+        // 3. Public Documents directory
+        candidate_dirs.push(PathBuf::from("/storage/emulated/0/Documents"));
+        // 4. App-specific external storage directories (accessible by user via file managers)
+        candidate_dirs.push(PathBuf::from("/storage/emulated/0/Android/data/com.puretidings.desktop/files/Download"));
+        candidate_dirs.push(PathBuf::from("/storage/emulated/0/Android/data/com.puretidings.desktop/files/Documents"));
+    }
+
+    if let Ok(dir) = app.path().download_dir() {
+        candidate_dirs.push(dir);
+    }
+    if let Ok(dir) = app.path().document_dir() {
+        candidate_dirs.push(dir);
+    }
+    if let Ok(dir) = app.path().app_data_dir() {
+        candidate_dirs.push(dir);
+    }
+
+    let mut last_err = String::new();
+    for dir in candidate_dirs {
+        if !dir.exists() {
+            let _ = std::fs::create_dir_all(&dir);
+        }
+        let target_file = dir.join(&filename);
+        match std::fs::write(&target_file, &contents) {
+            Ok(_) => return Ok(target_file.to_string_lossy().to_string()),
+            Err(e) => {
+                last_err = format!("Path {:?}: {}", target_file, e);
+            }
+        }
+    }
+
+    Err(format!("Could not save file to disk. Last error: {}", last_err))
+}
+
+#[tauri::command]
 fn pick_folder(default_path: Option<String>) -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
@@ -680,6 +728,7 @@ pub fn run() {
             open_browser,
             read_file_text,
             write_file_text,
+            save_download_file,
             pick_folder,
             pick_file,
             show_native_notification,

@@ -877,33 +877,28 @@ main {
     padding: 10px;
   }
 
-  .desktop-modal-card {
-    max-width: 100% !important;
-    width: 100% !important;
-    margin: 0 !important;
-    border-radius: 8px !important;
-    padding: 18px 14px !important;
-  }
-
-  /* Fullscreen Responsive Reader Modal */
+  /* Responsive Floating Modals (Settings & Reader Mode) */
+  #settings-modal .desktop-modal-card,
   #reader-modal .desktop-modal-card.reader-container {
-    max-width: 100% !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-height: 100% !important;
-    border-radius: 0 !important;
-    border: none !important;
-    padding: 14px 14px 60px 14px !important;
-  }
-
-  /* Responsive Settings Modal */
-  #settings-modal .desktop-modal-card {
     max-width: calc(100vw - 12px) !important;
     max-height: calc(100vh - 12px) !important;
+    min-width: 260px !important;
+    min-height: 140px !important;
     border-radius: 8px !important;
     overflow: hidden !important;
     display: flex !important;
     flex-direction: column !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Static Dialog Modals (Text restore, prompts) */
+  .desktop-modal-overlay:not(#settings-modal):not(#reader-modal) .desktop-modal-card {
+    max-width: 95% !important;
+    width: 95% !important;
+    margin: 0 auto !important;
+    border-radius: 8px !important;
+    padding: 18px 14px !important;
   }
 
   #settings-modal .settings-modal-body {
