@@ -624,6 +624,25 @@ main {
   to { transform: rotate(360deg); }
 }
 
+.move-btn,
+#settings-feed-list .move-btn {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 4px;
+    font-size: 11px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+.move-btn:disabled,
+#settings-feed-list .move-btn:disabled {
+    opacity: 0.3 !important;
+    cursor: not-allowed !important;
+}
+
 .tree-node-content .post-item {
   border: none;
   margin: 0;

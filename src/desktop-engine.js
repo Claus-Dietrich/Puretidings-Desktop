@@ -3246,6 +3246,30 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
     window.renderSettingsEmailAccounts = renderSettingsEmailAccounts;
 
+    function moveNodeInSiblings(nodes, targetId, direction) {
+        for (let i = 0; i < nodes.length; i++) {
+            if (nodes[i].id === targetId) {
+                const targetIdx = direction === 'up' ? i - 1 : i + 1;
+                if (targetIdx >= 0 && targetIdx < nodes.length) {
+                    const temp = nodes[i];
+                    nodes[i] = nodes[targetIdx];
+                    nodes[targetIdx] = temp;
+                    return true;
+                }
+                return false;
+            }
+            if (nodes[i].children && nodes[i].children.length > 0) {
+                if (moveNodeInSiblings(nodes[i].children, targetId, direction)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    if (typeof window !== 'undefined') {
+        window.moveNodeInSiblings = moveNodeInSiblings;
+    }
+
     let editingNodeId = null;
 
     async function renderSettingsFeeds() {
@@ -3296,7 +3320,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
 
         function renderList(nodes, parentEl, level = 0, parentId = '') {
-            nodes.forEach(node => {
+            nodes.forEach((node, index) => {
+                const isFirst = index === 0;
+                const isLast = index === nodes.length - 1;
                 const li = document.createElement('li');
                 li.className = 'feed-item-row';
                 li.dataset.id = node.id;
@@ -3347,6 +3373,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             </div>
                         </div>
                         <div class="folder-actions feed-actions">
+                            <button type="button" class="move-btn move-up-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_up') : 'Move up'}" data-i18n-title="tooltip_move_up" ${isFirst ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▲</button>
+                            <button type="button" class="move-btn move-down-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_down') : 'Move down'}" data-i18n-title="tooltip_move_down" ${isLast ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▼</button>
                             <button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_refresh_folder') : 'Refresh all feeds in this folder'}" data-i18n-title="tooltip_refresh_folder">🔄</button>
                             <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
                             <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
@@ -3364,6 +3392,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             </div>
                         </div>
                         <div class="feed-actions">
+                            <button type="button" class="move-btn move-up-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_up') : 'Move up'}" data-i18n-title="tooltip_move_up" ${isFirst ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▲</button>
+                            <button type="button" class="move-btn move-down-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_down') : 'Move down'}" data-i18n-title="tooltip_move_down" ${isLast ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▼</button>
                             <button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_refresh_feed') : 'Refresh this feed'}" data-i18n-title="tooltip_refresh_feed">🔄</button>
                             <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
                             <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
@@ -3527,6 +3557,29 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         renderList(feedTree, list, 0, '');
 
+        // Wire Move buttons
+        list.querySelectorAll('.move-up-btn:not([disabled])').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const id = e.currentTarget.dataset.id;
+                if (moveNodeInSiblings(feedTree, id, 'up')) {
+                    await chrome.storage.local.set({ feedTree });
+                    renderSettingsFeeds();
+                }
+            });
+        });
+
+        list.querySelectorAll('.move-down-btn:not([disabled])').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const id = e.currentTarget.dataset.id;
+                if (moveNodeInSiblings(feedTree, id, 'down')) {
+                    await chrome.storage.local.set({ feedTree });
+                    renderSettingsFeeds();
+                }
+            });
+        });
+
         // Wire Edit buttons
         list.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -3660,7 +3713,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         });
 
         // Wire Single / Folder Refresh buttons in Settings
-        list.querySelectorAll('.feed-single-refresh-btn').forEach(btn => {
+        list.querySelectorAll('.feed-single-refresh-btn:not(.move-btn)').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
