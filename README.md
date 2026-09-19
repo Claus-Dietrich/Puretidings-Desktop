@@ -10,10 +10,64 @@
 - **Native Multi-Language (i18n):** Instant runtime switching between English, German, Spanish, and French.
 - **BYOK Gemini AI Summaries with Direct Storage:** Free AI-powered summaries of articles and YouTube videos (TL;DW) using your own Google Gemini API key, saved directly to disk (`/storage/emulated/0/Download/` on Android, Downloads folder on Desktop) via native Rust IPC (`save_download_file`) with multi-format export (MD, HTML, TXT) and Share sheet fallback.
 - **Touch-Enabled Resizable & Draggable Modals:** Free-floating Reader and Settings dialogs with completely unrestricted desktop resizing, right-edge width drag handle, corner grip (`◢`), 1-tap Fit/Maximize button (`⛶`), and mobile landscape auto-clamping.
-- **Native Mobile & Desktop Notifications:** System notifications across Windows Toast, macOS, Linux, and Android status bar (`tauri-plugin-notification`).
+- **Native Mobile & Desktop Notifications:** System notifications across Windows Toast, macOS, Linux, and Android status bar (`tauri-plugin-notification` with dedicated high-importance channel, sound, and heads-up banner).
+- **System Autostart & Screen Wake Lock:** Optional automatic background launch on system boot (Windows, macOS, Linux) and Screen Wake Lock to keep displays awake on mobile devices.
+- **Fluid Responsive Reader Typography:** Dynamic font scaling (`clamp(1.15rem, 4.2vw, 1.45rem)`) and mobile portrait header stacking prevent oversized titles on small screens.
 - **External Browser Integration:** Seamless link opening in your system default browser on desktop and Android (`tauri-plugin-opener`).
 - **Automated Local Backups & OPML:** Full OPML 2.0 import/export, direct clipboard/text restoration, and automated daily JSON backups to a dedicated local directory.
 - **Multi-Platform Native Packages:** Automated CI/CD release builds for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), Linux (`.AppImage`, `.deb`, `.rpm`), and Android (`.apk`).
+
+---
+
+## ℹ️ Important Note: YouTube Feed Queries & AI Video Transcripts
+
+When querying multiple YouTube channels simultaneously (e.g., when refreshing all feeds at once), YouTube's servers may temporarily trigger anti-bot rate limiting ("Are you a human?" check). 
+
+If you open a video during this temporary window, YouTube may withhold transcripts for a brief cooldown period (typically 5–15 minutes), during which the AI video summary cannot be retrieved. After waiting a few minutes, transcript retrieval and AI summaries will automatically work again as expected—**this is standard upstream YouTube IP rate limiting, not a bug in the application**.
+
+> **Pro-Tip:** In Settings under **Automation & Schedule**, keep the **"🎲 Randomize fetch timing (±20% jitter)"** option enabled to spread background requests naturally.
+
+---
+
+## 💻 Chromebook & ChromeOS Installation Guide
+
+PureTidings runs smoothly and natively on Chromebooks:
+
+### Method 1: Native Linux App (.deb) via Crostini (Recommended for Intel & AMD Chromebooks)
+1. **Enable Linux:** Open ChromeOS **Settings** > **Advanced** > **Developers** and click **Turn On** next to **Linux development environment (Beta / Crostini)**.
+2. **Download Package:** Download the latest `PureTidings_amd64.deb` from [GitHub Releases](https://github.com/Claus-Dietrich/Puretidings-Desktop/releases/latest).
+3. **Move to Linux Files:** In the ChromeOS **Files** app, drag the `.deb` file into your **Linux files** folder.
+4. **Install:** Double-click or right-click the file and choose **"Install with Linux"**, or open the Linux Terminal and run:
+   ```bash
+   sudo dpkg -i PureTidings_*_amd64.deb && sudo apt-get install -f
+   ```
+5. **Launch:** PureTidings will appear directly in your ChromeOS App Launcher with full window resizing, offline storage, and keyboard shortcuts.
+
+### Method 2: Android App (.apk) via ARCVM (Recommended for ARM-based Chromebooks)
+1. On ARM-based Chromebooks (MediaTek, Qualcomm Snapdragon, Rockchip), download `PureTidings_aarch64.apk` from [GitHub Releases](https://github.com/Claus-Dietrich/Puretidings-Desktop/releases/latest).
+2. Install or sideload the APK through the ChromeOS Android subsystem.
+3. PureTidings opens in an adaptive, resizable window supporting touch, keyboard, and mouse.
+
+### Method 3: Building from Source in Chromebook Linux Container
+To compile PureTidings directly inside your Chromebook Crostini container:
+```bash
+# 1. Install prerequisites
+sudo apt update && sudo apt install -y curl build-essential libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev git
+
+# 2. Install Node.js (v20 LTS)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+
+# 3. Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
+
+# 4. Clone and build PureTidings Desktop
+git clone https://github.com/Claus-Dietrich/Puretidings-Desktop.git
+cd Puretidings-Desktop
+npm install
+npm run tauri build
+```
+The compiled binary and Debian installer will be located in `src-tauri/target/release/bundle/deb/`.
 
 ---
 
@@ -27,12 +81,6 @@ Whenever a tag is pushed (e.g. `v1.0.42`) or triggered manually from GitHub's **
 3. **Linux Runner:** Automatically compiles portable `.AppImage`, `.deb`, and `.rpm` packages.
 4. **Android Runner:** Automatically compiles and signs the standalone 64-bit ARM APK (`PureTidings_aarch64.apk`).
 5. **GitHub Release:** Publishes a release with all 8 download assets ready for users.
-
-### Triggering a Release via Git:
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
 
 ---
 
