@@ -3326,7 +3326,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const li = document.createElement('li');
                 li.className = 'feed-item-row';
                 li.dataset.id = node.id;
-                li.style.paddingLeft = `${level * 20 + 12}px`;
+                li.style.paddingLeft = `${level * 10 + 6}px`;
 
                 const isFolder = node.type === 'folder';
                 const isEditing = editingNodeId === node.id;
@@ -3373,9 +3373,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             </div>
                         </div>
                         <div class="folder-actions feed-actions">
-                            <button type="button" class="move-btn move-up-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_up') : 'Move up'}" data-i18n-title="tooltip_move_up" ${isFirst ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▲</button>
-                            <button type="button" class="move-btn move-down-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_down') : 'Move down'}" data-i18n-title="tooltip_move_down" ${isLast ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▼</button>
-                            <button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_refresh_folder') : 'Refresh all feeds in this folder'}" data-i18n-title="tooltip_refresh_folder">🔄</button>
+                            <button type="button" class="move-btn move-up-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_up') : 'Move up'}" data-i18n-title="tooltip_move_up" ${isFirst ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▲</button>
+                            <button type="button" class="move-btn move-down-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_down') : 'Move down'}" data-i18n-title="tooltip_move_down" ${isLast ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▼</button>
                             <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
                             <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
                         </div>
@@ -3392,9 +3391,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             </div>
                         </div>
                         <div class="feed-actions">
-                            <button type="button" class="move-btn move-up-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_up') : 'Move up'}" data-i18n-title="tooltip_move_up" ${isFirst ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▲</button>
-                            <button type="button" class="move-btn move-down-btn feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_down') : 'Move down'}" data-i18n-title="tooltip_move_down" ${isLast ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▼</button>
-                            <button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_refresh_feed') : 'Refresh this feed'}" data-i18n-title="tooltip_refresh_feed">🔄</button>
+                            <button type="button" class="move-btn move-up-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_up') : 'Move up'}" data-i18n-title="tooltip_move_up" ${isFirst ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▲</button>
+                            <button type="button" class="move-btn move-down-btn" data-id="${node.id}" title="${window.i18n ? window.i18n.t('tooltip_move_down') : 'Move down'}" data-i18n-title="tooltip_move_down" ${isLast ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''}>▼</button>
                             <button type="button" class="edit-btn" data-id="${node.id}">Edit</button>
                             <button type="button" class="delete-btn" data-id="${node.id}">Delete</button>
                         </div>
@@ -3709,41 +3707,6 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const updated = removeNode(feedTree);
                 await chrome.storage.local.set({ feedTree: updated });
                 renderSettingsFeeds();
-            });
-        });
-
-        // Wire Single / Folder Refresh buttons in Settings
-        list.querySelectorAll('.feed-single-refresh-btn:not(.move-btn)').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const id = e.currentTarget.dataset.id;
-                btn.classList.add('spinning');
-                try {
-                    function findNode(nodes) {
-                        for (const n of nodes) {
-                            if (n.id === id) return n;
-                            if (n.children) {
-                                const f = findNode(n.children);
-                                if (f) return f;
-                            }
-                        }
-                        return null;
-                    }
-                    const node = findNode(feedTree);
-                    if (node && node.type === 'folder') {
-                        const feedIds = [];
-                        function collect(n) {
-                            if (n.type === 'feed') feedIds.push(n.id);
-                            else if (n.children) n.children.forEach(collect);
-                        }
-                        collect(node);
-                        await Promise.all(feedIds.map(fId => refreshSingleFeedNative(fId)));
-                    } else {
-                        await refreshSingleFeedNative(id);
-                    }
-                } finally {
-                    btn.classList.remove('spinning');
-                }
             });
         });
     }

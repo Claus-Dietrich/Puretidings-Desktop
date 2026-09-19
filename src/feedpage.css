@@ -626,10 +626,10 @@ main {
 
 .move-btn,
 #settings-feed-list .move-btn {
-    min-width: 24px;
-    height: 24px;
-    padding: 0 4px;
-    font-size: 11px;
+    min-width: 20px;
+    height: 22px;
+    padding: 0 2px;
+    font-size: 10px;
     line-height: 1;
     display: inline-flex;
     align-items: center;
