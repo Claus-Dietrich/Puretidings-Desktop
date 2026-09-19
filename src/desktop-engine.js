@@ -3286,6 +3286,15 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
         });
 
+        // Helper to check if a folder id is a descendant of a node (prevents circular parenting)
+        function isDescendant(node, searchId) {
+            if (!node || !node.children) return false;
+            for (const child of node.children) {
+                if (child.id === searchId || isDescendant(child, searchId)) return true;
+            }
+            return false;
+        }
+
         function renderList(nodes, parentEl, level = 0, parentId = '') {
             nodes.forEach(node => {
                 const li = document.createElement('li');
@@ -3298,6 +3307,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 if (isEditing) {
                     li.style.background = 'var(--hover-bg)';
+                    const validParentFolders = isFolder
+                        ? folders.filter(f => f.id !== node.id && !isDescendant(node, f.id))
+                        : folders;
+
                     li.innerHTML = `
                         <div style="display: flex; flex-direction: column; gap: 8px; padding: 6px 0; width: 100%;">
                             <div>
@@ -3309,14 +3322,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                 <label style="font-size: 11px; font-weight: bold; color: var(--text-color-darker); display: block; margin-bottom: 2px;">Feed URL:</label>
                                 <input type="text" id="edit-node-url-${node.id}" value="${escapeHTML(node.url || '')}" style="width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
                             </div>
+                            ` : ''}
                             <div>
                                 <label style="font-size: 11px; font-weight: bold; color: var(--text-color-darker); display: block; margin-bottom: 2px;">Parent Folder:</label>
                                 <select id="edit-node-folder-${node.id}" style="width: 100%; padding: 6px; box-sizing: border-box; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-color); color: var(--text-color);">
                                     <option value="">Root (No Folder)</option>
-                                    ${folders.map(f => `<option value="${f.id}" ${parentId === f.id ? 'selected' : ''}>${escapeHTML(f.name)}</option>`).join('')}
+                                    ${validParentFolders.map(f => `<option value="${f.id}" ${parentId === f.id ? 'selected' : ''}>${escapeHTML(f.name)}</option>`).join('')}
                                 </select>
                             </div>
-                            ` : ''}
                             <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;">
                                 <button type="button" class="btn-cancel-node-edit secondary-btn" style="padding: 4px 14px;">Cancel</button>
                                 <button type="button" class="btn-save-node-edit" data-id="${node.id}" style="padding: 4px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Save</button>
@@ -3573,6 +3586,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 const targetFolderId = folderSelect ? folderSelect.value : result.parentId;
                 if (folderSelect && targetFolderId !== result.parentId) {
+                    // Prevent circular parenting when moving a folder
+                    if (result.node.type === 'folder' && (targetFolderId === id || isDescendant(result.node, targetFolderId))) {
+                        alert("Cannot move a folder into itself or a subfolder.");
+                        return;
+                    }
+
                     function extractNode(nodes, targetId) {
                         for (let i = 0; i < nodes.length; i++) {
                             if (nodes[i].id === targetId) {
@@ -3602,7 +3621,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                 }
                                 return false;
                             }
-                            insertIntoFolder(feedTree, targetFolderId, extracted);
+                            const inserted = insertIntoFolder(feedTree, targetFolderId, extracted);
+                            if (!inserted) {
+                                feedTree.push(extracted);
+                            }
                         }
                     }
                 }
@@ -3610,7 +3632,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 await chrome.storage.local.set({ feedTree });
                 editingNodeId = null;
                 renderSettingsFeeds();
-                refreshSingleFeedNative(id);
+                if (result.node.type === 'feed') {
+                    refreshSingleFeedNative(id);
+                }
             });
         });
 
