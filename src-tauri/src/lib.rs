@@ -381,11 +381,42 @@ fn to_base64(data: &[u8]) -> String {
 #[tauri::command]
 fn show_native_notification(app: tauri::AppHandle, title: String, message: String) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification()
-        .builder()
-        .title(&title)
-        .body(&message)
-        .show();
+
+    #[cfg(target_os = "android")]
+    {
+        let notif_id = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() % 1_000_000_000) as i32;
+
+        let builder = app.notification()
+            .builder()
+            .id(notif_id)
+            .channel_id("puretidings_articles")
+            .title(&title)
+            .body(&message)
+            .auto_cancel();
+
+        if let Err(e) = builder.show() {
+            eprintln!("[PureTidings] Android notification error with channel puretidings_articles: {:?}", e);
+            let _ = app.notification()
+                .builder()
+                .id(notif_id)
+                .title(&title)
+                .body(&message)
+                .auto_cancel()
+                .show();
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app.notification()
+            .builder()
+            .title(&title)
+            .body(&message)
+            .show();
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -465,6 +496,131 @@ fn show_native_notification(app: tauri::AppHandle, title: String, message: Strin
         let _ = (&title, &message);
     }
     Ok(())
+}
+
+#[tauri::command]
+fn get_autostart() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("reg");
+        cmd.args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "PureTidings"]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd.output();
+        if let Ok(out) = output {
+            return Ok(out.status.success());
+        }
+        Ok(false)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let desktop_file = std::path::PathBuf::from(home).join(".config/autostart/com.puretidings.desktop.desktop");
+        Ok(desktop_file.exists())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let plist_file = std::path::PathBuf::from(home).join("Library/LaunchAgents/com.puretidings.desktop.plist");
+        Ok(plist_file.exists())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+fn set_autostart(enable: bool) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+        let exe_str = exe_path.to_string_lossy();
+        if enable {
+            let mut cmd = std::process::Command::new("reg");
+            cmd.args([
+                "add",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v",
+                "PureTidings",
+                "/t",
+                "REG_SZ",
+                "/d",
+                &format!("\"{}\"", exe_str),
+                "/f",
+            ]);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let cmd_res = cmd.output().map_err(|e| e.to_string())?;
+            if !cmd_res.status.success() {
+                return Err(String::from_utf8_lossy(&cmd_res.stderr).to_string());
+            }
+        } else {
+            let mut cmd = std::process::Command::new("reg");
+            cmd.args([
+                "delete",
+                "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                "/v",
+                "PureTidings",
+                "/f",
+            ]);
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            let _ = cmd.output();
+        }
+        return Ok(enable);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+        let autostart_dir = std::path::PathBuf::from(home).join(".config/autostart");
+        let desktop_file = autostart_dir.join("com.puretidings.desktop.desktop");
+        if enable {
+            let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+            let _ = std::fs::create_dir_all(&autostart_dir);
+            let content = format!(
+                "[Desktop Entry]\nType=Application\nName=PureTidings\nExec=\"{}\"\nTerminal=false\nCategories=Office;News;\n",
+                exe_path.to_string_lossy()
+            );
+            std::fs::write(&desktop_file, content).map_err(|e| e.to_string())?;
+        } else if desktop_file.exists() {
+            let _ = std::fs::remove_file(desktop_file);
+        }
+        return Ok(enable);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").map_err(|e| e.to_string())?;
+        let launch_agents = std::path::PathBuf::from(home).join("Library/LaunchAgents");
+        let plist_file = launch_agents.join("com.puretidings.desktop.plist");
+        if enable {
+            let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+            let _ = std::fs::create_dir_all(&launch_agents);
+            let content = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.puretidings.desktop</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>"#,
+                exe_path.to_string_lossy()
+            );
+            std::fs::write(&plist_file, content).map_err(|e| e.to_string())?;
+        } else if plist_file.exists() {
+            let _ = std::fs::remove_file(plist_file);
+        }
+        return Ok(enable);
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        let _ = enable;
+        Ok(false)
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -732,6 +888,8 @@ pub fn run() {
             pick_folder,
             pick_file,
             show_native_notification,
+            get_autostart,
+            set_autostart,
             test_imap_connection,
             list_imap_folders,
             fetch_imap_emails,

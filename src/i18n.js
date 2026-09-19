@@ -140,6 +140,8 @@
             settings_unread_interval_label: "Unread Reminder Interval:",
             btn_test_notification: "🔔 Send Test Notification",
             btn_test_unread_reminder: "🔔 Test Unread Reminder",
+            settings_autostart_label: "Start PureTidings automatically on system startup",
+            settings_keep_screen_awake_label: "Keep screen awake (prevent screen lock / screensaver)",
 
             // Settings: Email Accounts (IMAP) Tab
             settings_email_title: "📬 Email Inboxes & Newsletters (IMAP)",
@@ -376,6 +378,8 @@
             settings_unread_interval_label: "Erinnerungsintervall für ungelesene Artikel:",
             btn_test_notification: "🔔 Test-Benachrichtigung senden",
             btn_test_unread_reminder: "🔔 Ungelesene-Erinnerung testen",
+            settings_autostart_label: "PureTidings beim Systemstart automatisch ausführen",
+            settings_keep_screen_awake_label: "Bildschirm aktiv halten (Sperren & Bildschirmschoner verhindern)",
 
             // Settings: Email Accounts (IMAP) Tab
             settings_email_title: "📬 E-Mail-Postfächer & Newsletter (IMAP)",
@@ -612,6 +616,8 @@
             settings_unread_interval_label: "Intervalo del recordatorio de no leídos:",
             btn_test_notification: "🔔 Enviar notificación de prueba",
             btn_test_unread_reminder: "🔔 Probar recordatorio de no leídos",
+            settings_autostart_label: "Iniciar PureTidings automáticamente al arrancar el sistema",
+            settings_keep_screen_awake_label: "Mantener pantalla encendida (evitar bloqueo y salvapantallas)",
 
             // Settings: Email Accounts (IMAP) Tab
             settings_email_title: "📬 Bandejas de Correo y Boletines (IMAP)",
@@ -848,6 +854,8 @@
             settings_unread_interval_label: "Intervalle de rappel des non-lus :",
             btn_test_notification: "🔔 Envoyer une notification de test",
             btn_test_unread_reminder: "🔔 Tester le rappel des non-lus",
+            settings_autostart_label: "Lancer automatiquement PureTidings au démarrage du système",
+            settings_keep_screen_awake_label: "Garder l'écran allumé (empêcher le verrouillage et la veille)",
 
             // Settings: Email Accounts (IMAP) Tab
             settings_email_title: "📬 Boîtes de Réception & Newsletters (IMAP)",

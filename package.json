@@ -1,6 +1,6 @@
 {
   "name": "puretidings-desktop",
-  "version": "1.0.41",
+  "version": "1.0.42",
   "description": "PureTidings - Standalone RSS & Content Reader Desktop Application",
   "private": true,
   "scripts": {

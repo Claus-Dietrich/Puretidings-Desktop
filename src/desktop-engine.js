@@ -2061,12 +2061,61 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
     window.showInAppToast = showInAppToast;
 
+    let wakeLockSentinel = null;
+    async function applyWakeLock(enable) {
+        if (!('wakeLock' in navigator)) return;
+        try {
+            if (enable) {
+                if (!wakeLockSentinel) {
+                    wakeLockSentinel = await navigator.wakeLock.request('screen');
+                    wakeLockSentinel.addEventListener('release', () => {
+                        wakeLockSentinel = null;
+                    });
+                }
+            } else {
+                if (wakeLockSentinel) {
+                    await wakeLockSentinel.release();
+                    wakeLockSentinel = null;
+                }
+            }
+        } catch (err) {
+            console.warn("[PureTidings] WakeLock error:", err);
+        }
+    }
+    window.applyWakeLock = applyWakeLock;
+
+    document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') {
+            try {
+                const { keepScreenAwake } = await chrome.storage.sync.get(['keepScreenAwake']);
+                if (keepScreenAwake) applyWakeLock(true);
+            } catch (_) {}
+        }
+    });
+
     async function showDesktopNotification(title, message) {
         try {
-            // Check / request notification permission on Android and modern platforms
-            if (window.__TAURI__?.notification?.requestPermission) {
+            const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+
+            // Check / request notification permission and create channel on Android
+            if (isAndroid && window.__TAURI__?.core?.invoke) {
                 try {
-                    await window.__TAURI__.notification.requestPermission();
+                    await tauriInvoke('plugin:notification|create_channel', {
+                        id: 'puretidings_articles',
+                        name: 'PureTidings Articles',
+                        description: 'Notifications for new articles and unread reminders',
+                        importance: 4, // Importance.High
+                        visibility: 1, // Visibility.Public
+                        lights: true,
+                        vibration: true
+                    });
+                } catch (_) {}
+
+                try {
+                    const granted = await tauriInvoke('plugin:notification|is_permission_granted');
+                    if (!granted) {
+                        await tauriInvoke('plugin:notification|request_permission');
+                    }
                 } catch (_) {}
             }
 
@@ -2080,8 +2129,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 console.warn("[PureTidings Desktop] Native notification invoke failed:", ipcErr);
             }
 
-            // Fallback to Web Notification API if supported
-            if ('Notification' in window) {
+            // Fallback to Web Notification API if supported (desktop browsers)
+            if (!isAndroid && 'Notification' in window) {
                 if (Notification.permission === 'granted') {
                     new Notification(title, { body: message, icon: 'icon.png' });
                 } else if (Notification.permission !== 'denied') {
@@ -2935,6 +2984,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         const backupFolderInput = document.getElementById('settings-backup-folder-path');
         if (backupFolderInput) backupFolderInput.value = backupFolderPath || '';
+
+        // Autostart setting (Desktop only)
+        const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+        const autostartContainer = document.getElementById('desktop-autostart-container');
+        const autostartCheckbox = document.getElementById('settings-autostart-checkbox');
+        if (isAndroid) {
+            if (autostartContainer) autostartContainer.style.display = 'none';
+        } else {
+            if (autostartContainer) autostartContainer.style.display = 'block';
+            if (autostartCheckbox) {
+                try {
+                    const enabled = await tauriInvoke('get_autostart');
+                    autostartCheckbox.checked = !!enabled;
+                } catch (_) {
+                    const { autostart = false } = await chrome.storage.sync.get(['autostart']);
+                    autostartCheckbox.checked = !!autostart;
+                }
+            }
+        }
+
+        // Screen Wake Lock setting
+        const keepScreenAwakeCheckbox = document.getElementById('settings-keep-screen-awake-checkbox');
+        if (keepScreenAwakeCheckbox) {
+            const { keepScreenAwake = false } = await chrome.storage.sync.get(['keepScreenAwake']);
+            keepScreenAwakeCheckbox.checked = !!keepScreenAwake;
+        }
 
         const langSelect = document.getElementById('settings-language-select');
         if (langSelect && window.i18n) {
@@ -5839,6 +5914,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     const backupFolderPath = sanitizeFolderPath(document.getElementById('settings-backup-folder-path')?.value || '');
                     const fetchSchedule = collectScheduleFromTable();
                     const appLanguage = document.getElementById('settings-language-select')?.value || window.i18n?.currentLanguage || 'en';
+                    const keepScreenAwake = document.getElementById('settings-keep-screen-awake-checkbox')?.checked || false;
+                    const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                    const autostart = (!isAndroid && document.getElementById('settings-autostart-checkbox')?.checked) || false;
 
                     await chrome.storage.sync.set({
                         geminiApiKey: key.trim(),
@@ -5853,8 +5931,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         autoBackupEnabled,
                         autoBackupTime,
                         backupFolderPath,
-                        appLanguage
+                        appLanguage,
+                        keepScreenAwake,
+                        autostart
                     });
+
+                    // Apply Wake Lock state immediately
+                    await applyWakeLock(keepScreenAwake);
+
+                    // Apply Autostart state immediately (desktop platforms only)
+                    if (!isAndroid) {
+                        try {
+                            await tauriInvoke('set_autostart', { enable: autostart });
+                        } catch (autoErr) {
+                            console.warn("[PureTidings Desktop] set_autostart failed:", autoErr);
+                        }
+                    }
 
                     if (window.i18n && window.i18n.currentLanguage !== appLanguage) {
                         await window.i18n.setLanguage(appLanguage);
@@ -6898,6 +6990,27 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         chrome.storage.sync.get('backupFolderPath').then(({ backupFolderPath }) => {
             if (backupFolderPath) updateBackupTabFolderDisplay(backupFolderPath);
         }).catch(() => {});
+
+        // Initialize Screen Wake Lock on startup if configured
+        chrome.storage.sync.get(['keepScreenAwake']).then(({ keepScreenAwake }) => {
+            if (keepScreenAwake) applyWakeLock(true);
+        }).catch(() => {});
+
+        // Initialize Android notification channel & permissions
+        const isAndroidInit = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+        if (isAndroidInit && window.__TAURI__?.core?.invoke) {
+            try {
+                tauriInvoke('plugin:notification|create_channel', {
+                    id: 'puretidings_articles',
+                    name: 'PureTidings Articles',
+                    description: 'Notifications for new articles and unread reminders',
+                    importance: 4, // High
+                    visibility: 1, // Public
+                    lights: true,
+                    vibration: true
+                }).catch(() => {});
+            } catch (_) {}
+        }
 
         // Start background automation engine (schedules next check based on configured interval & schedule)
         startBackgroundScheduler();
