@@ -7233,36 +7233,33 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             // 2. FeedTree merge
             const localTree = Array.isArray(mergedLocal.feedTree) ? mergedLocal.feedTree : [];
             const remoteTree = Array.isArray(remote.feedTree) ? remote.feedTree : [];
+            const remoteTreeUpdatedAt = remote.feedTreeUpdatedAt || remote.updatedAt || 0;
             const remoteUpdatedAt = remote.updatedAt || 0;
             let localUpdatedAt = mergedLocal.feedTreeUpdatedAt || 0;
 
-            // Failsafe: if local tree exists but has no timestamp, treat it as current
-            if (!localUpdatedAt && localTree.length > 0) {
-                localUpdatedAt = Date.now();
-                mergedLocal.feedTreeUpdatedAt = localUpdatedAt;
-            }
-
             if (remoteTree.length > 0) {
-                if (remoteUpdatedAt > localUpdatedAt) {
-                    // Remote is strictly newer: cleanly adopt the remote tree and folder structure.
+                // If local has never been explicitly modified (localUpdatedAt === 0),
+                // or remoteTreeUpdatedAt is strictly newer than localUpdatedAt:
+                if (localUpdatedAt === 0 || remoteTreeUpdatedAt > localUpdatedAt) {
+                    // Remote is strictly newer or local was uninitialized: cleanly adopt remote tree and folder structure.
                     // Clean adoption prevents duplicate feeds and respects folder reorganization/moves.
                     mergedLocal.feedTree = JSON.parse(JSON.stringify(remoteTree));
-                    mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
+                    mergedLocal.feedTreeUpdatedAt = remoteTreeUpdatedAt || Date.now();
                     hasChanges = true;
                 } else {
-                    // Local is newer or equal (localUpdatedAt >= remoteUpdatedAt):
+                    // Local is newer or equal (localUpdatedAt >= remoteTreeUpdatedAt):
                     // Local tree is authoritative! Keep local tree as-is.
                     // DO NOT re-add feeds from remoteTree to avoid resurrecting deleted or moved feeds!
                 }
             } else if (localTree.length === 0 && remoteTree.length > 0) {
                 mergedLocal.feedTree = JSON.parse(JSON.stringify(remoteTree));
-                mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
+                mergedLocal.feedTreeUpdatedAt = remoteTreeUpdatedAt || Date.now();
                 hasChanges = true;
             }
 
             // 3. Rules merge
             if (Array.isArray(remote.rules) && remote.rules.length > 0) {
-                if (remoteUpdatedAt > localUpdatedAt) {
+                if (localUpdatedAt === 0 || remoteUpdatedAt > localUpdatedAt) {
                     mergedSync.rules = remote.rules;
                     hasChanges = true;
                 } else {
@@ -7286,7 +7283,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
             // 4. Email accounts merge
             if (Array.isArray(remote.emailAccounts) && remote.emailAccounts.length > 0) {
-                if (remoteUpdatedAt > localUpdatedAt) {
+                if (localUpdatedAt === 0 || remoteUpdatedAt > localUpdatedAt) {
                     mergedSync.emailAccounts = remote.emailAccounts;
                     hasChanges = true;
                 } else {
@@ -7521,7 +7518,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     if (mergeResult.hasChanges) {
                         await chrome.storage.local.set(mergedLocal);
                         await chrome.storage.sync.set(mergedSync);
-                        if (typeof renderSidebarTree === 'function') renderSidebarTree();
+                        if (typeof renderSettingsFeeds === 'function') renderSettingsFeeds();
                         if (typeof updateUnreadCounters === 'function') updateUnreadCounters();
                         if (typeof syncEmailAccountsToFeedTree === 'function') await syncEmailAccountsToFeedTree();
                     }
@@ -7529,7 +7526,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 // 3. Build updated payload and upload to WebDAV
                 const now = Date.now();
-                const finalTreeUpdatedAt = Math.max(mergedLocal.feedTreeUpdatedAt || 0, now);
+                const finalTreeUpdatedAt = mergedLocal.feedTreeUpdatedAt || now;
                 mergedLocal.feedTreeUpdatedAt = finalTreeUpdatedAt;
                 await chrome.storage.local.set({ feedTreeUpdatedAt: finalTreeUpdatedAt });
 
