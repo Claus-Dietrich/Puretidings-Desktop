@@ -389,6 +389,11 @@
                 localStorage.setItem('pt_local_' + key, JSON.stringify(val));
             } catch (_) {}
         }
+        if (key === 'readLinks' || key === 'favoritedLinks' || key === 'summaryLinks' || key === 'feedTree') {
+            if (typeof window.scheduleWebdavDebouncedSync === 'function') {
+                window.scheduleWebdavDebouncedSync();
+            }
+        }
     }
 
     function getSyncItem(key, fallback = null) {
@@ -412,6 +417,11 @@
         try {
             localStorage.setItem('pt_sync_' + key, JSON.stringify(val));
         } catch (_) {}
+        if (key === 'rules' || key === 'emailAccounts') {
+            if (typeof window.scheduleWebdavDebouncedSync === 'function') {
+                window.scheduleWebdavDebouncedSync();
+            }
+        }
     }
 
     window.chrome = {
@@ -2937,12 +2947,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             summaryInterval = 60,
             autoBackupEnabled = false,
             autoBackupTime = '20:00',
-            backupFolderPath = ''
+            backupFolderPath = '',
+            syncWebdavEnabled = false,
+            syncWebdavUrl = '',
+            syncWebdavUser = '',
+            syncWebdavPass = '',
+            syncWebdavPath = '/puretidings_sync.json',
+            syncWebdavAuto = true
         } = await chrome.storage.sync.get([
             'geminiApiKey', 'aiReportPrompt', 'youtubeAiPrompt', 'rules',
             'checkInterval', 'randomizeFetch', 'fetchSchedule',
             'showNotification', 'showSummaryNotification', 'summaryInterval',
-            'autoBackupEnabled', 'autoBackupTime', 'backupFolderPath'
+            'autoBackupEnabled', 'autoBackupTime', 'backupFolderPath',
+            'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser',
+            'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'
         ]);
 
         const keyInput = document.getElementById('settings-gemini-key');
@@ -2984,6 +3002,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         const backupFolderInput = document.getElementById('settings-backup-folder-path');
         if (backupFolderInput) backupFolderInput.value = backupFolderPath || '';
+
+        // WebDAV Cloud Sync settings
+        const webdavEnabledInput = document.getElementById('setting-sync-webdav-enabled');
+        if (webdavEnabledInput) webdavEnabledInput.checked = !!syncWebdavEnabled;
+        const webdavUrlInput = document.getElementById('setting-sync-webdav-url');
+        if (webdavUrlInput) webdavUrlInput.value = syncWebdavUrl || '';
+        const webdavUserInput = document.getElementById('setting-sync-webdav-user');
+        if (webdavUserInput) webdavUserInput.value = syncWebdavUser || '';
+        const webdavPassInput = document.getElementById('setting-sync-webdav-pass');
+        if (webdavPassInput) webdavPassInput.value = syncWebdavPass || '';
+        const webdavPathInput = document.getElementById('setting-sync-webdav-path');
+        if (webdavPathInput) webdavPathInput.value = syncWebdavPath || '/puretidings_sync.json';
+        const webdavAutoInput = document.getElementById('setting-sync-webdav-auto');
+        if (webdavAutoInput) webdavAutoInput.checked = syncWebdavAuto !== undefined ? !!syncWebdavAuto : true;
 
         // Autostart setting (Desktop only)
         const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
@@ -5958,6 +5990,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
                     const autostart = (!isAndroid && document.getElementById('settings-autostart-checkbox')?.checked) || false;
 
+                    const syncWebdavEnabled = document.getElementById('setting-sync-webdav-enabled')?.checked || false;
+                    const syncWebdavUrl = (document.getElementById('setting-sync-webdav-url')?.value || '').trim();
+                    const syncWebdavUser = (document.getElementById('setting-sync-webdav-user')?.value || '').trim();
+                    const syncWebdavPass = document.getElementById('setting-sync-webdav-pass')?.value || '';
+                    const syncWebdavPath = (document.getElementById('setting-sync-webdav-path')?.value || '/puretidings_sync.json').trim();
+                    const syncWebdavAuto = document.getElementById('setting-sync-webdav-auto')?.checked ?? true;
+
                     await chrome.storage.sync.set({
                         geminiApiKey: key.trim(),
                         aiReportPrompt: aiPrompt.trim(),
@@ -5973,7 +6012,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         backupFolderPath,
                         appLanguage,
                         keepScreenAwake,
-                        autostart
+                        autostart,
+                        syncWebdavEnabled,
+                        syncWebdavUrl,
+                        syncWebdavUser,
+                        syncWebdavPass,
+                        syncWebdavPath,
+                        syncWebdavAuto
                     });
 
                     // Apply Wake Lock state immediately
@@ -7002,8 +7047,354 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     } else if (lower.endsWith('.json')) {
                         processJsonFile(file);
                     }
+        // --- WebDAV / Nextcloud Cloud Sync Engine ---
+        function getOrCreateDeviceId() {
+            let id = localStorage.getItem('puretidings_device_id');
+            if (!id) {
+                const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+                id = 'pt_' + (isAndroid ? 'android_' : 'desktop_') + Math.random().toString(36).substring(2, 10);
+                localStorage.setItem('puretidings_device_id', id);
+            }
+            return id;
+        }
+
+        function mergeSyncData(remote, localState) {
+            if (!remote || typeof remote !== 'object') {
+                return { mergedLocal: localState.local, mergedSync: localState.sync, hasChanges: false };
+            }
+
+            let hasChanges = false;
+            const mergedLocal = { ...(localState.local || {}) };
+            const mergedSync = { ...(localState.sync || {}) };
+
+            // 1. Set-Union for readLinks, favoritedLinks, summaryLinks
+            const localRead = new Set(Array.isArray(mergedLocal.readLinks) ? mergedLocal.readLinks : []);
+            const remoteRead = Array.isArray(remote.readLinks) ? remote.readLinks : [];
+            let readChanged = false;
+            remoteRead.forEach(link => {
+                if (link && !localRead.has(link)) {
+                    localRead.add(link);
+                    readChanged = true;
                 }
             });
+            if (readChanged) {
+                mergedLocal.readLinks = Array.from(localRead);
+                hasChanges = true;
+            }
+
+            const localFav = new Set(Array.isArray(mergedLocal.favoritedLinks) ? mergedLocal.favoritedLinks : []);
+            const remoteFav = Array.isArray(remote.favoritedLinks) ? remote.favoritedLinks : [];
+            let favChanged = false;
+            remoteFav.forEach(link => {
+                if (link && !localFav.has(link)) {
+                    localFav.add(link);
+                    favChanged = true;
+                }
+            });
+            if (favChanged) {
+                mergedLocal.favoritedLinks = Array.from(localFav);
+                hasChanges = true;
+            }
+
+            const localSum = new Set(Array.isArray(mergedLocal.summaryLinks) ? mergedLocal.summaryLinks : []);
+            const remoteSum = Array.isArray(remote.summaryLinks) ? remote.summaryLinks : [];
+            let sumChanged = false;
+            remoteSum.forEach(link => {
+                if (link && !localSum.has(link)) {
+                    localSum.add(link);
+                    sumChanged = true;
+                }
+            });
+            if (sumChanged) {
+                mergedLocal.summaryLinks = Array.from(localSum);
+                hasChanges = true;
+            }
+
+            // 2. FeedTree merge
+            const localTree = Array.isArray(mergedLocal.feedTree) ? mergedLocal.feedTree : [];
+            const remoteTree = Array.isArray(remote.feedTree) ? remote.feedTree : [];
+            const remoteUpdatedAt = remote.updatedAt || 0;
+            const localUpdatedAt = mergedLocal.feedTreeUpdatedAt || 0;
+
+            if (remoteTree.length > 0) {
+                function gatherUrls(nodes, set) {
+                    for (const n of (nodes || [])) {
+                        if (n && n.url) set.add(n.url.trim().toLowerCase());
+                        if (n && Array.isArray(n.children)) gatherUrls(n.children, set);
+                    }
+                }
+                const localUrls = new Set();
+                gatherUrls(localTree, localUrls);
+                const remoteUrls = new Set();
+                gatherUrls(remoteTree, remoteUrls);
+
+                if (remoteUpdatedAt > localUpdatedAt) {
+                    const combinedTree = JSON.parse(JSON.stringify(remoteTree));
+                    function findMissingAndAdd(nodes) {
+                        for (const n of (nodes || [])) {
+                            if (n && n.url && !remoteUrls.has(n.url.trim().toLowerCase())) {
+                                combinedTree.push(n);
+                                remoteUrls.add(n.url.trim().toLowerCase());
+                            }
+                            if (n && Array.isArray(n.children)) findMissingAndAdd(n.children);
+                        }
+                    }
+                    findMissingAndAdd(localTree);
+                    mergedLocal.feedTree = combinedTree;
+                    mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
+                    hasChanges = true;
+                } else if (localUpdatedAt > 0) {
+                    const combinedTree = JSON.parse(JSON.stringify(localTree));
+                    function findMissingRemoteAndAdd(nodes) {
+                        for (const n of (nodes || [])) {
+                            if (n && n.url && !localUrls.has(n.url.trim().toLowerCase())) {
+                                combinedTree.push(n);
+                                localUrls.add(n.url.trim().toLowerCase());
+                            }
+                            if (n && Array.isArray(n.children)) findMissingRemoteAndAdd(n.children);
+                        }
+                    }
+                    findMissingRemoteAndAdd(remoteTree);
+                    mergedLocal.feedTree = combinedTree;
+                } else {
+                    if (localTree.length === 0 && remoteTree.length > 0) {
+                        mergedLocal.feedTree = remoteTree;
+                        mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
+                        hasChanges = true;
+                    }
+                }
+            }
+
+            // 3. Rules merge
+            if (Array.isArray(remote.rules) && remote.rules.length > 0) {
+                const localRules = Array.isArray(mergedSync.rules) ? mergedSync.rules : [];
+                const ruleKeys = new Set(localRules.map(r => `${r.field}|${r.condition}|${r.value}|${r.action}`));
+                let rulesUpdated = false;
+                remote.rules.forEach(rr => {
+                    const key = `${rr.field}|${rr.condition}|${rr.value}|${rr.action}`;
+                    if (!ruleKeys.has(key)) {
+                        localRules.push(rr);
+                        ruleKeys.add(key);
+                        rulesUpdated = true;
+                    }
+                });
+                if (rulesUpdated) {
+                    mergedSync.rules = localRules;
+                    hasChanges = true;
+                }
+            }
+
+            // 4. Email accounts merge
+            if (Array.isArray(remote.emailAccounts) && remote.emailAccounts.length > 0) {
+                const localAccounts = Array.isArray(mergedSync.emailAccounts) ? mergedSync.emailAccounts : [];
+                const accKeys = new Set(localAccounts.map(a => `${a.server}|${a.username}`));
+                let accUpdated = false;
+                remote.emailAccounts.forEach(ra => {
+                    const key = `${ra.server}|${ra.username}`;
+                    if (!accKeys.has(key)) {
+                        localAccounts.push(ra);
+                        accKeys.add(key);
+                        accUpdated = true;
+                    }
+                });
+                if (accUpdated) {
+                    mergedSync.emailAccounts = localAccounts;
+                    hasChanges = true;
+                }
+            }
+
+            return { mergedLocal, mergedSync, hasChanges };
+        }
+
+        async function testWebdavConnection() {
+            const urlInput = document.getElementById('setting-sync-webdav-url');
+            const userInput = document.getElementById('setting-sync-webdav-user');
+            const passInput = document.getElementById('setting-sync-webdav-pass');
+            const statusBox = document.getElementById('webdav-sync-status-box');
+
+            const url = (urlInput?.value || '').trim();
+            const username = (userInput?.value || '').trim();
+            const password = passInput?.value || '';
+
+            if (!url || !username) {
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
+                    statusBox.style.color = '#dc3545';
+                    statusBox.textContent = 'Please enter both WebDAV Server URL and Username.';
+                }
+                return false;
+            }
+
+            if (statusBox) {
+                statusBox.style.display = 'block';
+                statusBox.style.background = 'rgba(0, 123, 255, 0.15)';
+                statusBox.style.color = '#007bff';
+                statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_in_progress') : 'Connecting to WebDAV server...';
+            }
+
+            try {
+                await tauriInvoke('webdav_test_connection', { url, username, password });
+                if (statusBox) {
+                    statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
+                    statusBox.style.color = '#28a745';
+                    statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_connected') : '✓ Connection successful!';
+                }
+                return true;
+            } catch (err) {
+                if (statusBox) {
+                    statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
+                    statusBox.style.color = '#dc3545';
+                    const prefix = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_failed') : '✗ Connection failed: ';
+                    statusBox.textContent = prefix + (err.message || err);
+                }
+                return false;
+            }
+        }
+
+        let isWebdavSyncing = false;
+        let webdavDebounceTimer = null;
+
+        async function executeWebdavSync(options = { manual: false }) {
+            if (isWebdavSyncing) return false;
+            const statusBox = document.getElementById('webdav-sync-status-box');
+
+            try {
+                const syncSettings = await chrome.storage.sync.get([
+                    'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser',
+                    'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'
+                ]);
+
+                const enabled = syncSettings.syncWebdavEnabled;
+                const url = (syncSettings.syncWebdavUrl || '').trim();
+                const username = (syncSettings.syncWebdavUser || '').trim();
+                const password = syncSettings.syncWebdavPass || '';
+                const remotePath = (syncSettings.syncWebdavPath || '/puretidings_sync.json').trim();
+
+                if (!enabled || !url || !username) {
+                    if (options.manual && statusBox) {
+                        statusBox.style.display = 'block';
+                        statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
+                        statusBox.style.color = '#dc3545';
+                        statusBox.textContent = 'WebDAV sync is disabled or configuration is incomplete.';
+                    }
+                    return false;
+                }
+
+                isWebdavSyncing = true;
+                if (options.manual && statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(0, 123, 255, 0.15)';
+                    statusBox.style.color = '#007bff';
+                    statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_in_progress') : 'Syncing with WebDAV...';
+                }
+
+                // 1. Download remote file
+                const remoteContent = await tauriInvoke('webdav_get_sync_file', {
+                    url, username, password, remotePath
+                });
+
+                // 2. Read local state
+                const localData = await chrome.storage.local.get(['feedTree', 'feedTreeUpdatedAt', 'readLinks', 'favoritedLinks', 'summaryLinks']);
+                const syncData = await chrome.storage.sync.get(['rules', 'emailAccounts', 'appLanguage']);
+
+                let remoteObj = null;
+                if (remoteContent) {
+                    try {
+                        remoteObj = JSON.parse(remoteContent);
+                    } catch (pe) {
+                        console.warn('[PureTidings Desktop] Failed to parse remote sync JSON:', pe);
+                    }
+                }
+
+                const deviceId = getOrCreateDeviceId();
+                let mergedLocal = localData;
+                let mergedSync = syncData;
+
+                if (remoteObj) {
+                    const mergeResult = mergeSyncData(remoteObj, { local: localData, sync: syncData });
+                    mergedLocal = mergeResult.mergedLocal;
+                    mergedSync = mergeResult.mergedSync;
+
+                    if (mergeResult.hasChanges) {
+                        await chrome.storage.local.set(mergedLocal);
+                        await chrome.storage.sync.set(mergedSync);
+                        if (typeof renderSidebarTree === 'function') renderSidebarTree();
+                        if (typeof updateUnreadCounters === 'function') updateUnreadCounters();
+                        if (typeof syncEmailAccountsToFeedTree === 'function') await syncEmailAccountsToFeedTree();
+                    }
+                }
+
+                // 3. Build updated payload and upload to WebDAV
+                const now = Date.now();
+                const payloadObj = {
+                    version: 1,
+                    updatedAt: now,
+                    deviceId,
+                    feedTree: mergedLocal.feedTree || [],
+                    feedTreeUpdatedAt: mergedLocal.feedTreeUpdatedAt || now,
+                    readLinks: mergedLocal.readLinks || [],
+                    favoritedLinks: mergedLocal.favoritedLinks || [],
+                    summaryLinks: mergedLocal.summaryLinks || [],
+                    rules: mergedSync.rules || [],
+                    emailAccounts: mergedSync.emailAccounts || [],
+                    appLanguage: mergedSync.appLanguage || 'en'
+                };
+
+                await tauriInvoke('webdav_put_sync_file', {
+                    url, username, password, remotePath,
+                    content: JSON.stringify(payloadObj, null, 2)
+                });
+
+                if (options.manual) {
+                    if (statusBox) {
+                        statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
+                        statusBox.style.color = '#28a745';
+                        statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_success') : '✓ Synchronized successfully!';
+                        setTimeout(() => { if (statusBox) statusBox.style.display = 'none'; }, 5000);
+                    }
+                    showInAppToast('Cloud Sync Complete', 'Successfully synchronized with Nextcloud / WebDAV!');
+                }
+                return true;
+            } catch (err) {
+                console.error('[PureTidings Desktop] WebDAV sync failed:', err);
+                if (options.manual && statusBox) {
+                    statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
+                    statusBox.style.color = '#dc3545';
+                    const prefix = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_failed') : '✗ Connection failed: ';
+                    statusBox.textContent = prefix + (err.message || err);
+                }
+                return false;
+            } finally {
+                isWebdavSyncing = false;
+            }
+        }
+
+        function scheduleWebdavDebouncedSync() {
+            if (webdavDebounceTimer) clearTimeout(webdavDebounceTimer);
+            webdavDebounceTimer = setTimeout(async () => {
+                try {
+                    const { syncWebdavEnabled, syncWebdavAuto } = await chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']);
+                    if (syncWebdavEnabled && syncWebdavAuto !== false) {
+                        executeWebdavSync({ manual: false });
+                    }
+                } catch (_) {}
+            }, 30000);
+        }
+
+        window.testWebdavConnection = testWebdavConnection;
+        window.executeWebdavSync = executeWebdavSync;
+        window.scheduleWebdavDebouncedSync = scheduleWebdavDebouncedSync;
+
+        // --- WebDAV UI Listeners ---
+        const testWebdavBtn = document.getElementById('btn-test-webdav-sync');
+        if (testWebdavBtn) {
+            testWebdavBtn.addEventListener('click', testWebdavConnection);
+        }
+
+        const triggerWebdavBtn = document.getElementById('btn-trigger-webdav-sync');
+        if (triggerWebdavBtn) {
+            triggerWebdavBtn.addEventListener('click', () => executeWebdavSync({ manual: true }));
         }
 
         // Fallback: Listen for Tauri native drag-drop events if dispatched by the window
@@ -7054,6 +7445,15 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Start background automation engine (schedules next check based on configured interval & schedule)
         startBackgroundScheduler();
+
+        // Initialize WebDAV Cloud Sync on startup if configured
+        chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']).then(({ syncWebdavEnabled, syncWebdavAuto }) => {
+            if (syncWebdavEnabled && syncWebdavAuto !== false) {
+                setTimeout(() => {
+                    executeWebdavSync({ manual: false });
+                }, 2500);
+            }
+        }).catch(() => {});
 
         // Listen for runtime language switches to update theme & reader tooltips
         window.addEventListener('i18n:languageChanged', () => {

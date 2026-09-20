@@ -213,6 +213,23 @@
             text_restore_desc: "Paste your JSON backup data or OPML XML text below:",
             btn_restore_submit: "✓ Restore / Import",
 
+            // WebDAV / Nextcloud Sync
+            settings_webdav_title: "☁️ Nextcloud & WebDAV Cloud Sync",
+            settings_webdav_desc: "Sync your feeds, read states, favorites, and settings across devices via Nextcloud, ownCloud, MagentaCloud, or any WebDAV server.",
+            settings_webdav_enabled: "Enable Nextcloud / WebDAV Cross-Device Sync",
+            settings_webdav_url: "WebDAV Server URL:",
+            settings_webdav_url_placeholder: "https://cloud.example.com/remote.php/dav/files/username/",
+            settings_webdav_user: "Username:",
+            settings_webdav_pass: "App Password / Token:",
+            settings_webdav_path: "Remote File Path:",
+            settings_webdav_auto: "Automatically sync in background (on startup and after actions)",
+            settings_webdav_test_btn: "🔌 Test Connection",
+            settings_webdav_sync_btn: "🔄 Sync Now",
+            settings_webdav_connected: "✓ Connection successful!",
+            settings_webdav_failed: "✗ Connection failed: ",
+            settings_webdav_sync_success: "✓ Synchronized successfully!",
+            settings_webdav_sync_in_progress: "Syncing with Nextcloud / WebDAV...",
+
             // Reader Mode
             reader_copy: "Copy",
             reader_save: "Save",
@@ -452,6 +469,23 @@
             text_restore_title: "📋 Backup oder OPML einfügen",
             text_restore_desc: "Fügen Sie Ihre JSON-Backup-Daten oder den OPML-XML-Text unten ein:",
             btn_restore_submit: "✓ Jetzt einlesen / wiederherstellen",
+
+            // WebDAV / Nextcloud Sync
+            settings_webdav_title: "☁️ Nextcloud & WebDAV Cloud-Sync",
+            settings_webdav_desc: "Synchronisieren Sie Ihre Feeds, Lese-Status, Favoriten und Einstellungen geräteübergreifend via Nextcloud, ownCloud, MagentaCloud oder jedem WebDAV-Server.",
+            settings_webdav_enabled: "Nextcloud / WebDAV Synchronisation aktivieren",
+            settings_webdav_url: "WebDAV Server-URL:",
+            settings_webdav_url_placeholder: "https://meine-cloud.de/remote.php/dav/files/benutzer/",
+            settings_webdav_user: "Benutzername:",
+            settings_webdav_pass: "App-Passwort / Token:",
+            settings_webdav_path: "Dateipfad in der Cloud:",
+            settings_webdav_auto: "Automatisch im Hintergrund synchronisieren (beim Start und nach Aktionen)",
+            settings_webdav_test_btn: "🔌 Verbindung testen",
+            settings_webdav_sync_btn: "🔄 Jetzt synchronisieren",
+            settings_webdav_connected: "✓ Verbindung erfolgreich!",
+            settings_webdav_failed: "✗ Verbindung fehlgeschlagen: ",
+            settings_webdav_sync_success: "✓ Erfolgreich synchronisiert!",
+            settings_webdav_sync_in_progress: "Synchronisiere mit Nextcloud / WebDAV...",
 
             // Reader Mode
             reader_copy: "Kopieren",
@@ -693,6 +727,23 @@
             text_restore_desc: "Pegue sus datos de copia de seguridad JSON o texto XML OPML a continuación:",
             btn_restore_submit: "✓ Restaurar / Importar",
 
+            // WebDAV / Nextcloud Sync
+            settings_webdav_title: "☁️ Sincronización en la nube Nextcloud y WebDAV",
+            settings_webdav_desc: "Sincronice sus feeds, estado de lectura, favoritos y configuraciones entre dispositivos mediante Nextcloud, ownCloud o cualquier servidor WebDAV.",
+            settings_webdav_enabled: "Activar sincronización Nextcloud / WebDAV",
+            settings_webdav_url: "URL del servidor WebDAV:",
+            settings_webdav_url_placeholder: "https://cloud.ejemplo.com/remote.php/dav/files/usuario/",
+            settings_webdav_user: "Nombre de usuario:",
+            settings_webdav_pass: "Contraseña de aplicación / Token:",
+            settings_webdav_path: "Ruta del archivo remoto:",
+            settings_webdav_auto: "Sincronizar automáticamente en segundo plano (al iniciar y tras cambios)",
+            settings_webdav_test_btn: "🔌 Probar conexión",
+            settings_webdav_sync_btn: "🔄 Sincronizar ahora",
+            settings_webdav_connected: "✓ ¡Conexión exitosa!",
+            settings_webdav_failed: "✗ Error de conexión: ",
+            settings_webdav_sync_success: "✓ ¡Sincronizado con éxito!",
+            settings_webdav_sync_in_progress: "Sincronizando con Nextcloud / WebDAV...",
+
             // Reader Mode
             reader_copy: "Copiar",
             reader_save: "Guardar",
@@ -932,6 +983,23 @@
             text_restore_title: "📋 Coller sauvegarde ou OPML",
             text_restore_desc: "Collez vos données de sauvegarde JSON ou le texte XML OPML ci-dessous :",
             btn_restore_submit: "✓ Restaurer / Importer",
+
+            // WebDAV / Nextcloud Sync
+            settings_webdav_title: "☁️ Synchronisation Cloud Nextcloud & WebDAV",
+            settings_webdav_desc: "Synchronisez vos flux, statuts de lecture, favoris et paramètres entre appareils via Nextcloud, ownCloud ou tout serveur WebDAV.",
+            settings_webdav_enabled: "Activer la synchronisation Nextcloud / WebDAV",
+            settings_webdav_url: "URL du serveur WebDAV :",
+            settings_webdav_url_placeholder: "https://cloud.exemple.com/remote.php/dav/files/utilisateur/",
+            settings_webdav_user: "Nom d'utilisateur :",
+            settings_webdav_pass: "Mot de passe d'application / Jeton :",
+            settings_webdav_path: "Chemin du fichier distant :",
+            settings_webdav_auto: "Synchroniser automatiquement en arrière-plan (au démarrage et après actions)",
+            settings_webdav_test_btn: "🔌 Tester la connexion",
+            settings_webdav_sync_btn: "🔄 Synchroniser maintenant",
+            settings_webdav_connected: "✓ Connexion réussie !",
+            settings_webdav_failed: "✗ Échec de la connexion : ",
+            settings_webdav_sync_success: "✓ Synchronisé avec succès !",
+            settings_webdav_sync_in_progress: "Synchronisation avec Nextcloud / WebDAV en cours...",
 
             // Reader Mode
             reader_copy: "Copier",

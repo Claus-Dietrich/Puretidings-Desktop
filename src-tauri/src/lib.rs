@@ -873,6 +873,113 @@ async fn mark_imap_email_read(
     .map_err(|e| format!("Task execution error: {}", e))?
 }
 
+// WebDAV Cloud Sync Commands
+fn build_webdav_url(base_url: &str, remote_path: &str) -> String {
+    let trimmed_base = base_url.trim_end_matches('/');
+    let trimmed_path = remote_path.trim_start_matches('/');
+    format!("{}/{}", trimmed_base, trimmed_path)
+}
+
+#[tauri::command]
+async fn webdav_test_connection(url: String, username: String, password: String) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP Client Error: {}", e))?;
+
+    let propfind_method = reqwest::Method::from_bytes(b"PROPFIND")
+        .unwrap_or(reqwest::Method::GET);
+
+    let res = client
+        .request(propfind_method, &url)
+        .basic_auth(&username, Some(&password))
+        .header("Depth", "0")
+        .header(USER_AGENT, "PureTidings/1.0 WebDAV")
+        .send()
+        .await;
+
+    match res {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204 {
+                Ok(true)
+            } else if status.as_u16() == 401 || status.as_u16() == 403 {
+                Err(format!("Authentication failed (HTTP {})", status))
+            } else {
+                // Fallback HEAD request in case PROPFIND is disabled
+                let head_res = client
+                    .head(&url)
+                    .basic_auth(&username, Some(&password))
+                    .send()
+                    .await
+                    .map_err(|e| format!("Connection error: {}", e))?;
+                if head_res.status().is_success() || head_res.status().as_u16() == 200 || head_res.status().as_u16() == 204 {
+                    Ok(true)
+                } else {
+                    Err(format!("WebDAV server returned HTTP {}", head_res.status()))
+                }
+            }
+        }
+        Err(e) => Err(format!("Network error: {}", e)),
+    }
+}
+
+#[tauri::command]
+async fn webdav_get_sync_file(url: String, username: String, password: String, remote_path: String) -> Result<Option<String>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("HTTP Client Error: {}", e))?;
+
+    let full_url = build_webdav_url(&url, &remote_path);
+    let res = client
+        .get(&full_url)
+        .basic_auth(&username, Some(&password))
+        .header(CACHE_CONTROL, "no-store")
+        .header(USER_AGENT, "PureTidings/1.0 WebDAV")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to WebDAV: {}", e))?;
+
+    let status = res.status();
+    if status.as_u16() == 404 {
+        return Ok(None);
+    }
+    if !status.is_success() {
+        return Err(format!("HTTP Error {} when reading sync file", status));
+    }
+
+    let body = res.text().await.map_err(|e| format!("Failed to read response body: {}", e))?;
+    Ok(Some(body))
+}
+
+#[tauri::command]
+async fn webdav_put_sync_file(url: String, username: String, password: String, remote_path: String, content: String) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|e| format!("HTTP Client Error: {}", e))?;
+
+    let full_url = build_webdav_url(&url, &remote_path);
+    let res = client
+        .put(&full_url)
+        .basic_auth(&username, Some(&password))
+        .header("Content-Type", "application/json; charset=utf-8")
+        .header(USER_AGENT, "PureTidings/1.0 WebDAV")
+        .body(content)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to upload to WebDAV: {}", e))?;
+
+    let status = res.status();
+    if status.is_success() || status.as_u16() == 200 || status.as_u16() == 201 || status.as_u16() == 204 {
+        Ok(true)
+    } else {
+        let err_text = res.text().await.unwrap_or_default();
+        Err(format!("HTTP Error {}: {}", status, err_text))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -893,7 +1000,10 @@ pub fn run() {
             test_imap_connection,
             list_imap_folders,
             fetch_imap_emails,
-            mark_imap_email_read
+            mark_imap_email_read,
+            webdav_test_connection,
+            webdav_get_sync_file,
+            webdav_put_sync_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

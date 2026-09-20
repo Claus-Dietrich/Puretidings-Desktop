@@ -16,6 +16,7 @@
 - **System Autostart & Screen Wake Lock:** Optional automatic background launch on system boot (Windows, macOS, Linux) and Screen Wake Lock to keep displays awake on mobile devices.
 - **Fluid Responsive Reader Typography:** Dynamic font scaling (`clamp(1.15rem, 4.2vw, 1.45rem)`) and mobile portrait header stacking prevent oversized titles on small screens.
 - **External Browser Integration:** Seamless link opening in your system default browser on desktop and Android (`tauri-plugin-opener`).
+- **Nextcloud & WebDAV Cross-Device Sync:** Seamless, privacy-preserving cross-device synchronization between desktop and mobile via any Nextcloud, ownCloud, MagentaCloud, or WebDAV server with Set-Union article status merging and zero third-party cloud lock-in.
 - **Automated Local Backups & OPML:** Full OPML 2.0 import/export, direct clipboard/text restoration, and automated daily JSON backups to a dedicated local directory.
 - **Multi-Platform Native Packages:** Automated CI/CD release builds for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), Linux (`.AppImage`, `.deb`, `.rpm`), and Android (`.apk`).
 

@@ -1183,6 +1183,53 @@
             </div>
             <div id="backup-json-status-box" style="display: none;"></div>
           </div>
+
+          <!-- Card 3: Nextcloud & WebDAV Cloud Sync -->
+          <div class="backup-card" style="margin-top: 14px;">
+            <h4 style="margin: 0 0 6px 0; font-size: 15px; display: flex; align-items: center; gap: 6px;" data-i18n="settings_webdav_title">☁️ Nextcloud & WebDAV Cloud Sync</h4>
+            <p class="settings-description" data-i18n="settings_webdav_desc">Sync your feeds, read states, favorites, and settings across devices via Nextcloud, ownCloud, MagentaCloud, or any WebDAV server.</p>
+
+            <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 10px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600;">
+                <input type="checkbox" id="setting-sync-webdav-enabled">
+                <span data-i18n="settings_webdav_enabled">Enable Nextcloud / WebDAV Cross-Device Sync</span>
+              </label>
+
+              <div id="webdav-sync-config-fields" style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+                <div>
+                  <label for="setting-sync-webdav-url" style="font-size: 12px; font-weight: 600;" data-i18n="settings_webdav_url">WebDAV Server URL:</label>
+                  <input type="text" id="setting-sync-webdav-url" placeholder="https://cloud.example.com/remote.php/dav/files/username/" data-i18n-placeholder="settings_webdav_url_placeholder" style="width: 100%; box-sizing: border-box; padding: 7px 10px; margin-top: 2px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text-color);">
+                </div>
+
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <div style="flex: 1; min-width: 160px;">
+                    <label for="setting-sync-webdav-user" style="font-size: 12px; font-weight: 600;" data-i18n="settings_webdav_user">Username:</label>
+                    <input type="text" id="setting-sync-webdav-user" placeholder="username" style="width: 100%; box-sizing: border-box; padding: 7px 10px; margin-top: 2px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text-color);">
+                  </div>
+                  <div style="flex: 1; min-width: 160px;">
+                    <label for="setting-sync-webdav-pass" style="font-size: 12px; font-weight: 600;" data-i18n="settings_webdav_pass">App Password / Token:</label>
+                    <input type="password" id="setting-sync-webdav-pass" placeholder="••••••••••••" style="width: 100%; box-sizing: border-box; padding: 7px 10px; margin-top: 2px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text-color);">
+                  </div>
+                </div>
+
+                <div>
+                  <label for="setting-sync-webdav-path" style="font-size: 12px; font-weight: 600;" data-i18n="settings_webdav_path">Remote File Path:</label>
+                  <input type="text" id="setting-sync-webdav-path" value="/puretidings_sync.json" style="width: 100%; box-sizing: border-box; padding: 7px 10px; margin-top: 2px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg, transparent); color: var(--text-color);">
+                </div>
+
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; margin-top: 2px;">
+                  <input type="checkbox" id="setting-sync-webdav-auto" checked>
+                  <span data-i18n="settings_webdav_auto">Automatically sync in background (on startup and after actions)</span>
+                </label>
+
+                <div style="display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
+                  <button type="button" id="btn-test-webdav-sync" class="secondary-btn" style="padding: 8px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" data-i18n="settings_webdav_test_btn">🔌 Test Connection</button>
+                  <button type="button" id="btn-trigger-webdav-sync" class="secondary-btn" style="padding: 8px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;" data-i18n="settings_webdav_sync_btn">🔄 Sync Now</button>
+                </div>
+                <div id="webdav-sync-status-box" style="display: none; margin-top: 6px; padding: 8px 12px; border-radius: 4px; font-size: 13px;"></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Tab: About & Impressum -->
@@ -1192,7 +1239,7 @@
             <div>
               <h3 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 700;">PureTidings Desktop</h3>
               <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-color); opacity: 0.85;">
-                <span data-i18n="settings_about_version_label">Version</span>: <strong id="settings-about-version" style="color: var(--link-color); font-size: 14px;">1.0.44</strong>
+                <span data-i18n="settings_about_version_label">Version</span>: <strong id="settings-about-version" style="color: var(--link-color); font-size: 14px;">1.0.45</strong>
                 <span style="opacity: 0.4;">•</span>
                 <span style="font-size: 12px;">Standalone Local-First Workstation</span>
               </div>
@@ -1234,7 +1281,7 @@
       <!-- Settings Modal Footer -->
       <div class="settings-modal-footer">
         <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; margin-right: auto; user-select: none;">
-          <span style="opacity: 0.75; font-weight: 500;">PureTidings <strong id="settings-footer-version">v1.0.44</strong></span>
+          <span style="opacity: 0.75; font-weight: 500;">PureTidings <strong id="settings-footer-version">v1.0.45</strong></span>
           <span style="opacity: 0.35;">•</span>
           <a href="https://clausdietrich.com/impressum" target="_blank" style="color: var(--link-color); text-decoration: none; font-weight: 500;" data-i18n="settings_impressum_link">⚖️ Impressum</a>
           <span style="opacity: 0.35;">•</span>
