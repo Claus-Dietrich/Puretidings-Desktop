@@ -7210,52 +7210,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             return { mergedLocal, mergedSync, hasChanges };
         }
 
-        function normalizeWebdavUrl(rawUrl, username) {
-            if (!rawUrl || typeof rawUrl !== 'string') return '';
-            let trimmed = rawUrl.trim();
-            if (!trimmed) return '';
-            if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-                trimmed = 'https://' + trimmed;
-            }
-            trimmed = trimmed.replace(/\/+$/, '');
-            const lower = trimmed.toLowerCase();
-            if (lower.includes('/remote.php/webdav') ||
-                lower.includes('/remote.php/dav') ||
-                lower.includes('/dav/files') ||
-                lower.includes('/webdav')) {
-                return trimmed + '/';
-            }
-            if (username && username.trim()) {
-                const u = encodeURIComponent(username.trim());
-                return `${trimmed}/remote.php/dav/files/${u}/`;
-            }
-            return trimmed + '/';
-        }
-
         async function testWebdavConnection() {
             const urlInput = document.getElementById('setting-sync-webdav-url');
             const userInput = document.getElementById('setting-sync-webdav-user');
             const passInput = document.getElementById('setting-sync-webdav-pass');
             const statusBox = document.getElementById('webdav-sync-status-box');
 
-            let url = (urlInput?.value || '').trim();
+            const url = (urlInput?.value || '').trim();
             const username = (userInput?.value || '').trim();
             const password = passInput?.value || '';
-
-            if (url) {
-                const normalized = normalizeWebdavUrl(url, username);
-                if (normalized && normalized !== url) {
-                    url = normalized;
-                    if (urlInput) urlInput.value = url;
-                }
-            }
 
             if (!url || !username) {
                 if (statusBox) {
                     statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
                     statusBox.style.color = '#dc3545';
-                    statusBox.textContent = 'Please enter both WebDAV Server URL and Username.';
+                    statusBox.textContent = 'Please enter both Server URL and Username.';
                 }
                 return false;
             }
@@ -7264,11 +7234,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 statusBox.style.display = 'block';
                 statusBox.style.background = 'rgba(0, 123, 255, 0.15)';
                 statusBox.style.color = '#007bff';
-                statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_in_progress') : 'Connecting to WebDAV server...';
+                statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_in_progress') : 'Connecting to Nextcloud / WebDAV server...';
             }
 
             try {
-                await tauriInvoke('webdav_test_connection', { url, username, password });
+                const workingEndpoint = await tauriInvoke('webdav_test_connection', { url, username, password });
                 if (statusBox) {
                     statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
                     statusBox.style.color = '#28a745';
@@ -7282,6 +7252,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 await chrome.storage.sync.set({
                     syncWebdavEnabled: true,
                     syncWebdavUrl: url,
+                    syncWebdavResolvedUrl: workingEndpoint,
                     syncWebdavUser: username,
                     syncWebdavPass: password,
                     syncWebdavPath: (pathEl?.value || '/puretidings_sync.json').trim(),
@@ -7328,14 +7299,6 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     remotePath = (domPathEl?.value || '/puretidings_sync.json').trim() || '/puretidings_sync.json';
                     const auto = domAutoEl ? domAutoEl.checked : true;
 
-                    if (url) {
-                        const normalized = normalizeWebdavUrl(url, username);
-                        if (normalized && normalized !== url) {
-                            url = normalized;
-                            if (domUrlEl) domUrlEl.value = url;
-                        }
-                    }
-
                     if (url && username) {
                         if (domEnabledEl && !domEnabledEl.checked) {
                             domEnabledEl.checked = true;
@@ -7353,14 +7316,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 } else {
                     const syncSettings = await chrome.storage.sync.get([
                         'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser',
-                        'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'
+                        'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto', 'syncWebdavResolvedUrl'
                     ]);
                     enabled = !!syncSettings.syncWebdavEnabled;
-                    url = (syncSettings.syncWebdavUrl || '').trim();
+                    url = (syncSettings.syncWebdavResolvedUrl || syncSettings.syncWebdavUrl || '').trim();
                     username = (syncSettings.syncWebdavUser || '').trim();
-                    if (url && username) {
-                        url = normalizeWebdavUrl(url, username);
-                    }
                     password = syncSettings.syncWebdavPass || '';
                     remotePath = (syncSettings.syncWebdavPath || '/puretidings_sync.json').trim();
                 }

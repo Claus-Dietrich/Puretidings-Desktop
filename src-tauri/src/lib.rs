@@ -873,73 +873,127 @@ async fn mark_imap_email_read(
     .map_err(|e| format!("Task execution error: {}", e))?
 }
 
-// WebDAV Cloud Sync Commands
-fn normalize_webdav_endpoint(base_url: &str, username: &str) -> String {
+// WebDAV & Nextcloud Cloud Sync Commands
+fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
-        return String::new();
+        return vec![];
     }
-
-    let lower = trimmed.to_lowercase();
-    if lower.contains("/remote.php/dav/files") || lower.contains("/remote.php/webdav") || lower.ends_with("/webdav") {
-        if lower.ends_with("/remote.php/dav/files") && !username.trim().is_empty() {
-            return format!("{}/{}", trimmed, username.trim());
-        }
-        if lower.ends_with("/remote.php/dav/files/username") && !username.trim().is_empty() && username.trim().to_lowercase() != "username" {
-            let prefix = &trimmed[..trimmed.len() - 8];
-            return format!("{}{}", prefix, username.trim());
-        }
-        return trimmed.to_string();
-    }
-
-    if !username.trim().is_empty() {
-        format!("{}/remote.php/dav/files/{}", trimmed, username.trim())
+    let full = if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        format!("https://{}", trimmed)
     } else {
-        format!("{}/remote.php/webdav", trimmed)
+        trimmed.to_string()
+    };
+
+    let lower = full.to_lowercase();
+    // If the user explicitly provided a WebDAV endpoint, respect it directly
+    if lower.contains("/remote.php/dav/files") || lower.contains("/remote.php/webdav") || lower.ends_with("/webdav") {
+        let u = username.trim();
+        if lower.ends_with("/remote.php/dav/files") && !u.is_empty() {
+            return vec![format!("{}/{}", full, u)];
+        }
+        if lower.ends_with("/remote.php/dav/files/username") && !u.is_empty() && u.to_lowercase() != "username" {
+            let prefix = &full[..full.len() - 8];
+            return vec![format!("{}{}", prefix, u)];
+        }
+        return vec![full];
     }
+
+    // Strip browser web UI paths such as /apps/files/files/268577 or /index.php/...
+    let clean_base = if let Some(idx) = lower.find("/apps/") {
+        full[..idx].trim_end_matches('/').to_string()
+    } else if let Some(idx) = lower.find("/index.php") {
+        full[..idx].trim_end_matches('/').to_string()
+    } else {
+        full
+    };
+
+    let u = username.trim();
+    let mut candidates = Vec::new();
+    if !u.is_empty() {
+        // Nextcloud standard SabreDAV endpoint
+        candidates.push(format!("{}/remote.php/dav/files/{}", clean_base, u));
+        // If username has '@' (e.g. email login), also try URL-encoded version
+        if u.contains('@') {
+            let encoded_u = u.replace('@', "%40");
+            candidates.push(format!("{}/remote.php/dav/files/{}", clean_base, encoded_u));
+        }
+    }
+    // Nextcloud universal / legacy WebDAV endpoint (maps directly to authenticated user's root)
+    candidates.push(format!("{}/remote.php/webdav", clean_base));
+    // Generic WebDAV base
+    candidates.push(clean_base);
+
+    candidates
 }
 
-fn build_webdav_url(base_url: &str, username: &str, remote_path: &str) -> String {
-    let endpoint = normalize_webdav_endpoint(base_url, username);
-    let trimmed_endpoint = endpoint.trim_end_matches('/');
-    let trimmed_path = remote_path.trim_start_matches('/');
-    format!("{}/{}", trimmed_endpoint, trimmed_path)
+async fn find_working_endpoint(
+    client: &reqwest::Client,
+    base_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<String, String> {
+    let candidates = get_candidate_endpoints(base_url, username);
+    if candidates.is_empty() {
+        return Err("WebDAV server URL is empty.".to_string());
+    }
+
+    let propfind_method = reqwest::Method::from_bytes(b"PROPFIND").unwrap_or(reqwest::Method::GET);
+
+    let mut auth_error = None;
+    let mut last_status = None;
+
+    for candidate in &candidates {
+        let req = client
+            .request(propfind_method.clone(), candidate)
+            .basic_auth(username, Some(password))
+            .header("Depth", "0")
+            .header(USER_AGENT, "PureTidings/1.0 WebDAV");
+
+        match req.send().await {
+            Ok(res) => {
+                let status = res.status();
+                if status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204 {
+                    return Ok(candidate.clone());
+                } else if status.as_u16() == 401 || status.as_u16() == 403 {
+                    auth_error = Some(format!(
+                        "Authentication failed (HTTP {}). Please check your username and password (or App Password if 2FA is active).",
+                        status
+                    ));
+                    break;
+                } else {
+                    last_status = Some(status);
+                }
+            }
+            Err(e) => {
+                return Err(format!("Network connection error: {}", e));
+            }
+        }
+    }
+
+    if let Some(err) = auth_error {
+        return Err(err);
+    }
+
+    if let Some(st) = last_status {
+        Err(format!(
+            "Could not connect to Nextcloud / WebDAV endpoint (HTTP {}). Please verify the server URL.",
+            st
+        ))
+    } else {
+        Err("Could not find a valid Nextcloud / WebDAV endpoint.".to_string())
+    }
 }
 
 #[tauri::command]
-async fn webdav_test_connection(url: String, username: String, password: String) -> Result<bool, String> {
+async fn webdav_test_connection(url: String, username: String, password: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
 
-    let test_url = normalize_webdav_endpoint(&url, &username);
-    let propfind_method = reqwest::Method::from_bytes(b"PROPFIND")
-        .unwrap_or(reqwest::Method::GET);
-
-    let res = client
-        .request(propfind_method, &test_url)
-        .basic_auth(&username, Some(&password))
-        .header("Depth", "0")
-        .header(USER_AGENT, "PureTidings/1.0 WebDAV")
-        .send()
-        .await;
-
-    match res {
-        Ok(response) => {
-            let status = response.status();
-            if status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204 {
-                Ok(true)
-            } else if status.as_u16() == 401 || status.as_u16() == 403 {
-                Err(format!("Authentication failed (HTTP {}). Please verify username and app password.", status))
-            } else if status.as_u16() == 404 {
-                Err(format!("WebDAV endpoint not found (HTTP 404 at {}). Please check your Nextcloud WebDAV URL.", test_url))
-            } else {
-                Err(format!("WebDAV server returned HTTP {} for {}", status, test_url))
-            }
-        }
-        Err(e) => Err(format!("Network error: {}", e)),
-    }
+    let working_endpoint = find_working_endpoint(&client, &url, &username, &password).await?;
+    Ok(working_endpoint)
 }
 
 #[tauri::command]
@@ -949,7 +1003,11 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
 
-    let full_url = build_webdav_url(&url, &username, &remote_path);
+    let endpoint = find_working_endpoint(&client, &url, &username, &password).await?;
+    let trimmed_endpoint = endpoint.trim_end_matches('/');
+    let trimmed_path = remote_path.trim_start_matches('/');
+    let full_url = format!("{}/{}", trimmed_endpoint, trimmed_path);
+
     let res = client
         .get(&full_url)
         .basic_auth(&username, Some(&password))
@@ -978,7 +1036,11 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
 
-    let full_url = build_webdav_url(&url, &username, &remote_path);
+    let endpoint = find_working_endpoint(&client, &url, &username, &password).await?;
+    let trimmed_endpoint = endpoint.trim_end_matches('/');
+    let trimmed_path = remote_path.trim_start_matches('/');
+    let full_url = format!("{}/{}", trimmed_endpoint, trimmed_path);
+
     let res = client
         .put(&full_url)
         .basic_auth(&username, Some(&password))
@@ -995,7 +1057,7 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
     } else {
         let err_text = res.text().await.unwrap_or_default();
         let clean_err = if err_text.contains("<html") || err_text.contains("<!DOCTYPE") {
-            format!("HTTP {} on {}. Server returned an HTML error page. Please check that your WebDAV URL points to the files endpoint (/remote.php/dav/files/{}/).", status, full_url, username)
+            format!("HTTP {} on {}. Server returned an HTML error page. Please check your Nextcloud WebDAV permissions.", status, full_url)
         } else {
             format!("HTTP Error {}: {}", status, err_text.chars().take(200).collect::<String>())
         };
