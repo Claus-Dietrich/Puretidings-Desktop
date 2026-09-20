@@ -950,7 +950,29 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     deduped
 }
 
-const WEBDAV_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) mirall/3.11.0 (Nextcloud, windows-10.0.19045 ClientArchitecture: x86_64)";
+static ENDPOINT_CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+fn get_cached_endpoint(key: &str) -> Option<String> {
+    if let Ok(guard) = ENDPOINT_CACHE.lock() {
+        if let Some(map) = guard.as_ref() {
+            return map.get(key).cloned();
+        }
+    }
+    None
+}
+
+fn set_cached_endpoint(key: String, val: String) {
+    if let Ok(mut guard) = ENDPOINT_CACHE.lock() {
+        if guard.is_none() {
+            *guard = Some(std::collections::HashMap::new());
+        }
+        if let Some(map) = guard.as_mut() {
+            map.insert(key, val);
+        }
+    }
+}
+
+const WEBDAV_USER_AGENT: &str = "PureTidings/1.0 (Windows NT 10.0; Win64; x64)";
 
 fn encode_webdav_path(path: &str) -> String {
     let trimmed = path.trim_start_matches('/');
@@ -977,12 +999,49 @@ fn encode_webdav_path(path: &str) -> String {
         .join("/")
 }
 
+async fn ensure_parent_collection(
+    client: &reqwest::Client,
+    endpoint: &str,
+    remote_path: &str,
+    username: &str,
+    password: &str,
+) {
+    let trimmed = remote_path.trim_matches('/');
+    if let Some(idx) = trimmed.rfind('/') {
+        let parent_path = &trimmed[..idx];
+        let segments: Vec<&str> = parent_path.split('/').filter(|s| !s.is_empty()).collect();
+        let mut curr = endpoint.trim_end_matches('/').to_string();
+        for seg in segments {
+            let encoded_seg = encode_webdav_path(seg);
+            curr = format!("{}/{}", curr, encoded_seg);
+            let mkcol_method = reqwest::Method::from_bytes(b"MKCOL").unwrap_or(reqwest::Method::POST);
+            let _ = client
+                .request(mkcol_method, format!("{}/", curr))
+                .basic_auth(username, Some(password))
+                .header(USER_AGENT, WEBDAV_USER_AGENT)
+                .send()
+                .await;
+        }
+    }
+}
+
 async fn find_working_endpoint(
     client: &reqwest::Client,
     base_url: &str,
     username: &str,
     password: &str,
 ) -> Result<String, String> {
+    let cache_key = format!("{}|{}", base_url.trim(), username.trim());
+    if let Some(cached) = get_cached_endpoint(&cache_key) {
+        return Ok(cached);
+    }
+
+    if base_url.contains("/remote.php/dav/files/") || base_url.contains("/remote.php/webdav") {
+        let direct = base_url.trim().trim_end_matches('/').to_string();
+        set_cached_endpoint(cache_key, direct.clone());
+        return Ok(direct);
+    }
+
     let candidates = get_candidate_endpoints(base_url, username);
     if candidates.is_empty() {
         return Err("WebDAV server URL is empty.".to_string());
@@ -1016,14 +1075,18 @@ async fn find_working_endpoint(
                     .map(|ct| ct.contains("text/html"))
                     .unwrap_or(false);
 
+                if status.as_u16() == 429 {
+                    return Err("Nextcloud Brute Force Protection active (HTTP 429 TooManyRequests). Please ask your Nextcloud admin to reset the brute-force counter for your IP in Nextcloud (or wait a few minutes).".to_string());
+                }
+
                 if (status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204) && !is_html {
+                    set_cached_endpoint(cache_key, candidate.clone());
                     return Ok(candidate.clone());
                 } else if status.as_u16() == 401 || status.as_u16() == 403 {
                     auth_error = Some(format!(
                         "Authentication failed (HTTP {}). Please check your username and password (or App Password if 2FA is active).",
                         status
                     ));
-                    // Do not break immediately: continue to next candidate as another endpoint might succeed
                 } else if status.is_redirection() {
                     if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
                         let full_loc = if loc.starts_with("http://") || loc.starts_with("https://") {
@@ -1034,6 +1097,7 @@ async fn find_working_endpoint(
                             format!("{}/{}", candidate.trim_end_matches('/'), loc)
                         };
                         if full_loc.contains("/remote.php/dav/files/") || full_loc.contains("/remote.php/webdav/") {
+                            set_cached_endpoint(cache_key, full_loc.clone());
                             return Ok(full_loc);
                         }
                     }
@@ -1095,6 +1159,9 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
         .map_err(|e| format!("Failed to connect to WebDAV: {}", e))?;
 
     let status = res.status();
+    if status.as_u16() == 429 {
+        return Err("Nextcloud Brute Force Protection active (HTTP 429 TooManyRequests). Please ask your admin to reset the brute-force counter for your IP in Nextcloud.".to_string());
+    }
     if status.as_u16() == 404 {
         return Ok(None);
     }
@@ -1129,6 +1196,7 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
 
     let mut current_url = full_url;
     let mut last_error = String::new();
+    let mut tried_mkcol = false;
 
     for _ in 0..5 {
         let res = client
@@ -1142,6 +1210,10 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
             .map_err(|e| format!("Failed to upload to WebDAV: {}", e))?;
 
         let status = res.status();
+        if status.as_u16() == 429 {
+            return Err("Nextcloud Brute Force Protection active (HTTP 429 TooManyRequests). Please ask your admin to reset the brute-force counter for your IP in Nextcloud.".to_string());
+        }
+
         let is_html = res.headers()
             .get("content-type")
             .and_then(|ct| ct.to_str().ok())
@@ -1172,6 +1244,13 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
                 };
                 continue;
             }
+        }
+
+        // If parent directory does not exist (409 Conflict), create parent collection(s) and retry
+        if status.as_u16() == 409 && !tried_mkcol {
+            tried_mkcol = true;
+            ensure_parent_collection(&client, trimmed_endpoint, &remote_path, &username, &password).await;
+            continue;
         }
 
         if status.is_success() || status.as_u16() == 200 || status.as_u16() == 201 || status.as_u16() == 204 {

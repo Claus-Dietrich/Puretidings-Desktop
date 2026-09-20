@@ -388,7 +388,7 @@
                     }
                 }
             } catch (_) {}
-        }, 3000); // 3 seconds debounce for responsive cloud syncing
+        }, 15000); // 15 seconds debounce to prevent spamming Nextcloud WebDAV
     }
     window.scheduleWebdavDebouncedSync = scheduleWebdavDebouncedSync;
 
@@ -7679,7 +7679,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             if (syncWebdavEnabled && syncWebdavAuto !== false) {
                 setTimeout(() => {
                     executeWebdavSync({ manual: false });
-                }, 2500);
+                }, 5000);
             }
         }).catch(() => {});
 
