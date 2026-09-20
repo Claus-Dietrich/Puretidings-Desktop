@@ -1194,6 +1194,9 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
     let encoded_path = encode_webdav_path(&remote_path);
     let full_url = format!("{}/{}", trimmed_endpoint, encoded_path);
 
+    // Proactively ensure parent folder(s) exist via MKCOL before uploading
+    ensure_parent_collection(&client, trimmed_endpoint, &remote_path, &username, &password).await;
+
     let mut current_url = full_url;
     let mut last_error = String::new();
     let mut tried_mkcol = false;
@@ -1246,8 +1249,8 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
             }
         }
 
-        // If parent directory does not exist (409 Conflict), create parent collection(s) and retry
-        if status.as_u16() == 409 && !tried_mkcol {
+        // If parent directory does not exist (404 Not Found or 409 Conflict), create parent collection(s) and retry
+        if (status.as_u16() == 404 || status.as_u16() == 409) && !tried_mkcol {
             tried_mkcol = true;
             ensure_parent_collection(&client, trimmed_endpoint, &remote_path, &username, &password).await;
             continue;
