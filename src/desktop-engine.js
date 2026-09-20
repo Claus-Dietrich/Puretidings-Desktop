@@ -7047,6 +7047,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     } else if (lower.endsWith('.json')) {
                         processJsonFile(file);
                     }
+                }
+            });
+        }
+
         // --- WebDAV / Nextcloud Cloud Sync Engine ---
         function getOrCreateDeviceId() {
             let id = localStorage.getItem('puretidings_device_id');
