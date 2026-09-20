@@ -888,51 +888,66 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     let lower = full.to_lowercase();
 
     // Strip browser web UI paths such as /apps/files/files/268577 or /index.php/...
-    // Note: Do this FIRST so that any previously corrupted URLs containing /apps/ are cleaned
     let clean_base = if let Some(idx) = lower.find("/apps/") {
         full[..idx].trim_end_matches('/').to_string()
     } else if let Some(idx) = lower.find("/index.php") {
         full[..idx].trim_end_matches('/').to_string()
     } else {
-        full
+        full.clone()
     };
 
     let clean_lower = clean_base.to_lowercase();
     let u = username.trim();
 
-    // If the user explicitly provided a WebDAV endpoint, respect it directly
-    if clean_lower.contains("/remote.php/dav/files") || clean_lower.contains("/remote.php/webdav") || clean_lower.ends_with("/webdav") {
-        if clean_lower.ends_with("/remote.php/dav/files") && !u.is_empty() {
-            return vec![format!("{}/{}/", clean_base, u)];
-        }
-        if clean_lower.ends_with("/remote.php/dav/files/username") && !u.is_empty() && u.to_lowercase() != "username" {
-            let prefix = &clean_base[..clean_base.len() - 8];
-            return vec![format!("{}{}/", prefix, u)];
-        }
-        let with_slash = if clean_base.ends_with('/') { clean_base } else { format!("{}/", clean_base) };
-        return vec![with_slash];
-    }
+    // Extract origin (scheme + host + optional port)
+    let origin = if let Ok(parsed) = reqwest::Url::parse(&clean_base) {
+        let port_part = parsed.port().map(|p| format!(":{}", p)).unwrap_or_default();
+        format!("{}://{}{}", parsed.scheme(), parsed.host_str().unwrap_or_default(), port_part)
+    } else {
+        clean_base.clone()
+    };
 
     let mut candidates = Vec::new();
 
-    if !u.is_empty() {
-        // Nextcloud SabreDAV endpoint with URL-encoded username (required for email logins like user@domain.com)
-        if u.contains('@') {
-            let encoded_u = u.replace('@', "%40");
-            candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, encoded_u));
+    // 1. If user explicitly provided a WebDAV endpoint, prioritize it (normalized with trailing slash)
+    if clean_lower.contains("/remote.php/dav/files") || clean_lower.contains("/remote.php/webdav") || clean_lower.ends_with("/webdav") {
+        if clean_lower.ends_with("/remote.php/dav/files") && !u.is_empty() {
+            candidates.push(format!("{}/{}/", clean_base, u));
+        } else if clean_lower.ends_with("/remote.php/dav/files/username") && !u.is_empty() && u.to_lowercase() != "username" {
+            let prefix = &clean_base[..clean_base.len() - 8];
+            candidates.push(format!("{}{}/", prefix, u));
+        } else {
+            let with_slash = if clean_base.ends_with('/') { clean_base.clone() } else { format!("{}/", clean_base) };
+            candidates.push(with_slash);
         }
-        // Nextcloud standard SabreDAV endpoint
-        candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, u));
     }
 
-    // Nextcloud universal WebDAV endpoint (authenticated via Basic Auth, maps to user root)
-    candidates.push(format!("{}/remote.php/webdav/", clean_base));
+    // 2. SabreDAV endpoint with URL-encoded username (required for email logins like user@domain.com)
+    if !u.is_empty() {
+        if u.contains('@') {
+            let encoded_u = u.replace('@', "%40");
+            candidates.push(format!("{}/remote.php/dav/files/{}/", origin, encoded_u));
+        }
+        candidates.push(format!("{}/remote.php/dav/files/{}/", origin, u));
+    }
 
-    // Generic WebDAV base WITH trailing slash
-    candidates.push(format!("{}/webdav/", clean_base));
-    candidates.push(format!("{}/", clean_base));
+    // 3. Universal Nextcloud WebDAV endpoint (maps to user root via Basic Auth)
+    candidates.push(format!("{}/remote.php/webdav/", origin));
 
-    candidates
+    // 4. Generic WebDAV endpoints
+    candidates.push(format!("{}/webdav/", origin));
+    candidates.push(format!("{}/", origin));
+
+    // Deduplicate while preserving priority order
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::new();
+    for c in candidates {
+        if !seen.contains(&c) {
+            seen.insert(c.clone());
+            deduped.push(c);
+        }
+    }
+    deduped
 }
 
 async fn find_working_endpoint(
@@ -945,6 +960,13 @@ async fn find_working_endpoint(
     if candidates.is_empty() {
         return Err("WebDAV server URL is empty.".to_string());
     }
+
+    let origin = if let Ok(parsed) = reqwest::Url::parse(base_url.trim()) {
+        let port_part = parsed.port().map(|p| format!(":{}", p)).unwrap_or_default();
+        format!("{}://{}{}", parsed.scheme(), parsed.host_str().unwrap_or_default(), port_part)
+    } else {
+        base_url.trim().trim_end_matches('/').to_string()
+    };
 
     let propfind_method = reqwest::Method::from_bytes(b"PROPFIND").unwrap_or(reqwest::Method::GET);
 
@@ -977,8 +999,15 @@ async fn find_working_endpoint(
                     // Do not break immediately: continue to next candidate as another endpoint might succeed
                 } else if status.is_redirection() {
                     if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
-                        if loc.contains("/remote.php/dav/files/") || loc.contains("/remote.php/webdav/") {
-                            return Ok(loc.to_string());
+                        let full_loc = if loc.starts_with("http://") || loc.starts_with("https://") {
+                            loc.to_string()
+                        } else if loc.starts_with('/') {
+                            format!("{}{}", origin, loc)
+                        } else {
+                            format!("{}/{}", candidate.trim_end_matches('/'), loc)
+                        };
+                        if full_loc.contains("/remote.php/dav/files/") || full_loc.contains("/remote.php/webdav/") {
+                            return Ok(full_loc);
                         }
                     }
                     last_status = Some(status);

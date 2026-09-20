@@ -6151,6 +6151,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     scheduleNextSummaryNotification(true);
                     scheduleNextAutoBackup();
 
+                    if (syncWebdavEnabled && syncWebdavUrl && syncWebdavUser) {
+                        executeWebdavSync({ manual: false });
+                    }
+
                     closeSettingsModal();
                     showInAppToast(window.i18n ? window.i18n.t('toast_saved') : "Settings Saved", "Your automation schedules and preferences have been updated successfully!");
                 } catch (err) {
@@ -7230,7 +7234,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             const localTree = Array.isArray(mergedLocal.feedTree) ? mergedLocal.feedTree : [];
             const remoteTree = Array.isArray(remote.feedTree) ? remote.feedTree : [];
             const remoteUpdatedAt = remote.updatedAt || 0;
-            const localUpdatedAt = mergedLocal.feedTreeUpdatedAt || 0;
+            let localUpdatedAt = mergedLocal.feedTreeUpdatedAt || 0;
+
+            // Failsafe: if local tree exists but has no timestamp, treat it as current
+            if (!localUpdatedAt && localTree.length > 0) {
+                localUpdatedAt = Date.now();
+                mergedLocal.feedTreeUpdatedAt = localUpdatedAt;
+            }
 
             if (remoteTree.length > 0) {
                 if (remoteUpdatedAt > localUpdatedAt) {
@@ -7436,7 +7446,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto', 'syncWebdavResolvedUrl'
                     ]);
                     enabled = !!syncSettings.syncWebdavEnabled;
-                    url = (syncSettings.syncWebdavResolvedUrl || syncSettings.syncWebdavUrl || '').trim();
+                    let resolved = (syncSettings.syncWebdavResolvedUrl || '').trim();
+                    if (!resolved.startsWith('http://') && !resolved.startsWith('https://')) {
+                        resolved = '';
+                    }
+                    url = (resolved || syncSettings.syncWebdavUrl || '').trim();
                     username = (syncSettings.syncWebdavUser || '').trim();
                     password = syncSettings.syncWebdavPass || '';
                     remotePath = (syncSettings.syncWebdavPath || '/puretidings_sync.json').trim();
