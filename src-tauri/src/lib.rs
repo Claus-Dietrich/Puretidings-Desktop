@@ -874,10 +874,36 @@ async fn mark_imap_email_read(
 }
 
 // WebDAV Cloud Sync Commands
-fn build_webdav_url(base_url: &str, remote_path: &str) -> String {
-    let trimmed_base = base_url.trim_end_matches('/');
+fn normalize_webdav_endpoint(base_url: &str, username: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let lower = trimmed.to_lowercase();
+    if lower.contains("/remote.php/dav/files") || lower.contains("/remote.php/webdav") || lower.ends_with("/webdav") {
+        if lower.ends_with("/remote.php/dav/files") && !username.trim().is_empty() {
+            return format!("{}/{}", trimmed, username.trim());
+        }
+        if lower.ends_with("/remote.php/dav/files/username") && !username.trim().is_empty() && username.trim().to_lowercase() != "username" {
+            let prefix = &trimmed[..trimmed.len() - 8];
+            return format!("{}{}", prefix, username.trim());
+        }
+        return trimmed.to_string();
+    }
+
+    if !username.trim().is_empty() {
+        format!("{}/remote.php/dav/files/{}", trimmed, username.trim())
+    } else {
+        format!("{}/remote.php/webdav", trimmed)
+    }
+}
+
+fn build_webdav_url(base_url: &str, username: &str, remote_path: &str) -> String {
+    let endpoint = normalize_webdav_endpoint(base_url, username);
+    let trimmed_endpoint = endpoint.trim_end_matches('/');
     let trimmed_path = remote_path.trim_start_matches('/');
-    format!("{}/{}", trimmed_base, trimmed_path)
+    format!("{}/{}", trimmed_endpoint, trimmed_path)
 }
 
 #[tauri::command]
@@ -887,11 +913,12 @@ async fn webdav_test_connection(url: String, username: String, password: String)
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
 
+    let test_url = normalize_webdav_endpoint(&url, &username);
     let propfind_method = reqwest::Method::from_bytes(b"PROPFIND")
         .unwrap_or(reqwest::Method::GET);
 
     let res = client
-        .request(propfind_method, &url)
+        .request(propfind_method, &test_url)
         .basic_auth(&username, Some(&password))
         .header("Depth", "0")
         .header(USER_AGENT, "PureTidings/1.0 WebDAV")
@@ -904,20 +931,11 @@ async fn webdav_test_connection(url: String, username: String, password: String)
             if status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204 {
                 Ok(true)
             } else if status.as_u16() == 401 || status.as_u16() == 403 {
-                Err(format!("Authentication failed (HTTP {})", status))
+                Err(format!("Authentication failed (HTTP {}). Please verify username and app password.", status))
+            } else if status.as_u16() == 404 {
+                Err(format!("WebDAV endpoint not found (HTTP 404 at {}). Please check your Nextcloud WebDAV URL.", test_url))
             } else {
-                // Fallback HEAD request in case PROPFIND is disabled
-                let head_res = client
-                    .head(&url)
-                    .basic_auth(&username, Some(&password))
-                    .send()
-                    .await
-                    .map_err(|e| format!("Connection error: {}", e))?;
-                if head_res.status().is_success() || head_res.status().as_u16() == 200 || head_res.status().as_u16() == 204 {
-                    Ok(true)
-                } else {
-                    Err(format!("WebDAV server returned HTTP {}", head_res.status()))
-                }
+                Err(format!("WebDAV server returned HTTP {} for {}", status, test_url))
             }
         }
         Err(e) => Err(format!("Network error: {}", e)),
@@ -931,7 +949,7 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
 
-    let full_url = build_webdav_url(&url, &remote_path);
+    let full_url = build_webdav_url(&url, &username, &remote_path);
     let res = client
         .get(&full_url)
         .basic_auth(&username, Some(&password))
@@ -946,7 +964,7 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
         return Ok(None);
     }
     if !status.is_success() {
-        return Err(format!("HTTP Error {} when reading sync file", status));
+        return Err(format!("HTTP Error {} when reading sync file from {}", status, full_url));
     }
 
     let body = res.text().await.map_err(|e| format!("Failed to read response body: {}", e))?;
@@ -960,7 +978,7 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
 
-    let full_url = build_webdav_url(&url, &remote_path);
+    let full_url = build_webdav_url(&url, &username, &remote_path);
     let res = client
         .put(&full_url)
         .basic_auth(&username, Some(&password))
@@ -976,7 +994,12 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
         Ok(true)
     } else {
         let err_text = res.text().await.unwrap_or_default();
-        Err(format!("HTTP Error {}: {}", status, err_text))
+        let clean_err = if err_text.contains("<html") || err_text.contains("<!DOCTYPE") {
+            format!("HTTP {} on {}. Server returned an HTML error page. Please check that your WebDAV URL points to the files endpoint (/remote.php/dav/files/{}/).", status, full_url, username)
+        } else {
+            format!("HTTP Error {}: {}", status, err_text.chars().take(200).collect::<String>())
+        };
+        Err(clean_err)
     }
 }
 
