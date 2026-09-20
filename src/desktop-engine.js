@@ -7244,6 +7244,19 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     statusBox.style.color = '#28a745';
                     statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_connected') : '✓ Connection successful!';
                 }
+                // Automatically persist verified credentials and auto-check enabled
+                const enabledEl = document.getElementById('setting-sync-webdav-enabled');
+                if (enabledEl) enabledEl.checked = true;
+                const pathEl = document.getElementById('setting-sync-webdav-path');
+                const autoEl = document.getElementById('setting-sync-webdav-auto');
+                await chrome.storage.sync.set({
+                    syncWebdavEnabled: true,
+                    syncWebdavUrl: url,
+                    syncWebdavUser: username,
+                    syncWebdavPass: password,
+                    syncWebdavPath: (pathEl?.value || '/puretidings_sync.json').trim(),
+                    syncWebdavAuto: autoEl ? autoEl.checked : true
+                });
                 return true;
             } catch (err) {
                 if (statusBox) {
@@ -7264,23 +7277,69 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             const statusBox = document.getElementById('webdav-sync-status-box');
 
             try {
-                const syncSettings = await chrome.storage.sync.get([
-                    'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser',
-                    'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'
-                ]);
+                const domEnabledEl = document.getElementById('setting-sync-webdav-enabled');
+                const domUrlEl = document.getElementById('setting-sync-webdav-url');
+                const domUserEl = document.getElementById('setting-sync-webdav-user');
+                const domPassEl = document.getElementById('setting-sync-webdav-pass');
+                const domPathEl = document.getElementById('setting-sync-webdav-path');
+                const domAutoEl = document.getElementById('setting-sync-webdav-auto');
 
-                const enabled = syncSettings.syncWebdavEnabled;
-                const url = (syncSettings.syncWebdavUrl || '').trim();
-                const username = (syncSettings.syncWebdavUser || '').trim();
-                const password = syncSettings.syncWebdavPass || '';
-                const remotePath = (syncSettings.syncWebdavPath || '/puretidings_sync.json').trim();
+                let enabled = false;
+                let url = '';
+                let username = '';
+                let password = '';
+                let remotePath = '/puretidings_sync.json';
 
-                if (!enabled || !url || !username) {
+                if (options.manual && domUrlEl && domUserEl) {
+                    enabled = domEnabledEl ? domEnabledEl.checked : true;
+                    url = (domUrlEl.value || '').trim();
+                    username = (domUserEl.value || '').trim();
+                    password = domPassEl ? domPassEl.value : '';
+                    remotePath = (domPathEl?.value || '/puretidings_sync.json').trim() || '/puretidings_sync.json';
+                    const auto = domAutoEl ? domAutoEl.checked : true;
+
+                    if (url && username) {
+                        if (domEnabledEl && !domEnabledEl.checked) {
+                            domEnabledEl.checked = true;
+                            enabled = true;
+                        }
+                        await chrome.storage.sync.set({
+                            syncWebdavEnabled: enabled,
+                            syncWebdavUrl: url,
+                            syncWebdavUser: username,
+                            syncWebdavPass: password,
+                            syncWebdavPath: remotePath,
+                            syncWebdavAuto: auto
+                        });
+                    }
+                } else {
+                    const syncSettings = await chrome.storage.sync.get([
+                        'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser',
+                        'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'
+                    ]);
+                    enabled = !!syncSettings.syncWebdavEnabled;
+                    url = (syncSettings.syncWebdavUrl || '').trim();
+                    username = (syncSettings.syncWebdavUser || '').trim();
+                    password = syncSettings.syncWebdavPass || '';
+                    remotePath = (syncSettings.syncWebdavPath || '/puretidings_sync.json').trim();
+                }
+
+                if (!url || !username) {
                     if (options.manual && statusBox) {
                         statusBox.style.display = 'block';
                         statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
                         statusBox.style.color = '#dc3545';
-                        statusBox.textContent = 'WebDAV sync is disabled or configuration is incomplete.';
+                        statusBox.textContent = 'Please enter both WebDAV Server URL and Username.';
+                    }
+                    return false;
+                }
+
+                if (!enabled) {
+                    if (options.manual && statusBox) {
+                        statusBox.style.display = 'block';
+                        statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
+                        statusBox.style.color = '#dc3545';
+                        statusBox.textContent = 'Please check "Enable Nextcloud / WebDAV Cross-Device Sync".';
                     }
                     return false;
                 }
