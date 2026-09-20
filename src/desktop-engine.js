@@ -373,6 +373,25 @@
         return fallback;
     }
 
+    let webdavDebounceTimer = null;
+    let isWebdavSyncing = false;
+    window.isWebdavSyncing = false;
+
+    function scheduleWebdavDebouncedSync() {
+        if (webdavDebounceTimer) clearTimeout(webdavDebounceTimer);
+        webdavDebounceTimer = setTimeout(async () => {
+            try {
+                if (typeof window.executeWebdavSync === 'function') {
+                    const { syncWebdavEnabled, syncWebdavAuto } = await chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']);
+                    if (syncWebdavEnabled && syncWebdavAuto !== false) {
+                        window.executeWebdavSync({ manual: false });
+                    }
+                }
+            } catch (_) {}
+        }, 3000); // 3 seconds debounce for responsive cloud syncing
+    }
+    window.scheduleWebdavDebouncedSync = scheduleWebdavDebouncedSync;
+
     function setLocalItem(key, val) {
         memLocal[key] = val;
         openDatabase().then(db => {
@@ -390,9 +409,7 @@
             } catch (_) {}
         }
         if (key === 'readLinks' || key === 'favoritedLinks' || key === 'summaryLinks' || key === 'feedTree') {
-            if (typeof window.scheduleWebdavDebouncedSync === 'function') {
-                window.scheduleWebdavDebouncedSync();
-            }
+            scheduleWebdavDebouncedSync();
         }
     }
 
@@ -418,9 +435,7 @@
             localStorage.setItem('pt_sync_' + key, JSON.stringify(val));
         } catch (_) {}
         if (key === 'rules' || key === 'emailAccounts') {
-            if (typeof window.scheduleWebdavDebouncedSync === 'function') {
-                window.scheduleWebdavDebouncedSync();
-            }
+            scheduleWebdavDebouncedSync();
         }
     }
 
@@ -486,6 +501,14 @@
                         storageListeners.forEach(fn => {
                             try { fn(changes, 'local'); } catch (err) { console.error(err); }
                         });
+
+                        // Trigger debounced WebDAV sync if any synced key changed
+                        const syncLocalKeys = ['readLinks', 'favoritedLinks', 'summaryLinks', 'feedTree', 'feedTreeUpdatedAt'];
+                        const hasSyncKey = Object.keys(items).some(k => syncLocalKeys.includes(k));
+                        if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
+                            scheduleWebdavDebouncedSync();
+                        }
+
                         if (typeof callback === 'function') callback();
                         resolve();
                     });
@@ -607,6 +630,14 @@
                         storageListeners.forEach(fn => {
                             try { fn(changes, 'sync'); } catch (err) { console.error(err); }
                         });
+
+                        // Trigger debounced WebDAV sync if any synced key changed
+                        const syncSyncKeys = ['rules', 'emailAccounts', 'appLanguage'];
+                        const hasSyncKey = Object.keys(items).some(k => syncSyncKeys.includes(k));
+                        if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
+                            scheduleWebdavDebouncedSync();
+                        }
+
                         if (typeof callback === 'function') callback();
                         resolve();
                     });
@@ -7270,11 +7301,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
         }
 
-        let isWebdavSyncing = false;
-        let webdavDebounceTimer = null;
-
         async function executeWebdavSync(options = { manual: false }) {
-            if (isWebdavSyncing) return false;
+            if (isWebdavSyncing || window.isWebdavSyncing) return false;
+            isWebdavSyncing = true;
+            window.isWebdavSyncing = true;
             const statusBox = document.getElementById('webdav-sync-status-box');
 
             try {
@@ -7431,24 +7461,35 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 return false;
             } finally {
                 isWebdavSyncing = false;
+                window.isWebdavSyncing = false;
             }
-        }
-
-        function scheduleWebdavDebouncedSync() {
-            if (webdavDebounceTimer) clearTimeout(webdavDebounceTimer);
-            webdavDebounceTimer = setTimeout(async () => {
-                try {
-                    const { syncWebdavEnabled, syncWebdavAuto } = await chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']);
-                    if (syncWebdavEnabled && syncWebdavAuto !== false) {
-                        executeWebdavSync({ manual: false });
-                    }
-                } catch (_) {}
-            }, 30000);
         }
 
         window.testWebdavConnection = testWebdavConnection;
         window.executeWebdavSync = executeWebdavSync;
-        window.scheduleWebdavDebouncedSync = scheduleWebdavDebouncedSync;
+
+        // Flush pending sync immediately on app minimize, navigation or close
+        window.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && webdavDebounceTimer) {
+                clearTimeout(webdavDebounceTimer);
+                webdavDebounceTimer = null;
+                executeWebdavSync({ manual: false });
+            }
+        });
+        window.addEventListener('pagehide', () => {
+            if (webdavDebounceTimer) {
+                clearTimeout(webdavDebounceTimer);
+                webdavDebounceTimer = null;
+                executeWebdavSync({ manual: false });
+            }
+        });
+        window.addEventListener('beforeunload', () => {
+            if (webdavDebounceTimer) {
+                clearTimeout(webdavDebounceTimer);
+                webdavDebounceTimer = null;
+                executeWebdavSync({ manual: false });
+            }
+        });
 
         // --- WebDAV UI Listeners ---
         const testWebdavBtn = document.getElementById('btn-test-webdav-sync');

@@ -890,13 +890,14 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     if lower.contains("/remote.php/dav/files") || lower.contains("/remote.php/webdav") || lower.ends_with("/webdav") {
         let u = username.trim();
         if lower.ends_with("/remote.php/dav/files") && !u.is_empty() {
-            return vec![format!("{}/{}", full, u)];
+            return vec![format!("{}/{}/", full, u)];
         }
         if lower.ends_with("/remote.php/dav/files/username") && !u.is_empty() && u.to_lowercase() != "username" {
             let prefix = &full[..full.len() - 8];
-            return vec![format!("{}{}", prefix, u)];
+            return vec![format!("{}{}/", prefix, u)];
         }
-        return vec![full];
+        let with_slash = if full.ends_with('/') { full } else { format!("{}/", full) };
+        return vec![with_slash];
     }
 
     // Strip browser web UI paths such as /apps/files/files/268577 or /index.php/...
@@ -911,18 +912,18 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     let u = username.trim();
     let mut candidates = Vec::new();
     if !u.is_empty() {
-        // Nextcloud standard SabreDAV endpoint
-        candidates.push(format!("{}/remote.php/dav/files/{}", clean_base, u));
+        // Nextcloud standard SabreDAV endpoint WITH trailing slash
+        candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, u));
         // If username has '@' (e.g. email login), also try URL-encoded version
         if u.contains('@') {
             let encoded_u = u.replace('@', "%40");
-            candidates.push(format!("{}/remote.php/dav/files/{}", clean_base, encoded_u));
+            candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, encoded_u));
         }
     }
-    // Nextcloud universal / legacy WebDAV endpoint (maps directly to authenticated user's root)
-    candidates.push(format!("{}/remote.php/webdav", clean_base));
-    // Generic WebDAV base
-    candidates.push(clean_base);
+    // Nextcloud universal / legacy WebDAV endpoint WITH trailing slash
+    candidates.push(format!("{}/remote.php/webdav/", clean_base));
+    // Generic WebDAV base WITH trailing slash
+    candidates.push(format!("{}/", clean_base));
 
     candidates
 }
@@ -953,7 +954,13 @@ async fn find_working_endpoint(
         match req.send().await {
             Ok(res) => {
                 let status = res.status();
-                if status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204 {
+                let is_html = res.headers()
+                    .get("content-type")
+                    .and_then(|ct| ct.to_str().ok())
+                    .map(|ct| ct.contains("text/html"))
+                    .unwrap_or(false);
+
+                if (status.is_success() || status.as_u16() == 207 || status.as_u16() == 200 || status.as_u16() == 204) && !is_html {
                     return Ok(candidate.clone());
                 } else if status.as_u16() == 401 || status.as_u16() == 403 {
                     auth_error = Some(format!(
@@ -961,6 +968,13 @@ async fn find_working_endpoint(
                         status
                     ));
                     break;
+                } else if status.is_redirection() {
+                    if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
+                        if loc.contains("/remote.php/dav/files/") || loc.contains("/remote.php/webdav/") {
+                            return Ok(loc.to_string());
+                        }
+                    }
+                    last_status = Some(status);
                 } else {
                     last_status = Some(status);
                 }
