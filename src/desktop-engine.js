@@ -394,6 +394,18 @@
 
     function setLocalItem(key, val) {
         memLocal[key] = val;
+        if (key === 'feedTree') {
+            const now = Date.now();
+            memLocal.feedTreeUpdatedAt = now;
+            openDatabase().then(db => {
+                if (!db) return;
+                try {
+                    const tx = db.transaction('local', 'readwrite');
+                    tx.objectStore('local').put(now, 'feedTreeUpdatedAt');
+                } catch (_) {}
+            });
+            try { localStorage.setItem('pt_local_feedTreeUpdatedAt', JSON.stringify(now)); } catch (_) {}
+        }
         openDatabase().then(db => {
             if (!db) return;
             try {
@@ -480,6 +492,11 @@
                             }
                         }
                         const store = tx ? tx.objectStore('local') : null;
+
+                        // Automatically update feedTreeUpdatedAt when feedTree is modified
+                        if (items && items.feedTree && !items.feedTreeUpdatedAt) {
+                            items.feedTreeUpdatedAt = Date.now();
+                        }
 
                         for (const k in items) {
                             const oldVal = memLocal[k];
@@ -632,7 +649,7 @@
                         });
 
                         // Trigger debounced WebDAV sync if any synced key changed
-                        const syncSyncKeys = ['rules', 'emailAccounts', 'appLanguage'];
+                        const syncSyncKeys = ['rules', 'emailAccounts', 'appLanguage', 'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser', 'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'];
                         const hasSyncKey = Object.keys(items).some(k => syncSyncKeys.includes(k));
                         if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
                             scheduleWebdavDebouncedSync();
@@ -7178,63 +7195,62 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     mergedLocal.feedTree = combinedTree;
                     mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
                     hasChanges = true;
-                } else if (localUpdatedAt > 0) {
-                    const combinedTree = JSON.parse(JSON.stringify(localTree));
-                    function findMissingRemoteAndAdd(nodes) {
-                        for (const n of (nodes || [])) {
-                            if (n && n.url && !localUrls.has(n.url.trim().toLowerCase())) {
-                                combinedTree.push(n);
-                                localUrls.add(n.url.trim().toLowerCase());
-                            }
-                            if (n && Array.isArray(n.children)) findMissingRemoteAndAdd(n.children);
-                        }
-                    }
-                    findMissingRemoteAndAdd(remoteTree);
-                    mergedLocal.feedTree = combinedTree;
                 } else {
-                    if (localTree.length === 0 && remoteTree.length > 0) {
-                        mergedLocal.feedTree = remoteTree;
-                        mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
+                    // Local is newer or equal (localUpdatedAt >= remoteUpdatedAt):
+                    // Local tree is authoritative! Keep local tree as-is.
+                    // DO NOT re-add feeds from remoteTree to avoid resurrecting deleted feeds!
+                }
+            } else if (localTree.length === 0 && remoteTree.length > 0) {
+                mergedLocal.feedTree = remoteTree;
+                mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
+                hasChanges = true;
+            }
+
+            // 3. Rules merge
+            if (Array.isArray(remote.rules) && remote.rules.length > 0) {
+                if (remoteUpdatedAt > localUpdatedAt) {
+                    mergedSync.rules = remote.rules;
+                    hasChanges = true;
+                } else {
+                    const localRules = Array.isArray(mergedSync.rules) ? mergedSync.rules : [];
+                    const ruleKeys = new Set(localRules.map(r => `${r.field}|${r.condition}|${r.value}|${r.action}`));
+                    let rulesUpdated = false;
+                    remote.rules.forEach(rr => {
+                        const key = `${rr.field}|${rr.condition}|${rr.value}|${rr.action}`;
+                        if (!ruleKeys.has(key)) {
+                            localRules.push(rr);
+                            ruleKeys.add(key);
+                            rulesUpdated = true;
+                        }
+                    });
+                    if (rulesUpdated) {
+                        mergedSync.rules = localRules;
                         hasChanges = true;
                     }
                 }
             }
 
-            // 3. Rules merge
-            if (Array.isArray(remote.rules) && remote.rules.length > 0) {
-                const localRules = Array.isArray(mergedSync.rules) ? mergedSync.rules : [];
-                const ruleKeys = new Set(localRules.map(r => `${r.field}|${r.condition}|${r.value}|${r.action}`));
-                let rulesUpdated = false;
-                remote.rules.forEach(rr => {
-                    const key = `${rr.field}|${rr.condition}|${rr.value}|${rr.action}`;
-                    if (!ruleKeys.has(key)) {
-                        localRules.push(rr);
-                        ruleKeys.add(key);
-                        rulesUpdated = true;
-                    }
-                });
-                if (rulesUpdated) {
-                    mergedSync.rules = localRules;
-                    hasChanges = true;
-                }
-            }
-
             // 4. Email accounts merge
             if (Array.isArray(remote.emailAccounts) && remote.emailAccounts.length > 0) {
-                const localAccounts = Array.isArray(mergedSync.emailAccounts) ? mergedSync.emailAccounts : [];
-                const accKeys = new Set(localAccounts.map(a => `${a.server}|${a.username}`));
-                let accUpdated = false;
-                remote.emailAccounts.forEach(ra => {
-                    const key = `${ra.server}|${ra.username}`;
-                    if (!accKeys.has(key)) {
-                        localAccounts.push(ra);
-                        accKeys.add(key);
-                        accUpdated = true;
-                    }
-                });
-                if (accUpdated) {
-                    mergedSync.emailAccounts = localAccounts;
+                if (remoteUpdatedAt > localUpdatedAt) {
+                    mergedSync.emailAccounts = remote.emailAccounts;
                     hasChanges = true;
+                } else {
+                    const localAccounts = Array.isArray(mergedSync.emailAccounts) ? mergedSync.emailAccounts : [];
+                    const accKeys = new Set(localAccounts.map(a => `${a.server}|${a.username}`));
+                    let accUpdated = false;
+                    remote.emailAccounts.forEach(ra => {
+                        const key = `${ra.server}|${ra.username}`;
+                        if (!accKeys.has(key)) {
+                            localAccounts.push(ra);
+                            accKeys.add(key);
+                            accUpdated = true;
+                        }
+                    });
+                    if (accUpdated) {
+                        mergedSync.emailAccounts = localAccounts;
+                        hasChanges = true;
+                    }
                 }
             }
 
@@ -7355,6 +7371,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     remotePath = (syncSettings.syncWebdavPath || '/puretidings_sync.json').trim();
                 }
 
+                // Sanitize URL: if it contains /apps/ or /index.php, strip it
+                if (url.includes('/apps/')) {
+                    url = url.substring(0, url.indexOf('/apps/')).replace(/\/+$/, '');
+                } else if (url.includes('/index.php')) {
+                    url = url.substring(0, url.indexOf('/index.php')).replace(/\/+$/, '');
+                }
+
                 if (!url || !username) {
                     if (options.manual && statusBox) {
                         statusBox.style.display = 'block';
@@ -7376,7 +7399,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 isWebdavSyncing = true;
-                if (options.manual && statusBox) {
+                if (statusBox && (options.manual || statusBox.style.display === 'block')) {
                     statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(0, 123, 255, 0.15)';
                     statusBox.style.color = '#007bff';
@@ -7421,12 +7444,16 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 // 3. Build updated payload and upload to WebDAV
                 const now = Date.now();
+                const finalTreeUpdatedAt = Math.max(mergedLocal.feedTreeUpdatedAt || 0, now);
+                mergedLocal.feedTreeUpdatedAt = finalTreeUpdatedAt;
+                await chrome.storage.local.set({ feedTreeUpdatedAt: finalTreeUpdatedAt });
+
                 const payloadObj = {
                     version: 1,
                     updatedAt: now,
                     deviceId,
                     feedTree: mergedLocal.feedTree || [],
-                    feedTreeUpdatedAt: mergedLocal.feedTreeUpdatedAt || now,
+                    feedTreeUpdatedAt: finalTreeUpdatedAt,
                     readLinks: mergedLocal.readLinks || [],
                     favoritedLinks: mergedLocal.favoritedLinks || [],
                     summaryLinks: mergedLocal.summaryLinks || [],
@@ -7440,23 +7467,30 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     content: JSON.stringify(payloadObj, null, 2)
                 });
 
+                if (statusBox) {
+                    statusBox.style.display = 'block';
+                    statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
+                    statusBox.style.color = '#28a745';
+                    statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_success') : '✓ Synchronized successfully!';
+                    setTimeout(() => {
+                        if (statusBox && statusBox.textContent.includes('✓')) statusBox.style.display = 'none';
+                    }, 5000);
+                }
                 if (options.manual) {
-                    if (statusBox) {
-                        statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
-                        statusBox.style.color = '#28a745';
-                        statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_success') : '✓ Synchronized successfully!';
-                        setTimeout(() => { if (statusBox) statusBox.style.display = 'none'; }, 5000);
-                    }
                     showInAppToast('Cloud Sync Complete', 'Successfully synchronized with Nextcloud / WebDAV!');
                 }
                 return true;
             } catch (err) {
                 console.error('[PureTidings Desktop] WebDAV sync failed:', err);
-                if (options.manual && statusBox) {
+                if (statusBox) {
+                    statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
                     statusBox.style.color = '#dc3545';
                     const prefix = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_failed') : '✗ Connection failed: ';
                     statusBox.textContent = prefix + (err.message || err);
+                }
+                if (options.manual) {
+                    showInAppToast('Sync Error', `Failed to sync with Nextcloud: ${err.message || err}`);
                 }
                 return false;
             } finally {

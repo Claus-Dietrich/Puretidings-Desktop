@@ -886,21 +886,9 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     };
 
     let lower = full.to_lowercase();
-    // If the user explicitly provided a WebDAV endpoint, respect it directly
-    if lower.contains("/remote.php/dav/files") || lower.contains("/remote.php/webdav") || lower.ends_with("/webdav") {
-        let u = username.trim();
-        if lower.ends_with("/remote.php/dav/files") && !u.is_empty() {
-            return vec![format!("{}/{}/", full, u)];
-        }
-        if lower.ends_with("/remote.php/dav/files/username") && !u.is_empty() && u.to_lowercase() != "username" {
-            let prefix = &full[..full.len() - 8];
-            return vec![format!("{}{}/", prefix, u)];
-        }
-        let with_slash = if full.ends_with('/') { full } else { format!("{}/", full) };
-        return vec![with_slash];
-    }
 
     // Strip browser web UI paths such as /apps/files/files/268577 or /index.php/...
+    // Note: Do this FIRST so that any previously corrupted URLs containing /apps/ are cleaned
     let clean_base = if let Some(idx) = lower.find("/apps/") {
         full[..idx].trim_end_matches('/').to_string()
     } else if let Some(idx) = lower.find("/index.php") {
@@ -909,8 +897,27 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
         full
     };
 
+    let clean_lower = clean_base.to_lowercase();
     let u = username.trim();
+
+    // If the user explicitly provided a WebDAV endpoint, respect it directly
+    if clean_lower.contains("/remote.php/dav/files") || clean_lower.contains("/remote.php/webdav") || clean_lower.ends_with("/webdav") {
+        if clean_lower.ends_with("/remote.php/dav/files") && !u.is_empty() {
+            return vec![format!("{}/{}/", clean_base, u)];
+        }
+        if clean_lower.ends_with("/remote.php/dav/files/username") && !u.is_empty() && u.to_lowercase() != "username" {
+            let prefix = &clean_base[..clean_base.len() - 8];
+            return vec![format!("{}{}/", prefix, u)];
+        }
+        let with_slash = if clean_base.ends_with('/') { clean_base } else { format!("{}/", clean_base) };
+        return vec![with_slash];
+    }
+
     let mut candidates = Vec::new();
+
+    // Nextcloud universal WebDAV endpoint (authenticated via Basic Auth, maps directly to root for ANY user)
+    candidates.push(format!("{}/remote.php/webdav/", clean_base));
+
     if !u.is_empty() {
         // Nextcloud standard SabreDAV endpoint WITH trailing slash
         candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, u));
@@ -920,9 +927,9 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
             candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, encoded_u));
         }
     }
-    // Nextcloud universal / legacy WebDAV endpoint WITH trailing slash
-    candidates.push(format!("{}/remote.php/webdav/", clean_base));
+
     // Generic WebDAV base WITH trailing slash
+    candidates.push(format!("{}/webdav/", clean_base));
     candidates.push(format!("{}/", clean_base));
 
     candidates
@@ -967,7 +974,7 @@ async fn find_working_endpoint(
                         "Authentication failed (HTTP {}). Please check your username and password (or App Password if 2FA is active).",
                         status
                     ));
-                    break;
+                    // Do not break immediately: continue to next candidate as another endpoint (e.g. /remote.php/webdav/) might succeed
                 } else if status.is_redirection() {
                     if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
                         if loc.contains("/remote.php/dav/files/") || loc.contains("/remote.php/webdav/") {
@@ -979,8 +986,8 @@ async fn find_working_endpoint(
                     last_status = Some(status);
                 }
             }
-            Err(e) => {
-                return Err(format!("Network connection error: {}", e));
+            Err(_) => {
+                last_status = None;
             }
         }
     }
