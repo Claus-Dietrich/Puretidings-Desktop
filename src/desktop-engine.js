@@ -7552,17 +7552,21 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     content: JSON.stringify(payloadObj, null, 2)
                 });
 
+                const feedCount = (mergedLocal.feedTree || []).reduce((acc, n) => acc + (n.type === 'feed' ? 1 : (n.children ? n.children.filter(c => c.type === 'feed').length : 0)), 0);
+                const folderCount = (mergedLocal.feedTree || []).filter(n => n.type === 'folder').length;
+                const timeStr = new Date().toLocaleTimeString();
+
                 if (statusBox) {
                     statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
                     statusBox.style.color = '#28a745';
-                    statusBox.textContent = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_sync_success') : '✓ Synchronized successfully!';
+                    statusBox.innerHTML = `<strong>✓ Synchronized successfully (${timeStr})</strong><br><span style="font-size: 11px; opacity: 0.9;">• File: ${remotePath}<br>• Uploaded: ${feedCount} Feeds, ${folderCount} Folders</span>`;
                     setTimeout(() => {
-                        if (statusBox && statusBox.textContent.includes('✓')) statusBox.style.display = 'none';
-                    }, 5000);
+                        if (statusBox && statusBox.innerHTML.includes('✓')) statusBox.style.display = 'none';
+                    }, 8000);
                 }
                 if (options.manual) {
-                    showInAppToast('Cloud Sync Complete', 'Successfully synchronized with Nextcloud / WebDAV!');
+                    showInAppToast('Cloud Sync Complete', `Synced to ${remotePath} (${feedCount} feeds, ${folderCount} folders)!`);
                 }
                 return true;
             } catch (err) {
@@ -7571,8 +7575,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(220, 53, 69, 0.15)';
                     statusBox.style.color = '#dc3545';
-                    const prefix = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_failed') : '✗ Connection failed: ';
-                    statusBox.textContent = prefix + (err.message || err);
+                    const prefix = typeof i18n !== 'undefined' ? i18n.t('settings_webdav_failed') : '✗ Sync failed: ';
+                    statusBox.innerHTML = `<strong>${prefix}</strong><br><span style="font-size: 11px;">${err.message || err}</span>`;
                 }
                 if (options.manual) {
                     showInAppToast('Sync Error', `Failed to sync with Nextcloud: ${err.message || err}`);

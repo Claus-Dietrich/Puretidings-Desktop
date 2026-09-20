@@ -950,6 +950,33 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
     deduped
 }
 
+const WEBDAV_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) mirall/3.11.0 (Nextcloud, windows-10.0.19045 ClientArchitecture: x86_64)";
+
+fn encode_webdav_path(path: &str) -> String {
+    let trimmed = path.trim_start_matches('/');
+    trimmed
+        .split('/')
+        .map(|segment| {
+            if segment.contains('%') {
+                return segment.to_string();
+            }
+            let mut encoded = String::new();
+            for b in segment.bytes() {
+                match b {
+                    b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                        encoded.push(b as char);
+                    }
+                    _ => {
+                        encoded.push_str(&format!("%{:02X}", b));
+                    }
+                }
+            }
+            encoded
+        })
+        .collect::<Vec<String>>()
+        .join("/")
+}
+
 async fn find_working_endpoint(
     client: &reqwest::Client,
     base_url: &str,
@@ -978,7 +1005,7 @@ async fn find_working_endpoint(
             .request(propfind_method.clone(), candidate)
             .basic_auth(username, Some(password))
             .header("Depth", "0")
-            .header(USER_AGENT, "PureTidings/1.0 WebDAV");
+            .header(USER_AGENT, WEBDAV_USER_AGENT);
 
         match req.send().await {
             Ok(res) => {
@@ -1055,14 +1082,14 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
 
     let endpoint = find_working_endpoint(&client, &url, &username, &password).await?;
     let trimmed_endpoint = endpoint.trim_end_matches('/');
-    let trimmed_path = remote_path.trim_start_matches('/');
-    let full_url = format!("{}/{}", trimmed_endpoint, trimmed_path);
+    let encoded_path = encode_webdav_path(&remote_path);
+    let full_url = format!("{}/{}", trimmed_endpoint, encoded_path);
 
     let res = client
         .get(&full_url)
         .basic_auth(&username, Some(&password))
         .header(CACHE_CONTROL, "no-store")
-        .header(USER_AGENT, "PureTidings/1.0 WebDAV")
+        .header(USER_AGENT, WEBDAV_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Failed to connect to WebDAV: {}", e))?;
@@ -1076,6 +1103,13 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
     }
 
     let body = res.text().await.map_err(|e| format!("Failed to read response body: {}", e))?;
+    if body.trim().starts_with("<html") || body.trim().starts_with("<!DOCTYPE") {
+        if body.contains("Just a moment") || body.contains("cloudflare") {
+            return Err("Cloudflare WAF intercepted the connection. Please add a Cloudflare WAF Skip Rule for /remote.php/*.".to_string());
+        }
+        return Err("Server returned HTML instead of sync JSON file.".to_string());
+    }
+
     Ok(Some(body))
 }
 
@@ -1090,8 +1124,8 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
 
     let endpoint = find_working_endpoint(&client, &url, &username, &password).await?;
     let trimmed_endpoint = endpoint.trim_end_matches('/');
-    let trimmed_path = remote_path.trim_start_matches('/');
-    let full_url = format!("{}/{}", trimmed_endpoint, trimmed_path);
+    let encoded_path = encode_webdav_path(&remote_path);
+    let full_url = format!("{}/{}", trimmed_endpoint, encoded_path);
 
     let mut current_url = full_url;
     let mut last_error = String::new();
@@ -1101,13 +1135,27 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
             .put(&current_url)
             .basic_auth(&username, Some(&password))
             .header("Content-Type", "application/json; charset=utf-8")
-            .header(USER_AGENT, "PureTidings/1.0 WebDAV")
+            .header(USER_AGENT, WEBDAV_USER_AGENT)
             .body(content.clone())
             .send()
             .await
             .map_err(|e| format!("Failed to upload to WebDAV: {}", e))?;
 
         let status = res.status();
+        let is_html = res.headers()
+            .get("content-type")
+            .and_then(|ct| ct.to_str().ok())
+            .map(|ct| ct.contains("text/html"))
+            .unwrap_or(false);
+
+        if is_html {
+            let body_preview = res.text().await.unwrap_or_default();
+            if body_preview.contains("Just a moment") || body_preview.contains("cloudflare") || body_preview.contains("cf-browser-verification") {
+                return Err("Cloudflare WAF / Bot Protection intercepted the upload. Please add a Cloudflare WAF Skip Rule for /remote.php/*.".to_string());
+            }
+            return Err(format!("Server returned an HTML page (HTTP {}): {}", status, body_preview.chars().take(200).collect::<String>()));
+        }
+
         if status.is_redirection() {
             if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
                 current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
@@ -1130,11 +1178,7 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
             return Ok(true);
         } else {
             let err_text = res.text().await.unwrap_or_default();
-            let clean_err = if err_text.contains("<html") || err_text.contains("<!DOCTYPE") {
-                format!("HTTP {} on {}. Server returned an HTML error page. Please check your Nextcloud WebDAV permissions.", status, current_url)
-            } else {
-                format!("HTTP Error {}: {}", status, err_text.chars().take(200).collect::<String>())
-            };
+            let clean_err = format!("HTTP Error {}: {}", status, err_text.chars().take(200).collect::<String>());
             last_error = clean_err;
             break;
         }
