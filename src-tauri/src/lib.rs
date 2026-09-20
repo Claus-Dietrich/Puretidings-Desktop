@@ -915,18 +915,18 @@ fn get_candidate_endpoints(base_url: &str, username: &str) -> Vec<String> {
 
     let mut candidates = Vec::new();
 
-    // Nextcloud universal WebDAV endpoint (authenticated via Basic Auth, maps directly to root for ANY user)
-    candidates.push(format!("{}/remote.php/webdav/", clean_base));
-
     if !u.is_empty() {
-        // Nextcloud standard SabreDAV endpoint WITH trailing slash
-        candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, u));
-        // If username has '@' (e.g. email login), also try URL-encoded version
+        // Nextcloud SabreDAV endpoint with URL-encoded username (required for email logins like user@domain.com)
         if u.contains('@') {
             let encoded_u = u.replace('@', "%40");
             candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, encoded_u));
         }
+        // Nextcloud standard SabreDAV endpoint
+        candidates.push(format!("{}/remote.php/dav/files/{}/", clean_base, u));
     }
+
+    // Nextcloud universal WebDAV endpoint (authenticated via Basic Auth, maps to user root)
+    candidates.push(format!("{}/remote.php/webdav/", clean_base));
 
     // Generic WebDAV base WITH trailing slash
     candidates.push(format!("{}/webdav/", clean_base));
@@ -974,7 +974,7 @@ async fn find_working_endpoint(
                         "Authentication failed (HTTP {}). Please check your username and password (or App Password if 2FA is active).",
                         status
                     ));
-                    // Do not break immediately: continue to next candidate as another endpoint (e.g. /remote.php/webdav/) might succeed
+                    // Do not break immediately: continue to next candidate as another endpoint might succeed
                 } else if status.is_redirection() {
                     if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
                         if loc.contains("/remote.php/dav/files/") || loc.contains("/remote.php/webdav/") {
@@ -1052,7 +1052,9 @@ async fn webdav_get_sync_file(url: String, username: String, password: String, r
 
 #[tauri::command]
 async fn webdav_put_sync_file(url: String, username: String, password: String, remote_path: String, content: String) -> Result<bool, String> {
+    // Disable automatic redirect following so reqwest doesn't drop the PUT method and body on 301/302 redirects
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(25))
         .build()
         .map_err(|e| format!("HTTP Client Error: {}", e))?;
@@ -1062,27 +1064,57 @@ async fn webdav_put_sync_file(url: String, username: String, password: String, r
     let trimmed_path = remote_path.trim_start_matches('/');
     let full_url = format!("{}/{}", trimmed_endpoint, trimmed_path);
 
-    let res = client
-        .put(&full_url)
-        .basic_auth(&username, Some(&password))
-        .header("Content-Type", "application/json; charset=utf-8")
-        .header(USER_AGENT, "PureTidings/1.0 WebDAV")
-        .body(content)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to upload to WebDAV: {}", e))?;
+    let mut current_url = full_url;
+    let mut last_error = String::new();
 
-    let status = res.status();
-    if status.is_success() || status.as_u16() == 200 || status.as_u16() == 201 || status.as_u16() == 204 {
-        Ok(true)
-    } else {
-        let err_text = res.text().await.unwrap_or_default();
-        let clean_err = if err_text.contains("<html") || err_text.contains("<!DOCTYPE") {
-            format!("HTTP {} on {}. Server returned an HTML error page. Please check your Nextcloud WebDAV permissions.", status, full_url)
+    for _ in 0..5 {
+        let res = client
+            .put(&current_url)
+            .basic_auth(&username, Some(&password))
+            .header("Content-Type", "application/json; charset=utf-8")
+            .header(USER_AGENT, "PureTidings/1.0 WebDAV")
+            .body(content.clone())
+            .send()
+            .await
+            .map_err(|e| format!("Failed to upload to WebDAV: {}", e))?;
+
+        let status = res.status();
+        if status.is_redirection() {
+            if let Some(loc) = res.headers().get(reqwest::header::LOCATION).and_then(|l| l.to_str().ok()) {
+                current_url = if loc.starts_with("http://") || loc.starts_with("https://") {
+                    loc.to_string()
+                } else if loc.starts_with('/') {
+                    let origin = if let Ok(parsed) = reqwest::Url::parse(&current_url) {
+                        format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or_default())
+                    } else {
+                        trimmed_endpoint.to_string()
+                    };
+                    format!("{}{}", origin, loc)
+                } else {
+                    format!("{}/{}", trimmed_endpoint, loc)
+                };
+                continue;
+            }
+        }
+
+        if status.is_success() || status.as_u16() == 200 || status.as_u16() == 201 || status.as_u16() == 204 {
+            return Ok(true);
         } else {
-            format!("HTTP Error {}: {}", status, err_text.chars().take(200).collect::<String>())
-        };
-        Err(clean_err)
+            let err_text = res.text().await.unwrap_or_default();
+            let clean_err = if err_text.contains("<html") || err_text.contains("<!DOCTYPE") {
+                format!("HTTP {} on {}. Server returned an HTML error page. Please check your Nextcloud WebDAV permissions.", status, current_url)
+            } else {
+                format!("HTTP Error {}: {}", status, err_text.chars().take(200).collect::<String>())
+            };
+            last_error = clean_err;
+            break;
+        }
+    }
+
+    if !last_error.is_empty() {
+        Err(last_error)
+    } else {
+        Err("Failed to upload file to WebDAV: too many redirects.".to_string())
     }
 }
 

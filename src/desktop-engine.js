@@ -3358,7 +3358,33 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const quickFolderSelect = document.getElementById('quick-feed-folder-select');
         if (!list) return;
 
-        const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+        let { feedTree = [] } = await chrome.storage.local.get('feedTree');
+
+        // Deduplication pass to clean up any duplicate feeds
+        const seenFeedUrls = new Set();
+        let hadDuplicates = false;
+        function dedupeNodes(nodes) {
+            return nodes.filter(node => {
+                if (node.type === 'feed' && node.url) {
+                    const norm = node.url.trim().toLowerCase().replace(/\/+$/, '');
+                    if (seenFeedUrls.has(norm)) {
+                        hadDuplicates = true;
+                        return false;
+                    }
+                    seenFeedUrls.add(norm);
+                    return true;
+                }
+                if (node.type === 'folder' && Array.isArray(node.children)) {
+                    node.children = dedupeNodes(node.children);
+                }
+                return true;
+            });
+        }
+        feedTree = dedupeNodes(feedTree);
+        if (hadDuplicates) {
+            await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
+        }
+
         list.innerHTML = '';
         if (folderSelect) folderSelect.innerHTML = '<option value="">Root (No Folder)</option>';
         if (quickFolderSelect) quickFolderSelect.innerHTML = '<option value="">Root (No Folder)</option>';
@@ -3623,11 +3649,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
 
             if (success) {
-                await chrome.storage.local.set({ feedTree });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                 renderSettingsFeeds();
             } else {
                 feedTree.push(draggedNode);
-                await chrome.storage.local.set({ feedTree });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                 renderSettingsFeeds();
             }
             return false;
@@ -3641,7 +3667,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
                 if (moveNodeInSiblings(feedTree, id, 'up')) {
-                    await chrome.storage.local.set({ feedTree });
+                    await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                     renderSettingsFeeds();
                 }
             });
@@ -3652,7 +3678,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
                 if (moveNodeInSiblings(feedTree, id, 'down')) {
-                    await chrome.storage.local.set({ feedTree });
+                    await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                     renderSettingsFeeds();
                 }
             });
@@ -3760,7 +3786,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
                 }
 
-                await chrome.storage.local.set({ feedTree });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                 editingNodeId = null;
                 renderSettingsFeeds();
                 if (result.node.type === 'feed') {
@@ -3785,7 +3811,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 const updated = removeNode(feedTree);
-                await chrome.storage.local.set({ feedTree: updated });
+                await chrome.storage.local.set({ feedTree: updated, feedTreeUpdatedAt: Date.now() });
                 renderSettingsFeeds();
             });
         });
@@ -5759,6 +5785,39 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // Synchronize any configured email accounts to the feed tree
         syncEmailAccountsToFeedTree();
 
+        // Clean up any duplicate feeds from feedTree on startup
+        (async () => {
+            try {
+                const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+                const seenUrls = new Set();
+                let hadDupes = false;
+                function dedupeTree(nodes) {
+                    return nodes.filter(node => {
+                        if (node.type === 'feed' && node.url) {
+                            const u = node.url.trim().toLowerCase().replace(/\/+$/, '');
+                            if (seenUrls.has(u)) {
+                                hadDupes = true;
+                                return false;
+                            }
+                            seenUrls.add(u);
+                            return true;
+                        }
+                        if (node.type === 'folder' && Array.isArray(node.children)) {
+                            node.children = dedupeTree(node.children);
+                        }
+                        return true;
+                    });
+                }
+                const cleaned = dedupeTree(feedTree);
+                if (hadDupes) {
+                    console.log('[PureTidings Desktop] Deduplicated feedTree on startup.');
+                    await chrome.storage.local.set({ feedTree: cleaned, feedTreeUpdatedAt: Date.now() });
+                }
+            } catch (e) {
+                console.warn('[PureTidings Desktop] Startup deduplication error:', e);
+            }
+        })();
+
         // Auto-recover any email inboxes that have unread counts but missing articles due to previous storage quota errors
         setTimeout(async () => {
             try {
@@ -6401,7 +6460,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     feedTree.push(newFeed);
                 }
 
-                await chrome.storage.local.set({ feedTree });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                 document.getElementById('new-feed-name').value = '';
                 document.getElementById('new-feed-url').value = '';
                 renderSettingsFeeds();
@@ -6423,7 +6482,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     type: 'folder',
                     children: []
                 });
-                await chrome.storage.local.set({ feedTree });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                 document.getElementById('new-folder-name').value = '';
                 renderSettingsFeeds();
             });
@@ -6801,7 +6860,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
                 });
 
-                await chrome.storage.local.set({ feedTree });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
                 showStatusBadge('opml-status-box', 'success', `✓ Successfully imported ${addedCount} feed(s) from "${fileName}"!`);
                 showInAppToast('OPML Import', `Imported ${addedCount} feed(s) successfully!`);
                 renderSettingsFeeds();
@@ -6820,12 +6879,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     return;
                 }
 
-                if (data.local) await chrome.storage.local.set(data.local);
+                if (data.local) {
+                    if (data.local.feedTree && !data.local.feedTreeUpdatedAt) {
+                        data.local.feedTreeUpdatedAt = Date.now();
+                    }
+                    await chrome.storage.local.set(data.local);
+                }
                 if (data.sync) await chrome.storage.sync.set(data.sync);
 
                 // Chrome Extension backup format compatibility
                 if (data.feedTree && !data.local) {
-                    await chrome.storage.local.set({ feedTree: data.feedTree });
+                    await chrome.storage.local.set({ feedTree: data.feedTree, feedTreeUpdatedAt: Date.now() });
                 }
                 if (data.rules && !data.sync) {
                     await chrome.storage.sync.set({ rules: data.rules });
@@ -7169,39 +7233,19 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             const localUpdatedAt = mergedLocal.feedTreeUpdatedAt || 0;
 
             if (remoteTree.length > 0) {
-                function gatherUrls(nodes, set) {
-                    for (const n of (nodes || [])) {
-                        if (n && n.url) set.add(n.url.trim().toLowerCase());
-                        if (n && Array.isArray(n.children)) gatherUrls(n.children, set);
-                    }
-                }
-                const localUrls = new Set();
-                gatherUrls(localTree, localUrls);
-                const remoteUrls = new Set();
-                gatherUrls(remoteTree, remoteUrls);
-
                 if (remoteUpdatedAt > localUpdatedAt) {
-                    const combinedTree = JSON.parse(JSON.stringify(remoteTree));
-                    function findMissingAndAdd(nodes) {
-                        for (const n of (nodes || [])) {
-                            if (n && n.url && !remoteUrls.has(n.url.trim().toLowerCase())) {
-                                combinedTree.push(n);
-                                remoteUrls.add(n.url.trim().toLowerCase());
-                            }
-                            if (n && Array.isArray(n.children)) findMissingAndAdd(n.children);
-                        }
-                    }
-                    findMissingAndAdd(localTree);
-                    mergedLocal.feedTree = combinedTree;
+                    // Remote is strictly newer: cleanly adopt the remote tree and folder structure.
+                    // Clean adoption prevents duplicate feeds and respects folder reorganization/moves.
+                    mergedLocal.feedTree = JSON.parse(JSON.stringify(remoteTree));
                     mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
                     hasChanges = true;
                 } else {
                     // Local is newer or equal (localUpdatedAt >= remoteUpdatedAt):
                     // Local tree is authoritative! Keep local tree as-is.
-                    // DO NOT re-add feeds from remoteTree to avoid resurrecting deleted feeds!
+                    // DO NOT re-add feeds from remoteTree to avoid resurrecting deleted or moved feeds!
                 }
             } else if (localTree.length === 0 && remoteTree.length > 0) {
-                mergedLocal.feedTree = remoteTree;
+                mergedLocal.feedTree = JSON.parse(JSON.stringify(remoteTree));
                 mergedLocal.feedTreeUpdatedAt = remoteUpdatedAt;
                 hasChanges = true;
             }
@@ -7251,6 +7295,33 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         mergedSync.emailAccounts = localAccounts;
                         hasChanges = true;
                     }
+                }
+            }
+
+            // 5. Deduplication safety pass on mergedLocal.feedTree:
+            // If the tree contains duplicate feed URLs, remove subsequent duplicates
+            if (Array.isArray(mergedLocal.feedTree)) {
+                const seenUrls = new Set();
+                function deduplicateNodes(nodes) {
+                    return nodes.filter(node => {
+                        if (node.type === 'feed' && node.url) {
+                            const norm = node.url.trim().toLowerCase().replace(/\/+$/, '');
+                            if (seenUrls.has(norm)) {
+                                return false; // Filter out duplicate
+                            }
+                            seenUrls.add(norm);
+                            return true;
+                        }
+                        if (node.type === 'folder' && Array.isArray(node.children)) {
+                            node.children = deduplicateNodes(node.children);
+                        }
+                        return true;
+                    });
+                }
+                const beforeLen = JSON.stringify(mergedLocal.feedTree);
+                mergedLocal.feedTree = deduplicateNodes(mergedLocal.feedTree);
+                if (JSON.stringify(mergedLocal.feedTree) !== beforeLen) {
+                    hasChanges = true;
                 }
             }
 
