@@ -32,6 +32,33 @@ If you open a video during this temporary window, YouTube may withhold transcrip
 
 ---
 
+## ☁️ Nextcloud & WebDAV Cross-Device Cloud Sync
+
+PureTidings Desktop & Mobile features native, zero-middleman cloud synchronization via **Nextcloud**, **ownCloud**, **MagentaCloud**, **Hetzner Storage Share**, or any standard WebDAV server.
+
+### 🌟 What Gets Synchronized?
+- **Complete Feed & Folder Hierarchy (`feedTree`):** All custom folders, subfolders, feed assignments, and order.
+- **Article States:** Read articles (`readLinks`), starred favorites (`favoritedLinks`), and AI summary drawer items (`summaryLinks`).
+- **Configuration & Rules:** Keyword filter rules (`rules`), connected IMAP email inboxes (`emailAccounts`), and UI language preferences (`appLanguage`).
+
+### ⚙️ How to Configure Nextcloud Sync
+1. Open PureTidings **Settings** ⚙️ and navigate to the **Backup & OPML** tab.
+2. Under **Nextcloud & WebDAV Cloud Sync**, check **"Enable Nextcloud / WebDAV Cross-Device Sync"**.
+3. Fill in your server details:
+   - **WebDAV Server URL:** Enter your base Nextcloud URL (e.g. `https://cloud.your-domain.com`).
+   - **Username:** Your Nextcloud username (or email address).
+   - **App Password / Token:** A dedicated App Password generated in your Nextcloud account (*Settings > Security > Devices & sessions > Create new app password*).
+   - **Remote File Path:** The target cloud path (e.g. `/puretidings_sync.json` or `/NEXTCLOUD PureTidings sync/puretidings_sync.json`).
+4. Click **"Test Connection"** to verify authentication, then click **"Sync Now"** and **"Save Settings"**.
+
+### 🛡️ Built-in Failsafes & Resilience
+- **Zero Brute-Force Triggers (`ENDPOINT_CACHE`):** Working WebDAV endpoints are cached in memory to eliminate repeated probing and avoid triggering Nextcloud's built-in Brute Force Protection (`OCA\DAV\Connector\Sabre\Exception\TooManyRequests` / HTTP 429).
+- **Automatic Folder Creation (`MKCOL`):** PureTidings proactively checks and creates any missing parent directories on your server before uploading, automatically recovering from HTTP 404/409 errors.
+- **Safe Desktop User-Agent:** Communicates via a standard desktop identifier (`PureTidings/1.0`), preventing antivirus heuristic false positives.
+- **Set-Union Merging:** Merges article states and uses timestamp authority (`feedTreeUpdatedAt`) so changes from multiple devices merge seamlessly without data loss.
+
+---
+
 ## 💻 Chromebook & ChromeOS Installation Guide
 
 PureTidings runs smoothly and natively on Chromebooks:
