@@ -494,7 +494,7 @@
                         const store = tx ? tx.objectStore('local') : null;
 
                         // Automatically update feedTreeUpdatedAt when feedTree is modified
-                        if (items && items.feedTree && !items.feedTreeUpdatedAt) {
+                        if (items && items.feedTree && items.feedTreeUpdatedAt === undefined) {
                             items.feedTreeUpdatedAt = Date.now();
                         }
 
@@ -996,10 +996,11 @@
             const activeAccounts = emailAccounts.filter(a => a && a.enabled !== false);
             const folderIndex = feedTree.findIndex(n => n && n.id === 'folder_email_inboxes');
 
+            const currentUpdated = (await chrome.storage.local.get('feedTreeUpdatedAt'))?.feedTreeUpdatedAt || 0;
             if (activeAccounts.length === 0) {
                 if (folderIndex !== -1) {
                     feedTree.splice(folderIndex, 1);
-                    await chrome.storage.local.set({ feedTree });
+                    await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: currentUpdated });
                 }
                 return;
             }
@@ -1024,7 +1025,7 @@
                 });
             }
 
-            await chrome.storage.local.set({ feedTree });
+            await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: currentUpdated });
         } catch (err) {
             console.error('[PureTidings Desktop] Error syncing email accounts to feed tree:', err);
         }
@@ -3802,16 +3803,42 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const id = e.currentTarget.dataset.id;
                 if (!confirm("Are you sure you want to remove this item?")) return;
 
+                const { deletedFeedUrls = {}, deletedFolderIds = {} } = await chrome.storage.local.get(['deletedFeedUrls', 'deletedFolderIds']);
+                const now = Date.now();
+
                 function removeNode(nodes) {
                     return nodes.filter(n => {
-                        if (n.id === id) return false;
+                        if (n.id === id) {
+                            if (n.type === 'feed' && n.url) {
+                                deletedFeedUrls[(n.url || '').trim().toLowerCase().replace(/\/+$/, '')] = now;
+                            } else if (n.type === 'folder') {
+                                deletedFolderIds[n.id] = now;
+                                function markChildren(children) {
+                                    for (const c of children || []) {
+                                        if (c.type === 'feed' && c.url) {
+                                            deletedFeedUrls[(c.url || '').trim().toLowerCase().replace(/\/+$/, '')] = now;
+                                        } else if (c.type === 'folder' && c.children) {
+                                            deletedFolderIds[c.id] = now;
+                                            markChildren(c.children);
+                                        }
+                                    }
+                                }
+                                markChildren(n.children);
+                            }
+                            return false;
+                        }
                         if (n.children) n.children = removeNode(n.children);
                         return true;
                     });
                 }
 
                 const updated = removeNode(feedTree);
-                await chrome.storage.local.set({ feedTree: updated, feedTreeUpdatedAt: Date.now() });
+                await chrome.storage.local.set({
+                    feedTree: updated,
+                    feedTreeUpdatedAt: now,
+                    deletedFeedUrls,
+                    deletedFolderIds
+                });
                 renderSettingsFeeds();
             });
         });
@@ -6464,7 +6491,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     feedTree.push(newFeed);
                 }
 
-                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
+                const { deletedFeedUrls = {} } = await chrome.storage.local.get('deletedFeedUrls');
+                const normUrl = url.trim().toLowerCase().replace(/\/+$/, '');
+                if (deletedFeedUrls[normUrl]) {
+                    delete deletedFeedUrls[normUrl];
+                }
+
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now(), deletedFeedUrls });
                 document.getElementById('new-feed-name').value = '';
                 document.getElementById('new-feed-url').value = '';
                 renderSettingsFeeds();
@@ -6479,14 +6512,18 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const name = document.getElementById('new-folder-name')?.value || '';
                 if (!name.trim()) return;
 
-                const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+                const { feedTree = [], deletedFolderIds = {} } = await chrome.storage.local.get(['feedTree', 'deletedFolderIds']);
+                const newFolderId = 'folder-' + Date.now();
+                if (deletedFolderIds[newFolderId]) {
+                    delete deletedFolderIds[newFolderId];
+                }
                 feedTree.push({
-                    id: 'folder-' + Date.now(),
+                    id: newFolderId,
                     name: name.trim(),
                     type: 'folder',
                     children: []
                 });
-                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now() });
+                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: Date.now(), deletedFolderIds });
                 document.getElementById('new-folder-name').value = '';
                 renderSettingsFeeds();
             });
@@ -7178,16 +7215,226 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             return id;
         }
 
+        function isDefaultFeedTree(tree) {
+            if (!Array.isArray(tree) || tree.length === 0) return true;
+            const defaultUrls = [
+                'https://www.tagesschau.de/infoservices/alle-meldungen-100~rss2.xml',
+                'https://feeds.bbci.co.uk/news/rss.xml',
+                'https://www.theverge.com/rss/index.xml',
+                'https://feeds.arstechnica.com/arstechnica/index',
+                'https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ'
+            ];
+            const defaultFolderIds = new Set(['folder-news', 'folder-tech', 'folder_email_inboxes']);
+
+            function checkNodes(nodes) {
+                for (const n of nodes) {
+                    if (n.type === 'folder') {
+                        const lower = (n.name || '').trim().toLowerCase();
+                        if (!defaultFolderIds.has(n.id) && !['news', 'technology'].includes(lower)) {
+                            return false;
+                        }
+                        if (n.children && !checkNodes(n.children)) return false;
+                    } else if (n.type === 'feed') {
+                        if (n.isEmail || (n.url && n.url.startsWith('imap:'))) continue;
+                        const norm = (n.url || '').trim().toLowerCase().replace(/\/+$/, '');
+                        const isDef = defaultUrls.some(u => u.toLowerCase().replace(/\/+$/, '') === norm);
+                        if (!isDef) return false;
+                    }
+                }
+                return true;
+            }
+            return checkNodes(tree);
+        }
+
+        function mergeFeedTrees(localTree, remoteTree, deletedUrls = {}, deletedFolderIds = {}) {
+            const localDefault = isDefaultFeedTree(localTree);
+            const remoteDefault = isDefaultFeedTree(remoteTree);
+
+            // If local is untouched default and remote has custom feeds: adopt remote tree completely
+            if (localDefault && !remoteDefault && Array.isArray(remoteTree) && remoteTree.length > 0) {
+                return { mergedTree: JSON.parse(JSON.stringify(remoteTree)), hasChanges: true, newlyAddedFeeds: remoteTree };
+            }
+            // If remote is default and local has custom feeds: keep local tree completely
+            if (remoteDefault && !localDefault && Array.isArray(localTree) && localTree.length > 0) {
+                return { mergedTree: JSON.parse(JSON.stringify(localTree)), hasChanges: true, newlyAddedFeeds: [] };
+            }
+            if (!Array.isArray(remoteTree) || remoteTree.length === 0) {
+                return { mergedTree: JSON.parse(JSON.stringify(localTree || [])), hasChanges: false, newlyAddedFeeds: [] };
+            }
+            if (!Array.isArray(localTree) || localTree.length === 0) {
+                return { mergedTree: JSON.parse(JSON.stringify(remoteTree)), hasChanges: true, newlyAddedFeeds: remoteTree };
+            }
+
+            const norm = (url) => (url || '').trim().toLowerCase().replace(/\/+$/, '');
+
+            // 1. Build folder registry
+            const folderMap = new Map(); // key -> folderNode
+            const folderHierarchy = new Map(); // childKey -> parentKey
+
+            function scanFolders(nodes, parentKey = null) {
+                for (const n of nodes) {
+                    if (n.type === 'folder') {
+                        if (deletedFolderIds[n.id]) continue;
+                        const folderNameNorm = (n.name || '').trim().toLowerCase();
+                        let folderKey = n.id || ('folder_' + folderNameNorm);
+
+                        // Match existing folder by ID or same name
+                        let matchedKey = null;
+                        if (folderMap.has(folderKey)) {
+                            matchedKey = folderKey;
+                        } else {
+                            for (const [k, f] of folderMap.entries()) {
+                                if ((f.name || '').trim().toLowerCase() === folderNameNorm) {
+                                    matchedKey = k;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (matchedKey) {
+                            if (parentKey && !folderHierarchy.has(matchedKey)) {
+                                folderHierarchy.set(matchedKey, parentKey);
+                            }
+                        } else {
+                            folderMap.set(folderKey, {
+                                id: n.id,
+                                name: n.name,
+                                type: 'folder',
+                                children: []
+                            });
+                            if (parentKey) {
+                                folderHierarchy.set(folderKey, parentKey);
+                            }
+                        }
+
+                        if (Array.isArray(n.children)) {
+                            scanFolders(n.children, matchedKey || folderKey);
+                        }
+                    }
+                }
+            }
+
+            scanFolders(localTree, null);
+            scanFolders(remoteTree, null);
+
+            // 2. Build feed registry
+            const feedMap = new Map(); // normUrl -> feedNode
+            const feedFolderMap = new Map(); // normUrl -> folderKey
+
+            function scanFeeds(nodes, currentFolderKey = null) {
+                for (const n of nodes) {
+                    if (n.type === 'feed' && n.url) {
+                        const u = norm(n.url);
+                        if (deletedUrls[u]) continue;
+
+                        if (!feedMap.has(u)) {
+                            feedMap.set(u, { ...n });
+                            if (currentFolderKey) {
+                                feedFolderMap.set(u, currentFolderKey);
+                            }
+                        } else {
+                            if (currentFolderKey && !feedFolderMap.has(u)) {
+                                feedFolderMap.set(u, currentFolderKey);
+                            }
+                            const existing = feedMap.get(u);
+                            if (n.fetchOgImage !== undefined) existing.fetchOgImage = n.fetchOgImage;
+                            if (n.isEmail) existing.isEmail = true;
+                            if (n.emailAccountId) existing.emailAccountId = n.emailAccountId;
+                        }
+                    } else if (n.type === 'folder' && Array.isArray(n.children)) {
+                        const folderNameNorm = (n.name || '').trim().toLowerCase();
+                        let folderKey = n.id;
+                        for (const [k, f] of folderMap.entries()) {
+                            if ((f.name || '').trim().toLowerCase() === folderNameNorm) {
+                                folderKey = k;
+                                break;
+                            }
+                        }
+                        scanFeeds(n.children, folderKey);
+                    }
+                }
+            }
+
+            scanFeeds(localTree, null);
+            scanFeeds(remoteTree, null);
+
+            // 3. Populate folders & root feeds
+            const rootFeeds = [];
+            for (const [u, feedNode] of feedMap.entries()) {
+                const fKey = feedFolderMap.get(u);
+                if (fKey && folderMap.has(fKey)) {
+                    folderMap.get(fKey).children.push(feedNode);
+                } else {
+                    rootFeeds.push(feedNode);
+                }
+            }
+
+            // 4. Assemble hierarchy
+            const mergedTree = [];
+            for (const [childKey, parentKey] of folderHierarchy.entries()) {
+                if (childKey !== parentKey && folderMap.has(childKey) && folderMap.has(parentKey)) {
+                    const child = folderMap.get(childKey);
+                    const parent = folderMap.get(parentKey);
+                    if (!parent.children.includes(child)) {
+                        parent.children.push(child);
+                    }
+                }
+            }
+
+            for (const [key, folder] of folderMap.entries()) {
+                if (!folderHierarchy.has(key)) {
+                    mergedTree.push(folder);
+                }
+            }
+
+            rootFeeds.forEach(f => mergedTree.push(f));
+
+            // Determine newly added feeds (feeds that were in remote but not local)
+            const localFeedUrls = new Set();
+            function collectLocalUrls(nodes) {
+                for (const n of nodes) {
+                    if (n.type === 'feed' && n.url) localFeedUrls.add(norm(n.url));
+                    if (n.type === 'folder' && n.children) collectLocalUrls(n.children);
+                }
+            }
+            collectLocalUrls(localTree);
+
+            const newlyAddedFeeds = [];
+            for (const [u, feedNode] of feedMap.entries()) {
+                if (!localFeedUrls.has(u)) {
+                    newlyAddedFeeds.push(feedNode);
+                }
+            }
+
+            const hasChanges = JSON.stringify(mergedTree) !== JSON.stringify(localTree);
+            return { mergedTree, hasChanges, newlyAddedFeeds };
+        }
+
         function mergeSyncData(remote, localState) {
             if (!remote || typeof remote !== 'object') {
-                return { mergedLocal: localState.local, mergedSync: localState.sync, hasChanges: false };
+                return { mergedLocal: localState.local, mergedSync: localState.sync, hasChanges: false, newlyAddedFeeds: [] };
             }
 
             let hasChanges = false;
             const mergedLocal = { ...(localState.local || {}) };
             const mergedSync = { ...(localState.sync || {}) };
 
-            // 1. Set-Union for readLinks, favoritedLinks, summaryLinks
+            // 1. Deleted items tombstone merge (max timestamp)
+            const localDeletedFeeds = { ...(mergedLocal.deletedFeedUrls || {}) };
+            const remoteDeletedFeeds = remote.deletedFeedUrls || {};
+            for (const u in remoteDeletedFeeds) {
+                localDeletedFeeds[u] = Math.max(localDeletedFeeds[u] || 0, remoteDeletedFeeds[u]);
+            }
+            mergedLocal.deletedFeedUrls = localDeletedFeeds;
+
+            const localDeletedFolders = { ...(mergedLocal.deletedFolderIds || {}) };
+            const remoteDeletedFolders = remote.deletedFolderIds || {};
+            for (const id in remoteDeletedFolders) {
+                localDeletedFolders[id] = Math.max(localDeletedFolders[id] || 0, remoteDeletedFolders[id]);
+            }
+            mergedLocal.deletedFolderIds = localDeletedFolders;
+
+            // 2. Set-Union for readLinks, favoritedLinks, summaryLinks
             const localRead = new Set(Array.isArray(mergedLocal.readLinks) ? mergedLocal.readLinks : []);
             const remoteRead = Array.isArray(remote.readLinks) ? remote.readLinks : [];
             let readChanged = false;
@@ -7230,109 +7477,104 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 hasChanges = true;
             }
 
-            // 2. FeedTree merge
+            // 3. Intelligent Bidirectional FeedTree & Folder merge
             const localTree = Array.isArray(mergedLocal.feedTree) ? mergedLocal.feedTree : [];
             const remoteTree = Array.isArray(remote.feedTree) ? remote.feedTree : [];
-            const remoteTreeUpdatedAt = remote.feedTreeUpdatedAt || remote.updatedAt || 0;
-            const remoteUpdatedAt = remote.updatedAt || 0;
-            let localUpdatedAt = mergedLocal.feedTreeUpdatedAt || 0;
+            const treeMergeResult = mergeFeedTrees(localTree, remoteTree, localDeletedFeeds, localDeletedFolders);
+            if (treeMergeResult.hasChanges) {
+                mergedLocal.feedTree = treeMergeResult.mergedTree;
+                mergedLocal.feedTreeUpdatedAt = Date.now();
+                hasChanges = true;
+            }
+            const newlyAddedFeeds = treeMergeResult.newlyAddedFeeds || [];
 
-            if (remoteTree.length > 0) {
-                // If local has never been explicitly modified (localUpdatedAt === 0),
-                // or remoteTreeUpdatedAt is strictly newer than localUpdatedAt:
-                if (localUpdatedAt === 0 || remoteTreeUpdatedAt > localUpdatedAt) {
-                    // Remote is strictly newer or local was uninitialized: cleanly adopt remote tree and folder structure.
-                    // Clean adoption prevents duplicate feeds and respects folder reorganization/moves.
-                    mergedLocal.feedTree = JSON.parse(JSON.stringify(remoteTree));
-                    mergedLocal.feedTreeUpdatedAt = remoteTreeUpdatedAt || Date.now();
+            // 4. Rules merge
+            if (Array.isArray(remote.rules) && remote.rules.length > 0) {
+                const localRules = Array.isArray(mergedSync.rules) ? [...mergedSync.rules] : [];
+                const ruleKeys = new Set(localRules.map(r => `${r.field}|${r.condition}|${r.value}|${r.action}`));
+                let rulesUpdated = false;
+                remote.rules.forEach(rr => {
+                    const key = `${rr.field}|${rr.condition}|${rr.value}|${rr.action}`;
+                    if (!ruleKeys.has(key)) {
+                        localRules.push(rr);
+                        ruleKeys.add(key);
+                        rulesUpdated = true;
+                    }
+                });
+                if (rulesUpdated) {
+                    mergedSync.rules = localRules;
                     hasChanges = true;
-                } else {
-                    // Local is newer or equal (localUpdatedAt >= remoteTreeUpdatedAt):
-                    // Local tree is authoritative! Keep local tree as-is.
-                    // DO NOT re-add feeds from remoteTree to avoid resurrecting deleted or moved feeds!
                 }
-            } else if (localTree.length === 0 && remoteTree.length > 0) {
-                mergedLocal.feedTree = JSON.parse(JSON.stringify(remoteTree));
-                mergedLocal.feedTreeUpdatedAt = remoteTreeUpdatedAt || Date.now();
+            }
+
+            // 5. Email accounts merge
+            if (Array.isArray(remote.emailAccounts) && remote.emailAccounts.length > 0) {
+                const localAccounts = Array.isArray(mergedSync.emailAccounts) ? [...mergedSync.emailAccounts] : [];
+                const accKeys = new Set(localAccounts.map(a => `${a.server}|${a.username}`));
+                let accUpdated = false;
+                remote.emailAccounts.forEach(ra => {
+                    const key = `${ra.server}|${ra.username}`;
+                    if (!accKeys.has(key)) {
+                        localAccounts.push(ra);
+                        accKeys.add(key);
+                        accUpdated = true;
+                    }
+                });
+                if (accUpdated) {
+                    mergedSync.emailAccounts = localAccounts;
+                    hasChanges = true;
+                }
+            }
+
+            // 6. Settings merge (Gemini API Key, Prompts, Preferences)
+            if (remote.geminiApiKey && !mergedSync.geminiApiKey) {
+                mergedSync.geminiApiKey = remote.geminiApiKey;
+                hasChanges = true;
+            }
+            if (remote.aiReportPrompt && (!mergedSync.aiReportPrompt || isLegacyGenericPrompt(mergedSync.aiReportPrompt))) {
+                mergedSync.aiReportPrompt = remote.aiReportPrompt;
+                hasChanges = true;
+            }
+            if (remote.youtubeAiPrompt && (!mergedSync.youtubeAiPrompt || isLegacyGenericPrompt(mergedSync.youtubeAiPrompt))) {
+                mergedSync.youtubeAiPrompt = remote.youtubeAiPrompt;
+                hasChanges = true;
+            }
+            if (remote.fetchSchedule && !mergedSync.fetchSchedule) {
+                mergedSync.fetchSchedule = remote.fetchSchedule;
+                hasChanges = true;
+            }
+            if (remote.checkInterval !== undefined && mergedSync.checkInterval === undefined) {
+                mergedSync.checkInterval = remote.checkInterval;
+                hasChanges = true;
+            }
+            if (remote.randomizeFetch !== undefined && mergedSync.randomizeFetch === undefined) {
+                mergedSync.randomizeFetch = remote.randomizeFetch;
+                hasChanges = true;
+            }
+            if (remote.showNotification !== undefined && mergedSync.showNotification === undefined) {
+                mergedSync.showNotification = remote.showNotification;
+                hasChanges = true;
+            }
+            if (remote.showSummaryNotification !== undefined && mergedSync.showSummaryNotification === undefined) {
+                mergedSync.showSummaryNotification = remote.showSummaryNotification;
+                hasChanges = true;
+            }
+            if (remote.summaryInterval !== undefined && mergedSync.summaryInterval === undefined) {
+                mergedSync.summaryInterval = remote.summaryInterval;
+                hasChanges = true;
+            }
+            if (remote.darkMode !== undefined && mergedSync.darkMode === undefined) {
+                mergedSync.darkMode = remote.darkMode;
+                applyDesktopTheme(remote.darkMode);
+                hasChanges = true;
+            }
+            if (remote.appLanguage && remote.appLanguage !== mergedSync.appLanguage && !mergedSync.appLanguage) {
+                mergedSync.appLanguage = remote.appLanguage;
+                if (window.i18n) window.i18n.setLanguage(remote.appLanguage);
                 hasChanges = true;
             }
 
-            // 3. Rules merge
-            if (Array.isArray(remote.rules) && remote.rules.length > 0) {
-                if (localUpdatedAt === 0 || remoteUpdatedAt > localUpdatedAt) {
-                    mergedSync.rules = remote.rules;
-                    hasChanges = true;
-                } else {
-                    const localRules = Array.isArray(mergedSync.rules) ? mergedSync.rules : [];
-                    const ruleKeys = new Set(localRules.map(r => `${r.field}|${r.condition}|${r.value}|${r.action}`));
-                    let rulesUpdated = false;
-                    remote.rules.forEach(rr => {
-                        const key = `${rr.field}|${rr.condition}|${rr.value}|${rr.action}`;
-                        if (!ruleKeys.has(key)) {
-                            localRules.push(rr);
-                            ruleKeys.add(key);
-                            rulesUpdated = true;
-                        }
-                    });
-                    if (rulesUpdated) {
-                        mergedSync.rules = localRules;
-                        hasChanges = true;
-                    }
-                }
-            }
-
-            // 4. Email accounts merge
-            if (Array.isArray(remote.emailAccounts) && remote.emailAccounts.length > 0) {
-                if (localUpdatedAt === 0 || remoteUpdatedAt > localUpdatedAt) {
-                    mergedSync.emailAccounts = remote.emailAccounts;
-                    hasChanges = true;
-                } else {
-                    const localAccounts = Array.isArray(mergedSync.emailAccounts) ? mergedSync.emailAccounts : [];
-                    const accKeys = new Set(localAccounts.map(a => `${a.server}|${a.username}`));
-                    let accUpdated = false;
-                    remote.emailAccounts.forEach(ra => {
-                        const key = `${ra.server}|${ra.username}`;
-                        if (!accKeys.has(key)) {
-                            localAccounts.push(ra);
-                            accKeys.add(key);
-                            accUpdated = true;
-                        }
-                    });
-                    if (accUpdated) {
-                        mergedSync.emailAccounts = localAccounts;
-                        hasChanges = true;
-                    }
-                }
-            }
-
-            // 5. Deduplication safety pass on mergedLocal.feedTree:
-            // If the tree contains duplicate feed URLs, remove subsequent duplicates
-            if (Array.isArray(mergedLocal.feedTree)) {
-                const seenUrls = new Set();
-                function deduplicateNodes(nodes) {
-                    return nodes.filter(node => {
-                        if (node.type === 'feed' && node.url) {
-                            const norm = node.url.trim().toLowerCase().replace(/\/+$/, '');
-                            if (seenUrls.has(norm)) {
-                                return false; // Filter out duplicate
-                            }
-                            seenUrls.add(norm);
-                            return true;
-                        }
-                        if (node.type === 'folder' && Array.isArray(node.children)) {
-                            node.children = deduplicateNodes(node.children);
-                        }
-                        return true;
-                    });
-                }
-                const beforeLen = JSON.stringify(mergedLocal.feedTree);
-                mergedLocal.feedTree = deduplicateNodes(mergedLocal.feedTree);
-                if (JSON.stringify(mergedLocal.feedTree) !== beforeLen) {
-                    hasChanges = true;
-                }
-            }
-
-            return { mergedLocal, mergedSync, hasChanges };
+            return { mergedLocal, mergedSync, hasChanges, newlyAddedFeeds };
         }
 
         async function testWebdavConnection() {
@@ -7394,6 +7636,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 return false;
             }
         }
+
+        let lastWebdavSyncTime = 0;
 
         async function executeWebdavSync(options = { manual: false }) {
             if (isWebdavSyncing || window.isWebdavSyncing) return false;
@@ -7494,8 +7738,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 });
 
                 // 2. Read local state
-                const localData = await chrome.storage.local.get(['feedTree', 'feedTreeUpdatedAt', 'readLinks', 'favoritedLinks', 'summaryLinks']);
-                const syncData = await chrome.storage.sync.get(['rules', 'emailAccounts', 'appLanguage']);
+                const localData = await chrome.storage.local.get(['feedTree', 'feedTreeUpdatedAt', 'deletedFeedUrls', 'deletedFolderIds', 'readLinks', 'favoritedLinks', 'summaryLinks']);
+                const syncData = await chrome.storage.sync.get([
+                    'rules', 'emailAccounts', 'appLanguage', 'geminiApiKey', 'aiReportPrompt',
+                    'youtubeAiPrompt', 'checkInterval', 'randomizeFetch', 'fetchSchedule',
+                    'showNotification', 'showSummaryNotification', 'summaryInterval',
+                    'darkMode', 'keepScreenAwake'
+                ]);
 
                 let remoteObj = null;
                 if (remoteContent) {
@@ -7509,11 +7758,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const deviceId = getOrCreateDeviceId();
                 let mergedLocal = localData;
                 let mergedSync = syncData;
+                let newlyAddedFeeds = [];
 
                 if (remoteObj) {
                     const mergeResult = mergeSyncData(remoteObj, { local: localData, sync: syncData });
                     mergedLocal = mergeResult.mergedLocal;
                     mergedSync = mergeResult.mergedSync;
+                    newlyAddedFeeds = mergeResult.newlyAddedFeeds || [];
 
                     if (mergeResult.hasChanges) {
                         await chrome.storage.local.set(mergedLocal);
@@ -7521,6 +7772,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         if (typeof renderSettingsFeeds === 'function') renderSettingsFeeds();
                         if (typeof updateUnreadCounters === 'function') updateUnreadCounters();
                         if (typeof syncEmailAccountsToFeedTree === 'function') await syncEmailAccountsToFeedTree();
+                        if (typeof switchView === 'function') switchView(currentViewMode, true);
+
+                        // Auto-fetch newly added feeds
+                        if (newlyAddedFeeds.length > 0) {
+                            console.log(`[PureTidings WebDAV] Automatically fetching ${newlyAddedFeeds.length} new feeds from cloud sync...`);
+                            newlyAddedFeeds.forEach(feed => {
+                                if (feed.id && !feed.isEmail && typeof refreshSingleFeedNative === 'function') {
+                                    refreshSingleFeedNative(feed.id).catch(() => {});
+                                }
+                            });
+                        }
                     }
                 }
 
@@ -7531,23 +7793,38 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 await chrome.storage.local.set({ feedTreeUpdatedAt: finalTreeUpdatedAt });
 
                 const payloadObj = {
-                    version: 1,
+                    version: 2,
                     updatedAt: now,
                     deviceId,
                     feedTree: mergedLocal.feedTree || [],
                     feedTreeUpdatedAt: finalTreeUpdatedAt,
+                    deletedFeedUrls: mergedLocal.deletedFeedUrls || {},
+                    deletedFolderIds: mergedLocal.deletedFolderIds || {},
                     readLinks: mergedLocal.readLinks || [],
                     favoritedLinks: mergedLocal.favoritedLinks || [],
                     summaryLinks: mergedLocal.summaryLinks || [],
                     rules: mergedSync.rules || [],
                     emailAccounts: mergedSync.emailAccounts || [],
-                    appLanguage: mergedSync.appLanguage || 'en'
+                    appLanguage: mergedSync.appLanguage || 'en',
+                    geminiApiKey: mergedSync.geminiApiKey || '',
+                    aiReportPrompt: mergedSync.aiReportPrompt || '',
+                    youtubeAiPrompt: mergedSync.youtubeAiPrompt || '',
+                    checkInterval: mergedSync.checkInterval !== undefined ? mergedSync.checkInterval : 30,
+                    randomizeFetch: !!mergedSync.randomizeFetch,
+                    fetchSchedule: mergedSync.fetchSchedule || null,
+                    showNotification: mergedSync.showNotification !== undefined ? mergedSync.showNotification : true,
+                    showSummaryNotification: !!mergedSync.showSummaryNotification,
+                    summaryInterval: mergedSync.summaryInterval || 60,
+                    darkMode: mergedSync.darkMode !== undefined ? mergedSync.darkMode : true,
+                    keepScreenAwake: !!mergedSync.keepScreenAwake
                 };
 
                 await tauriInvoke('webdav_put_sync_file', {
                     url, username, password, remotePath,
                     content: JSON.stringify(payloadObj, null, 2)
                 });
+
+                lastWebdavSyncTime = now;
 
                 const feedCount = (mergedLocal.feedTree || []).reduce((acc, n) => acc + (n.type === 'feed' ? 1 : (n.children ? n.children.filter(c => c.type === 'feed').length : 0)), 0);
                 const folderCount = (mergedLocal.feedTree || []).filter(n => n.type === 'folder').length;
@@ -7557,13 +7834,15 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(40, 167, 69, 0.15)';
                     statusBox.style.color = '#28a745';
-                    statusBox.innerHTML = `<strong>✓ Synchronized successfully (${timeStr})</strong><br><span style="font-size: 11px; opacity: 0.9;">• File: ${remotePath}<br>• Uploaded: ${feedCount} Feeds, ${folderCount} Folders</span>`;
+                    const newFeedsNotice = newlyAddedFeeds.length > 0 ? `<br>• Received: ${newlyAddedFeeds.length} new feed(s)` : '';
+                    statusBox.innerHTML = `<strong>✓ Synchronized successfully (${timeStr})</strong><br><span style="font-size: 11px; opacity: 0.9;">• File: ${remotePath}<br>• Current: ${feedCount} Feeds, ${folderCount} Folders${newFeedsNotice}</span>`;
                     setTimeout(() => {
                         if (statusBox && statusBox.innerHTML.includes('✓')) statusBox.style.display = 'none';
                     }, 8000);
                 }
                 if (options.manual) {
-                    showInAppToast('Cloud Sync Complete', `Synced to ${remotePath} (${feedCount} feeds, ${folderCount} folders)!`);
+                    const extraMsg = newlyAddedFeeds.length > 0 ? ` (${newlyAddedFeeds.length} new feeds merged)` : '';
+                    showInAppToast('Cloud Sync Complete', `Synced to ${remotePath} (${feedCount} feeds, ${folderCount} folders)${extraMsg}!`);
                 }
                 return true;
             } catch (err) {
@@ -7587,6 +7866,28 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         window.testWebdavConnection = testWebdavConnection;
         window.executeWebdavSync = executeWebdavSync;
+
+        // Periodic background WebDAV sync polling (every 10 minutes)
+        setInterval(async () => {
+            try {
+                const { syncWebdavEnabled, syncWebdavAuto } = await chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']);
+                if (syncWebdavEnabled && syncWebdavAuto !== false) {
+                    executeWebdavSync({ manual: false });
+                }
+            } catch (_) {}
+        }, 10 * 60 * 1000);
+
+        // Window focus check: pull updates if more than 5 minutes since last sync
+        window.addEventListener('focus', () => {
+            const now = Date.now();
+            if (now - lastWebdavSyncTime > 5 * 60 * 1000) {
+                chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']).then(({ syncWebdavEnabled, syncWebdavAuto }) => {
+                    if (syncWebdavEnabled && syncWebdavAuto !== false) {
+                        executeWebdavSync({ manual: false });
+                    }
+                }).catch(() => {});
+            }
+        });
 
         // Flush pending sync immediately on app minimize, navigation or close
         window.addEventListener('visibilitychange', () => {
