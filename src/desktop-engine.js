@@ -7250,17 +7250,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
 
         function mergeFeedTrees(localTree, remoteTree, deletedUrls = {}, deletedFolderIds = {}) {
-            const localDefault = isDefaultFeedTree(localTree);
-            const remoteDefault = isDefaultFeedTree(remoteTree);
+            const norm = (url) => (url || '').trim().toLowerCase().replace(/\/+$/, '');
 
-            // If local is untouched default and remote has custom feeds: adopt remote tree completely
-            if (localDefault && !remoteDefault && Array.isArray(remoteTree) && remoteTree.length > 0) {
-                return { mergedTree: JSON.parse(JSON.stringify(remoteTree)), hasChanges: true, newlyAddedFeeds: remoteTree };
-            }
-            // If remote is default and local has custom feeds: keep local tree completely
-            if (remoteDefault && !localDefault && Array.isArray(localTree) && localTree.length > 0) {
-                return { mergedTree: JSON.parse(JSON.stringify(localTree)), hasChanges: true, newlyAddedFeeds: [] };
-            }
             if (!Array.isArray(remoteTree) || remoteTree.length === 0) {
                 return { mergedTree: JSON.parse(JSON.stringify(localTree || [])), hasChanges: false, newlyAddedFeeds: [] };
             }
@@ -7268,149 +7259,90 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 return { mergedTree: JSON.parse(JSON.stringify(remoteTree)), hasChanges: true, newlyAddedFeeds: remoteTree };
             }
 
-            const norm = (url) => (url || '').trim().toLowerCase().replace(/\/+$/, '');
+            // Remote is authoritative base: preserve remote structure, folders, feeds, and settings 100%!
+            const mergedTree = JSON.parse(JSON.stringify(remoteTree));
 
-            // 1. Build folder registry
-            const folderMap = new Map(); // key -> folderNode
-            const folderHierarchy = new Map(); // childKey -> parentKey
-
-            function scanFolders(nodes, parentKey = null) {
+            // 1. Collect all feed URLs and folder IDs already in remote
+            const existingUrls = new Set();
+            const existingFolderIds = new Set();
+            function scanRemote(nodes) {
                 for (const n of nodes) {
-                    if (n.type === 'folder') {
-                        if (deletedFolderIds[n.id]) continue;
-                        const folderNameNorm = (n.name || '').trim().toLowerCase();
-                        let folderKey = n.id || ('folder_' + folderNameNorm);
-
-                        // Match existing folder by ID or same name
-                        let matchedKey = null;
-                        if (folderMap.has(folderKey)) {
-                            matchedKey = folderKey;
-                        } else {
-                            for (const [k, f] of folderMap.entries()) {
-                                if ((f.name || '').trim().toLowerCase() === folderNameNorm) {
-                                    matchedKey = k;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (matchedKey) {
-                            if (parentKey && !folderHierarchy.has(matchedKey)) {
-                                folderHierarchy.set(matchedKey, parentKey);
-                            }
-                        } else {
-                            folderMap.set(folderKey, {
-                                id: n.id,
-                                name: n.name,
-                                type: 'folder',
-                                children: []
-                            });
-                            if (parentKey) {
-                                folderHierarchy.set(folderKey, parentKey);
-                            }
-                        }
-
-                        if (Array.isArray(n.children)) {
-                            scanFolders(n.children, matchedKey || folderKey);
-                        }
+                    if (n.type === 'feed' && n.url) {
+                        existingUrls.add(norm(n.url));
+                    } else if (n.type === 'folder') {
+                        if (n.id) existingFolderIds.add(n.id);
+                        if (Array.isArray(n.children)) scanRemote(n.children);
                     }
                 }
             }
+            scanRemote(mergedTree);
 
-            scanFolders(localTree, null);
-            scanFolders(remoteTree, null);
+            // 2. Add any brand new folders created locally offline that don't exist in remote
+            function findNewFolders(nodes) {
+                for (const n of nodes) {
+                    if (n.type === 'folder' && n.id && !existingFolderIds.has(n.id) && !deletedFolderIds[n.id]) {
+                        mergedTree.push({
+                            id: n.id,
+                            name: n.name,
+                            type: 'folder',
+                            children: []
+                        });
+                        existingFolderIds.add(n.id);
+                    }
+                    if (n.type === 'folder' && Array.isArray(n.children)) {
+                        findNewFolders(n.children);
+                    }
+                }
+            }
+            findNewFolders(localTree);
 
-            // 2. Build feed registry
-            const feedMap = new Map(); // normUrl -> feedNode
-            const feedFolderMap = new Map(); // normUrl -> folderKey
-
-            function scanFeeds(nodes, currentFolderKey = null) {
+            // 3. Find any brand new feeds added locally offline that do NOT exist in remote and were not deleted
+            const newlyAddedFeeds = [];
+            function findNewFeeds(nodes, parentFolderId = null) {
                 for (const n of nodes) {
                     if (n.type === 'feed' && n.url) {
                         const u = norm(n.url);
-                        if (deletedUrls[u]) continue;
-
-                        if (!feedMap.has(u)) {
-                            feedMap.set(u, { ...n });
-                            if (currentFolderKey) {
-                                feedFolderMap.set(u, currentFolderKey);
-                            }
-                        } else {
-                            if (currentFolderKey && !feedFolderMap.has(u)) {
-                                feedFolderMap.set(u, currentFolderKey);
-                            }
-                            const existing = feedMap.get(u);
-                            if (n.fetchOgImage !== undefined) existing.fetchOgImage = n.fetchOgImage;
-                            if (n.isEmail) existing.isEmail = true;
-                            if (n.emailAccountId) existing.emailAccountId = n.emailAccountId;
+                        if (!existingUrls.has(u) && !deletedUrls[u]) {
+                            newlyAddedFeeds.push({ feed: { ...n }, parentFolderId });
+                            existingUrls.add(u);
                         }
                     } else if (n.type === 'folder' && Array.isArray(n.children)) {
-                        const folderNameNorm = (n.name || '').trim().toLowerCase();
-                        let folderKey = n.id;
-                        for (const [k, f] of folderMap.entries()) {
-                            if ((f.name || '').trim().toLowerCase() === folderNameNorm) {
-                                folderKey = k;
-                                break;
+                        findNewFeeds(n.children, n.id);
+                    }
+                }
+            }
+            findNewFeeds(localTree, null);
+
+            // 4. Place new local feeds into mergedTree
+            let hasChanges = newlyAddedFeeds.length > 0;
+            for (const item of newlyAddedFeeds) {
+                if (item.parentFolderId) {
+                    let placed = false;
+                    function placeInFolder(nodes) {
+                        for (const n of nodes) {
+                            if (n.type === 'folder' && n.id === item.parentFolderId) {
+                                if (!Array.isArray(n.children)) n.children = [];
+                                n.children.push(item.feed);
+                                return true;
+                            }
+                            if (n.type === 'folder' && Array.isArray(n.children)) {
+                                if (placeInFolder(n.children)) return true;
                             }
                         }
-                        scanFeeds(n.children, folderKey);
+                        return false;
                     }
-                }
-            }
-
-            scanFeeds(localTree, null);
-            scanFeeds(remoteTree, null);
-
-            // 3. Populate folders & root feeds
-            const rootFeeds = [];
-            for (const [u, feedNode] of feedMap.entries()) {
-                const fKey = feedFolderMap.get(u);
-                if (fKey && folderMap.has(fKey)) {
-                    folderMap.get(fKey).children.push(feedNode);
+                    placed = placeInFolder(mergedTree);
+                    if (!placed) mergedTree.push(item.feed);
                 } else {
-                    rootFeeds.push(feedNode);
+                    mergedTree.push(item.feed);
                 }
             }
 
-            // 4. Assemble hierarchy
-            const mergedTree = [];
-            for (const [childKey, parentKey] of folderHierarchy.entries()) {
-                if (childKey !== parentKey && folderMap.has(childKey) && folderMap.has(parentKey)) {
-                    const child = folderMap.get(childKey);
-                    const parent = folderMap.get(parentKey);
-                    if (!parent.children.includes(child)) {
-                        parent.children.push(child);
-                    }
-                }
-            }
-
-            for (const [key, folder] of folderMap.entries()) {
-                if (!folderHierarchy.has(key)) {
-                    mergedTree.push(folder);
-                }
-            }
-
-            rootFeeds.forEach(f => mergedTree.push(f));
-
-            // Determine newly added feeds (feeds that were in remote but not local)
-            const localFeedUrls = new Set();
-            function collectLocalUrls(nodes) {
-                for (const n of nodes) {
-                    if (n.type === 'feed' && n.url) localFeedUrls.add(norm(n.url));
-                    if (n.type === 'folder' && n.children) collectLocalUrls(n.children);
-                }
-            }
-            collectLocalUrls(localTree);
-
-            const newlyAddedFeeds = [];
-            for (const [u, feedNode] of feedMap.entries()) {
-                if (!localFeedUrls.has(u)) {
-                    newlyAddedFeeds.push(feedNode);
-                }
-            }
-
-            const hasChanges = JSON.stringify(mergedTree) !== JSON.stringify(localTree);
-            return { mergedTree, hasChanges, newlyAddedFeeds };
+            return {
+                mergedTree,
+                hasChanges,
+                newlyAddedFeeds: newlyAddedFeeds.map(i => i.feed)
+            };
         }
 
         function mergeSyncData(remote, localState) {
@@ -7814,6 +7746,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
 
                     // --- FEED TREE SYNCHRONIZATION ---
+                    const normUrl = (u) => (u || '').trim().toLowerCase().replace(/\/+$/, '');
+                    const localHasUnsyncedEdits = localLastEdited > 0 && localLastEdited > lastWebdavSyncTime;
+
                     if (options.forcePull) {
                         console.log('[PureTidings WebDAV] Force Pull: Overwriting local tree with cloud tree.');
                         finalTree = remoteTree;
@@ -7822,68 +7757,94 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         remoteNeedsUpload = false;
                         newlyAddedFeeds = remoteTree;
                     }
-                    // Case 1: Local is untouched default, remote has custom feeds -> ADOPT REMOTE!
-                    else if (isLocalDefault && !isRemoteDefault && remoteTree.length > 0) {
-                        console.log('[PureTidings WebDAV] Local is default installation -> Adopting remote tree from cloud.');
+                    // Case 1: App startup (startup is strictly pull-first; user hasn't edited anything in this session)
+                    else if (options.isStartup && remoteTree.length > 0) {
+                        console.log('[PureTidings WebDAV] Startup pull: Adopting cloud tree.');
                         finalTree = remoteTree;
                         finalTreeUpdatedAt = remoteTreeUpdatedAt;
                         localNeedsSave = true;
-                        newlyAddedFeeds = remoteTree;
-                    }
-                    // Case 2: Remote is default, local has custom feeds -> UPLOAD LOCAL!
-                    else if (!isLocalDefault && isRemoteDefault && finalTree.length > 0) {
-                        console.log('[PureTidings WebDAV] Remote is default, local has custom feeds -> Uploading local tree.');
-                        remoteNeedsUpload = true;
-                    }
-                    // Case 3: Remote tree was updated on another device and is newer than local edits -> ADOPT REMOTE!
-                    else if (remoteTreeUpdatedAt > finalTreeUpdatedAt && remoteTreeUpdatedAt > localLastEdited) {
-                        console.log('[PureTidings WebDAV] Cloud tree is newer than local edits -> Adopting remote tree.');
-                        finalTree = remoteTree;
-                        finalTreeUpdatedAt = remoteTreeUpdatedAt;
-                        localNeedsSave = true;
+                        remoteNeedsUpload = false;
 
                         const localUrls = new Set();
-                        function scan(nodes) {
+                        function scanLocal(nodes) {
                             for (const n of nodes) {
-                                if (n.type === 'feed' && n.url) localUrls.add(n.url.trim().toLowerCase().replace(/\/+$/, ''));
-                                if (n.type === 'folder' && n.children) scan(n.children);
+                                if (n.type === 'feed' && n.url) localUrls.add(normUrl(n.url));
+                                if (n.type === 'folder' && n.children) scanLocal(n.children);
                             }
                         }
-                        scan(localData.feedTree || []);
+                        scanLocal(localData.feedTree || []);
                         function findNew(nodes) {
                             for (const n of nodes) {
                                 if (n.type === 'feed' && n.url) {
-                                    const u = n.url.trim().toLowerCase().replace(/\/+$/, '');
-                                    if (!localUrls.has(u)) newlyAddedFeeds.push(n);
+                                    if (!localUrls.has(normUrl(n.url))) newlyAddedFeeds.push(n);
                                 }
                                 if (n.type === 'folder' && n.children) findNew(n.children);
                             }
                         }
                         findNew(remoteTree);
                     }
-                    // Case 4: Local tree was edited more recently than remote was synced -> UPLOAD LOCAL!
-                    else if (localLastEdited > lastWebdavSyncTime && finalTreeUpdatedAt > remoteTreeUpdatedAt) {
-                        console.log('[PureTidings WebDAV] Local tree has newer user edits -> Uploading local tree.');
+                    // Case 2: Local has no un-synced user edits -> ADOPT CLOUD TREE!
+                    else if (!localHasUnsyncedEdits && remoteTree.length > 0) {
+                        console.log('[PureTidings WebDAV] Local has no un-synced user edits -> Adopting cloud tree.');
+                        finalTree = remoteTree;
+                        finalTreeUpdatedAt = remoteTreeUpdatedAt;
+                        localNeedsSave = true;
+                        remoteNeedsUpload = false;
+
+                        const localUrls = new Set();
+                        function scanLocal(nodes) {
+                            for (const n of nodes) {
+                                if (n.type === 'feed' && n.url) localUrls.add(normUrl(n.url));
+                                if (n.type === 'folder' && n.children) scanLocal(n.children);
+                            }
+                        }
+                        scanLocal(localData.feedTree || []);
+                        function findNew(nodes) {
+                            for (const n of nodes) {
+                                if (n.type === 'feed' && n.url) {
+                                    if (!localUrls.has(normUrl(n.url))) newlyAddedFeeds.push(n);
+                                }
+                                if (n.type === 'folder' && n.children) findNew(n.children);
+                            }
+                        }
+                        findNew(remoteTree);
+                    }
+                    // Case 3: Local is untouched default, remote has custom feeds -> ADOPT CLOUD TREE!
+                    else if (isLocalDefault && !isRemoteDefault && remoteTree.length > 0) {
+                        console.log('[PureTidings WebDAV] Local is default installation -> Adopting cloud tree.');
+                        finalTree = remoteTree;
+                        finalTreeUpdatedAt = remoteTreeUpdatedAt;
+                        localNeedsSave = true;
+                        remoteNeedsUpload = false;
+                        newlyAddedFeeds = remoteTree;
+                    }
+                    // Case 4: Remote is default, local has custom feeds -> UPLOAD LOCAL!
+                    else if (!isLocalDefault && isRemoteDefault && finalTree.length > 0) {
+                        console.log('[PureTidings WebDAV] Remote is default, local has custom feeds -> Uploading local tree.');
                         remoteNeedsUpload = true;
                     }
-                    // Case 5: Trees differ
+                    // Case 5: Cloud tree is newer than local edits -> ADOPT CLOUD TREE!
+                    else if (remoteTreeUpdatedAt >= localLastEdited && remoteTree.length > 0) {
+                        console.log('[PureTidings WebDAV] Cloud tree is newer than local edits -> Adopting cloud tree.');
+                        finalTree = remoteTree;
+                        finalTreeUpdatedAt = remoteTreeUpdatedAt;
+                        localNeedsSave = true;
+                        remoteNeedsUpload = false;
+                    }
+                    // Case 6: Local has un-synced user edits and cloud was not modified by another device -> UPLOAD LOCAL!
+                    else if (localHasUnsyncedEdits && remoteTreeUpdatedAt <= lastWebdavSyncTime) {
+                        console.log('[PureTidings WebDAV] Local has un-synced user edits -> Uploading local tree.');
+                        remoteNeedsUpload = true;
+                    }
+                    // Case 7: Trees differ (concurrent offline edits on both sides) -> MERGE WITH CLOUD AS BASE!
                     else if (JSON.stringify(finalTree) !== JSON.stringify(remoteTree)) {
-                        if (isFromAnotherDevice && localLastEdited <= lastWebdavSyncTime) {
-                            // User did NOT edit anything on this device since last sync; cloud was updated -> adopt cloud!
-                            console.log('[PureTidings WebDAV] Cloud tree updated from another device -> Adopting cloud tree.');
-                            finalTree = remoteTree;
-                            finalTreeUpdatedAt = remoteTreeUpdatedAt;
-                            localNeedsSave = true;
-                        } else {
-                            // Offline conflict on both devices -> merge!
-                            console.log('[PureTidings WebDAV] Concurrent offline edits detected -> Merging trees.');
-                            const mergeRes = mergeFeedTrees(finalTree, remoteTree, localDeletedFeeds, localDeletedFolders);
-                            finalTree = mergeRes.mergedTree;
-                            finalTreeUpdatedAt = now;
-                            localNeedsSave = true;
-                            remoteNeedsUpload = true;
-                            newlyAddedFeeds = mergeRes.newlyAddedFeeds;
-                        }
+                        console.log('[PureTidings WebDAV] Concurrent offline edits detected -> Merging with cloud as authoritative base.');
+                        const mergeRes = mergeFeedTrees(finalTree, remoteTree, localDeletedFeeds, localDeletedFolders);
+                        finalTree = mergeRes.mergedTree;
+                        finalTreeUpdatedAt = now;
+                        localNeedsSave = true;
+                        remoteNeedsUpload = true;
+                        newlyAddedFeeds = mergeRes.newlyAddedFeeds;
                     }
 
                     // --- ARTICLE STATUSES (Set-Union) ---
@@ -8029,6 +7990,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     await chrome.storage.local.set({
                         feedTree: finalTree,
                         feedTreeUpdatedAt: finalTreeUpdatedAt,
+                        feedTreeLastEditedLocally: 0,
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
                         readLinks: finalReadLinks,
@@ -8101,7 +8063,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 lastWebdavSyncTime = now;
                 try { localStorage.setItem('pt_last_webdav_sync_time', String(now)); } catch (_) {}
-                await chrome.storage.local.set({ lastWebdavSyncTime: now });
+                await chrome.storage.local.set({
+                    lastWebdavSyncTime: now,
+                    feedTreeLastEditedLocally: 0
+                });
 
                 const feedCount = (finalTree || []).reduce((acc, n) => acc + (n.type === 'feed' ? 1 : (n.children ? n.children.filter(c => c.type === 'feed').length : 0)), 0);
                 const folderCount = (finalTree || []).filter(n => n.type === 'folder').length;
