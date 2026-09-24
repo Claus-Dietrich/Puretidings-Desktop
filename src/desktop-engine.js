@@ -988,6 +988,40 @@
         icloud: { server: 'imap.mail.me.com', port: 993 }
     };
 
+    async function syncEmailAccountsOrderFromFeedTree(tree) {
+        try {
+            function findFolder(nodes, targetId) {
+                for (const n of (nodes || [])) {
+                    if (n && n.type === 'folder' && String(n.id) === String(targetId)) return n;
+                    if (n && Array.isArray(n.children)) {
+                        const found = findFolder(n.children, targetId);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            }
+            const emailFolder = findFolder(tree, 'folder_email_inboxes');
+            if (!emailFolder || !Array.isArray(emailFolder.children)) return;
+            const rawAccounts = await chrome.storage.sync.get('emailAccounts');
+            const emailAccounts = Array.isArray(rawAccounts?.emailAccounts) ? rawAccounts.emailAccounts : [];
+            if (!emailAccounts.length) return;
+            const orderMap = new Map();
+            emailFolder.children.forEach((c, idx) => {
+                const accId = String(c.emailAccountId || (c.id && c.id.startsWith('email_') ? c.id.replace('email_', '') : ''));
+                if (accId) orderMap.set(accId, idx);
+            });
+            const reordered = [...emailAccounts].sort((a, b) => {
+                const posA = orderMap.has(String(a.id)) ? orderMap.get(String(a.id)) : 9999;
+                const posB = orderMap.has(String(b.id)) ? orderMap.get(String(b.id)) : 9999;
+                return posA - posB;
+            });
+            if (JSON.stringify(reordered) !== JSON.stringify(emailAccounts)) {
+                await chrome.storage.sync.set({ emailAccounts: reordered });
+            }
+        } catch (_) {}
+    }
+    window.syncEmailAccountsOrderFromFeedTree = syncEmailAccountsOrderFromFeedTree;
+
     async function syncEmailAccountsToFeedTree() {
         try {
             const rawAccounts = await chrome.storage.sync.get('emailAccounts');
@@ -996,38 +1030,135 @@
             let feedTree = Array.isArray(rawTree?.feedTree) ? rawTree.feedTree : [];
 
             const activeAccounts = emailAccounts.filter(a => a && a.enabled !== false);
-            const folderIndex = feedTree.findIndex(n => n && n.id === 'folder_email_inboxes');
+            const activeMap = new Map(activeAccounts.map(a => [String(a.id), a]));
 
-            const currentUpdated = (await chrome.storage.local.get('feedTreeUpdatedAt'))?.feedTreeUpdatedAt || 0;
+            function findFolderNode(nodes, targetId) {
+                for (const n of (nodes || [])) {
+                    if (n && n.type === 'folder' && String(n.id) === String(targetId)) return n;
+                    if (n && Array.isArray(n.children)) {
+                        const found = findFolderNode(n.children, targetId);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            }
+
+            function removeFolderNode(nodes, targetId) {
+                for (let i = 0; i < nodes.length; i++) {
+                    if (String(nodes[i].id) === String(targetId)) {
+                        nodes.splice(i, 1);
+                        return true;
+                    }
+                    if (nodes[i].children && Array.isArray(nodes[i].children)) {
+                        if (removeFolderNode(nodes[i].children, targetId)) return true;
+                    }
+                }
+                return false;
+            }
+
+            function removeDisabledEmailNodes(nodes) {
+                for (let i = nodes.length - 1; i >= 0; i--) {
+                    const n = nodes[i];
+                    if (n.type === 'feed' && (n.isEmail || (n.id && String(n.id).startsWith('email_')))) {
+                        const accId = String(n.emailAccountId || n.id.replace('email_', ''));
+                        if (!activeMap.has(accId)) {
+                            nodes.splice(i, 1);
+                        }
+                    } else if (n.type === 'folder' && Array.isArray(n.children)) {
+                        removeDisabledEmailNodes(n.children);
+                    }
+                }
+            }
+
+            let treeChanged = false;
+
             if (activeAccounts.length === 0) {
-                if (folderIndex !== -1) {
-                    feedTree.splice(folderIndex, 1);
-                    await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: currentUpdated });
+                removeDisabledEmailNodes(feedTree);
+                if (removeFolderNode(feedTree, 'folder_email_inboxes')) {
+                    treeChanged = true;
+                }
+                if (treeChanged) {
+                    const curUpd = (await chrome.storage.local.get('feedTreeUpdatedAt'))?.feedTreeUpdatedAt || Date.now();
+                    const lastEdited = (await chrome.storage.local.get('feedTreeLastEditedLocally'))?.feedTreeLastEditedLocally || 0;
+                    await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: curUpd, feedTreeLastEditedLocally: lastEdited });
                 }
                 return;
             }
 
-            const emailFeedNodes = activeAccounts.map(a => ({
-                id: 'email_' + a.id,
-                name: '📬 ' + (a.name || a.username),
-                type: 'feed',
-                url: `imap://${a.server}/${a.folder || 'INBOX'}`,
-                isEmail: true,
-                emailAccountId: a.id
-            }));
+            // Remove any disabled/deleted email feeds from anywhere in the tree
+            removeDisabledEmailNodes(feedTree);
 
-            if (folderIndex !== -1) {
-                feedTree[folderIndex].children = emailFeedNodes;
-            } else {
-                feedTree.push({
+            // Locate folder_email_inboxes anywhere in the hierarchy
+            let emailFolder = findFolderNode(feedTree, 'folder_email_inboxes');
+            if (!emailFolder) {
+                emailFolder = {
                     id: 'folder_email_inboxes',
                     name: '📬 Email Inboxes',
                     type: 'folder',
-                    children: emailFeedNodes
-                });
+                    children: []
+                };
+                feedTree.push(emailFolder);
+                treeChanged = true;
+            }
+            if (!Array.isArray(emailFolder.children)) {
+                emailFolder.children = [];
+                treeChanged = true;
             }
 
-            await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: currentUpdated });
+            // Map all email nodes already placed anywhere in the tree (including custom folders)
+            const locatedEmailMap = new Map();
+            function scanTreeForEmails(nodes) {
+                for (const n of (nodes || [])) {
+                    if (n.type === 'feed' && (n.isEmail || (n.id && String(n.id).startsWith('email_')))) {
+                        const accId = String(n.emailAccountId || n.id.replace('email_', ''));
+                        locatedEmailMap.set(accId, n);
+                    } else if (n.type === 'folder' && Array.isArray(n.children)) {
+                        scanTreeForEmails(n.children);
+                    }
+                }
+            }
+            scanTreeForEmails(feedTree);
+
+            // Update existing email nodes in place with latest account properties (name, distinct url)
+            for (const a of activeAccounts) {
+                const accId = String(a.id);
+                const distinctUrl = `imap://${encodeURIComponent(a.username)}@${a.server}/${a.folder || 'INBOX'}`;
+                const expectedName = '📬 ' + (a.name || a.username);
+                if (locatedEmailMap.has(accId)) {
+                    const existingNode = locatedEmailMap.get(accId);
+                    if (existingNode.name !== expectedName || existingNode.url !== distinctUrl) {
+                        existingNode.name = expectedName;
+                        existingNode.url = distinctUrl;
+                        existingNode.isEmail = true;
+                        existingNode.emailAccountId = a.id;
+                        treeChanged = true;
+                    }
+                } else {
+                    // New account: append to emailFolder while preserving existing order!
+                    emailFolder.children.push({
+                        id: 'email_' + a.id,
+                        name: expectedName,
+                        type: 'feed',
+                        url: distinctUrl,
+                        isEmail: true,
+                        emailAccountId: a.id
+                    });
+                    treeChanged = true;
+                }
+            }
+
+            // Sync order back to chrome.storage.sync.emailAccounts so sync and local never conflict
+            await syncEmailAccountsOrderFromFeedTree(feedTree);
+
+            if (treeChanged) {
+                const now = Date.now();
+                const lastEdited = (await chrome.storage.local.get('feedTreeLastEditedLocally'))?.feedTreeLastEditedLocally || 0;
+                await chrome.storage.local.set({
+                    feedTree,
+                    feedTreeUpdatedAt: now,
+                    feedTreeLastEditedLocally: lastEdited > 0 ? lastEdited : now
+                });
+            }
         } catch (err) {
             console.error('[PureTidings Desktop] Error syncing email accounts to feed tree:', err);
         }
@@ -3333,7 +3464,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     function moveNodeInSiblings(nodes, targetId, direction) {
         for (let i = 0; i < nodes.length; i++) {
-            if (nodes[i].id === targetId) {
+            if (String(nodes[i].id) === String(targetId)) {
                 const targetIdx = direction === 'up' ? i - 1 : i + 1;
                 if (targetIdx >= 0 && targetIdx < nodes.length) {
                     const temp = nodes[i];
@@ -3367,17 +3498,30 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Deduplication pass to clean up any duplicate feeds
         const seenFeedUrls = new Set();
+        const seenEmailKeys = new Set();
         let hadDuplicates = false;
         function dedupeNodes(nodes) {
             return nodes.filter(node => {
-                if (node.type === 'feed' && node.url) {
-                    const norm = node.url.trim().toLowerCase().replace(/\/+$/, '');
-                    if (seenFeedUrls.has(norm)) {
-                        hadDuplicates = true;
-                        return false;
+                if (node.type === 'feed') {
+                    const isEmailNode = node.isEmail || (node.id && String(node.id).startsWith('email_')) || (node.url && node.url.startsWith('imap:'));
+                    if (isEmailNode) {
+                        const emailKey = String(node.emailAccountId || node.id || node.url);
+                        if (seenEmailKeys.has(emailKey)) {
+                            hadDuplicates = true;
+                            return false;
+                        }
+                        seenEmailKeys.add(emailKey);
+                        return true;
                     }
-                    seenFeedUrls.add(norm);
-                    return true;
+                    if (node.url) {
+                        const norm = node.url.trim().toLowerCase().replace(/\/+$/, '');
+                        if (seenFeedUrls.has(norm)) {
+                            hadDuplicates = true;
+                            return false;
+                        }
+                        seenFeedUrls.add(norm);
+                        return true;
+                    }
                 }
                 if (node.type === 'folder' && Array.isArray(node.children)) {
                     node.children = dedupeNodes(node.children);
@@ -3387,8 +3531,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
         feedTree = dedupeNodes(feedTree);
         if (hadDuplicates) {
-            const curUpd = (await chrome.storage.local.get('feedTreeUpdatedAt'))?.feedTreeUpdatedAt || 0;
-            await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: curUpd });
+            const curMeta = (await chrome.storage.local.get(['feedTreeUpdatedAt', 'feedTreeLastEditedLocally'])) || {};
+            await chrome.storage.local.set({ 
+                feedTree, 
+                feedTreeUpdatedAt: curMeta.feedTreeUpdatedAt || 0,
+                feedTreeLastEditedLocally: curMeta.feedTreeLastEditedLocally || 0
+            });
         }
 
         list.innerHTML = '';
@@ -3582,12 +3730,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-center');
 
             const targetNodeId = this.dataset.id;
-            if (!draggedSettingsNodeId || draggedSettingsNodeId === targetNodeId) return false;
+            if (!draggedSettingsNodeId || String(draggedSettingsNodeId) === String(targetNodeId)) return false;
 
             // Remove the dragged node from the tree
             function removeNode(nodes, id) {
                 for (let i = 0; i < nodes.length; i++) {
-                    if (nodes[i].id === id) {
+                    if (String(nodes[i].id) === String(id)) {
                         return nodes.splice(i, 1)[0];
                     }
                     if (nodes[i].children) {
@@ -3601,7 +3749,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             // Find a node by id
             function findNode(nodes, id) {
                 for (const n of nodes) {
-                    if (n.id === id) return n;
+                    if (String(n.id) === String(id)) return n;
                     if (n.children) {
                         const found = findNode(n.children, id);
                         if (found) return found;
@@ -3614,7 +3762,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             function isDescendant(node, searchId) {
                 if (!node || !node.children) return false;
                 for (const child of node.children) {
-                    if (child.id === searchId || isDescendant(child, searchId)) return true;
+                    if (String(child.id) === String(searchId) || isDescendant(child, searchId)) return true;
                 }
                 return false;
             }
@@ -3640,7 +3788,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             } else {
                 function findAndInsert(nodes, targetId, nodeToInsert, before) {
                     for (let i = 0; i < nodes.length; i++) {
-                        if (nodes[i].id === targetId) {
+                        if (String(nodes[i].id) === String(targetId)) {
                             const index = before ? i : i + 1;
                             nodes.splice(index, 0, nodeToInsert);
                             return true;
@@ -3655,11 +3803,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
 
             if (success) {
+                await syncEmailAccountsOrderFromFeedTree(feedTree);
                 const now = Date.now();
                 await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now });
                 renderSettingsFeeds();
             } else {
                 feedTree.push(draggedNode);
+                await syncEmailAccountsOrderFromFeedTree(feedTree);
                 const now = Date.now();
                 await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now });
                 renderSettingsFeeds();
@@ -3675,6 +3825,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
                 if (moveNodeInSiblings(feedTree, id, 'up')) {
+                    await syncEmailAccountsOrderFromFeedTree(feedTree);
                     const now = Date.now();
                     await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now });
                     renderSettingsFeeds();
@@ -3687,6 +3838,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 e.stopPropagation();
                 const id = e.currentTarget.dataset.id;
                 if (moveNodeInSiblings(feedTree, id, 'down')) {
+                    await syncEmailAccountsOrderFromFeedTree(feedTree);
                     const now = Date.now();
                     await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now });
                     renderSettingsFeeds();
@@ -3729,9 +3881,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 function findNodeAndParent(nodes, targetId, currentParent = '') {
                     for (const n of nodes) {
-                        if (n.id === targetId) return { node: n, parentId: currentParent };
+                        if (String(n.id) === String(targetId)) return { node: n, parentId: currentParent };
                         if (n.children) {
-                            const found = findNodeAndParent(n.children, targetId, n.id);
+                            const found = findNodeAndParent(n.children, targetId, String(n.id));
                             if (found) return found;
                         }
                     }
@@ -3754,14 +3906,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const targetFolderId = folderSelect ? folderSelect.value : result.parentId;
                 if (folderSelect && targetFolderId !== result.parentId) {
                     // Prevent circular parenting when moving a folder
-                    if (result.node.type === 'folder' && (targetFolderId === id || isDescendant(result.node, targetFolderId))) {
+                    if (result.node.type === 'folder' && (String(targetFolderId) === String(id) || isDescendant(result.node, targetFolderId))) {
                         alert("Cannot move a folder into itself or a subfolder.");
                         return;
                     }
 
                     function extractNode(nodes, targetId) {
                         for (let i = 0; i < nodes.length; i++) {
-                            if (nodes[i].id === targetId) {
+                            if (String(nodes[i].id) === String(targetId)) {
                                 return nodes.splice(i, 1)[0];
                             }
                             if (nodes[i].children) {
@@ -3779,7 +3931,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         } else {
                             function insertIntoFolder(nodes, fId, item) {
                                 for (const n of nodes) {
-                                    if (n.id === fId && n.type === 'folder') {
+                                    if (String(n.id) === String(fId) && n.type === 'folder') {
                                         if (!n.children) n.children = [];
                                         n.children.push(item);
                                         return true;
@@ -3796,6 +3948,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
                 }
 
+                await syncEmailAccountsOrderFromFeedTree(feedTree);
                 const now = Date.now();
                 await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now });
                 editingNodeId = null;
@@ -3818,17 +3971,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 function removeNode(nodes) {
                     return nodes.filter(n => {
-                        if (n.id === id) {
+                        if (String(n.id) === String(id)) {
                             if (n.type === 'feed' && n.url) {
                                 deletedFeedUrls[(n.url || '').trim().toLowerCase().replace(/\/+$/, '')] = now;
                             } else if (n.type === 'folder') {
-                                deletedFolderIds[n.id] = now;
+                                deletedFolderIds[String(n.id)] = now;
                                 function markChildren(children) {
                                     for (const c of children || []) {
                                         if (c.type === 'feed' && c.url) {
                                             deletedFeedUrls[(c.url || '').trim().toLowerCase().replace(/\/+$/, '')] = now;
                                         } else if (c.type === 'folder' && c.children) {
-                                            deletedFolderIds[c.id] = now;
+                                            deletedFolderIds[String(c.id)] = now;
                                             markChildren(c.children);
                                         }
                                     }
@@ -3843,6 +3996,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 const updated = removeNode(feedTree);
+                await syncEmailAccountsOrderFromFeedTree(updated);
                 await chrome.storage.local.set({
                     feedTree: updated,
                     feedTreeUpdatedAt: now,
@@ -5826,19 +5980,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // Clean up any duplicate feeds from feedTree on startup
         (async () => {
             try {
-                const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+                const { feedTree = [], feedTreeUpdatedAt = 0, feedTreeLastEditedLocally = 0 } = await chrome.storage.local.get(['feedTree', 'feedTreeUpdatedAt', 'feedTreeLastEditedLocally']);
                 const seenUrls = new Set();
+                const seenEmailKeys = new Set();
                 let hadDupes = false;
                 function dedupeTree(nodes) {
                     return nodes.filter(node => {
-                        if (node.type === 'feed' && node.url) {
-                            const u = node.url.trim().toLowerCase().replace(/\/+$/, '');
-                            if (seenUrls.has(u)) {
-                                hadDupes = true;
-                                return false;
+                        if (node.type === 'feed') {
+                            const isEmailNode = node.isEmail || (node.id && String(node.id).startsWith('email_')) || (node.url && node.url.startsWith('imap:'));
+                            if (isEmailNode) {
+                                const emailKey = String(node.emailAccountId || node.id || node.url);
+                                if (seenEmailKeys.has(emailKey)) {
+                                    hadDupes = true;
+                                    return false;
+                                }
+                                seenEmailKeys.add(emailKey);
+                                return true;
                             }
-                            seenUrls.add(u);
-                            return true;
+                            if (node.url) {
+                                const u = node.url.trim().toLowerCase().replace(/\/+$/, '');
+                                if (seenUrls.has(u)) {
+                                    hadDupes = true;
+                                    return false;
+                                }
+                                seenUrls.add(u);
+                                return true;
+                            }
                         }
                         if (node.type === 'folder' && Array.isArray(node.children)) {
                             node.children = dedupeTree(node.children);
@@ -5849,8 +6016,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const cleaned = dedupeTree(feedTree);
                 if (hadDupes) {
                     console.log('[PureTidings Desktop] Deduplicated feedTree on startup.');
-                    const curUpd = (await chrome.storage.local.get('feedTreeUpdatedAt'))?.feedTreeUpdatedAt || 0;
-                    await chrome.storage.local.set({ feedTree: cleaned, feedTreeUpdatedAt: curUpd });
+                    await chrome.storage.local.set({ 
+                        feedTree: cleaned, 
+                        feedTreeUpdatedAt, 
+                        feedTreeLastEditedLocally 
+                    });
                 }
             } catch (e) {
                 console.warn('[PureTidings Desktop] Startup deduplication error:', e);
@@ -7279,13 +7449,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
             // 1. Collect all feed URLs and folder IDs already in base
             const existingUrls = new Set();
+            const existingEmailKeys = new Set();
             const existingFolderIds = new Set();
             function scanBase(nodes) {
                 for (const n of nodes) {
-                    if (n.type === 'feed' && n.url) {
-                        existingUrls.add(norm(n.url));
+                    if (n.type === 'feed') {
+                        const isEmail = n.isEmail || (n.id && String(n.id).startsWith('email_')) || (n.url && n.url.startsWith('imap:'));
+                        if (isEmail) {
+                            const emailKey = String(n.emailAccountId || n.id || n.url);
+                            existingEmailKeys.add(emailKey);
+                        } else if (n.url) {
+                            existingUrls.add(norm(n.url));
+                        }
                     } else if (n.type === 'folder') {
-                        if (n.id) existingFolderIds.add(n.id);
+                        if (n.id) existingFolderIds.add(String(n.id));
                         if (Array.isArray(n.children)) scanBase(n.children);
                     }
                 }
@@ -7295,14 +7472,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             // 2. Add any brand new folders created in incomingTree that don't exist in base and were not deleted
             function findNewFolders(nodes) {
                 for (const n of nodes) {
-                    if (n.type === 'folder' && n.id && !existingFolderIds.has(n.id) && !deletedFolderIds[n.id]) {
+                    if (n.type === 'folder' && n.id && !existingFolderIds.has(String(n.id)) && !deletedFolderIds[String(n.id)]) {
                         mergedTree.push({
                             id: n.id,
                             name: n.name,
                             type: 'folder',
                             children: []
                         });
-                        existingFolderIds.add(n.id);
+                        existingFolderIds.add(String(n.id));
                     }
                     if (n.type === 'folder' && Array.isArray(n.children)) {
                         findNewFolders(n.children);
@@ -7315,11 +7492,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             const newlyAddedFeeds = [];
             function findNewFeeds(nodes, parentFolderId = null) {
                 for (const n of nodes) {
-                    if (n.type === 'feed' && n.url) {
-                        const u = norm(n.url);
-                        if (!existingUrls.has(u) && !deletedUrls[u]) {
-                            newlyAddedFeeds.push({ feed: { ...n }, parentFolderId });
-                            existingUrls.add(u);
+                    if (n.type === 'feed') {
+                        const isEmail = n.isEmail || (n.id && String(n.id).startsWith('email_')) || (n.url && n.url.startsWith('imap:'));
+                        if (isEmail) {
+                            const emailKey = String(n.emailAccountId || n.id || n.url);
+                            if (!existingEmailKeys.has(emailKey) && !deletedUrls[emailKey]) {
+                                newlyAddedFeeds.push({ feed: { ...n }, parentFolderId });
+                                existingEmailKeys.add(emailKey);
+                            }
+                        } else if (n.url) {
+                            const u = norm(n.url);
+                            if (!existingUrls.has(u) && !deletedUrls[u]) {
+                                newlyAddedFeeds.push({ feed: { ...n }, parentFolderId });
+                                existingUrls.add(u);
+                            }
                         }
                     } else if (n.type === 'folder' && Array.isArray(n.children)) {
                         findNewFeeds(n.children, n.id);
@@ -7335,7 +7521,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     let placed = false;
                     function placeInFolder(nodes) {
                         for (const n of nodes) {
-                            if (n.type === 'folder' && n.id === item.parentFolderId) {
+                            if (n.type === 'folder' && String(n.id) === String(item.parentFolderId)) {
                                 if (!Array.isArray(n.children)) n.children = [];
                                 n.children.push(item.feed);
                                 return true;
@@ -7780,7 +7966,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         newlyAddedFeeds = remoteTree;
                     }
                     // Case 1: Fresh install: Local is default, Remote has user's cloud feeds
-                    else if (isLocalDefault && !isRemoteDefault && remoteTree.length > 0) {
+                    else if (!localHasUnsyncedEdits && isLocalDefault && !isRemoteDefault && remoteTree.length > 0) {
                         console.log('[PureTidings WebDAV] Fresh install detected: Adopting cloud tree.');
                         finalTree = remoteTree;
                         finalTreeUpdatedAt = remoteTreeUpdatedAt;
@@ -8010,6 +8196,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 // --- ONLY UPLOAD IF LOCAL HAD NEW CHANGES (AND NOT forcePull) ---
                 if (remoteNeedsUpload && !options.forcePull) {
+                    if (typeof syncEmailAccountsToFeedTree === 'function') {
+                        await syncEmailAccountsToFeedTree();
+                    }
+                    const freshLocalTree = (await chrome.storage.local.get('feedTree'))?.feedTree;
+                    if (Array.isArray(freshLocalTree) && freshLocalTree.length > 0) {
+                        finalTree = freshLocalTree;
+                    }
                     finalTreeUpdatedAt = Math.max(finalTreeUpdatedAt, localLastEdited, now);
                     const payloadObj = {
                         version: 2,
