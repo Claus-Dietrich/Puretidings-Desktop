@@ -85,12 +85,15 @@ function flattenTree(tree) {
  * @returns {object | null} The found node or null.
  */
 function findNodeById(tree, nodeId) {
+  if (!tree || !Array.isArray(tree)) return null;
+  const targetId = String(nodeId);
   for (const node of tree) {
-    if (node.id === nodeId) {
+    if (!node) continue;
+    if (String(node.id) === targetId) {
       return node;
     }
-    if (node.type === 'folder') {
-      const found = findNodeById(node.children, nodeId);
+    if (node.type === 'folder' && Array.isArray(node.children)) {
+      const found = findNodeById(node.children, targetId);
       if (found) {
         return found;
       }

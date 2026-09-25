@@ -187,10 +187,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const { activeFeedId: curFeedId } = await chrome.storage.sync.get('activeFeedId');
         if (curFeedId) {
-          const currentPosts = (fresh.allPosts || {})[curFeedId] || [];
-          const { posts = [] } = await chrome.storage.local.get('posts');
-          if (JSON.stringify(currentPosts.map(p => p.link)) !== JSON.stringify(posts.map(p => p.link))) {
-            await chrome.storage.local.set({ posts: currentPosts });
+          const { posts: oldPosts = [] } = await chrome.storage.local.get('posts');
+          const syncedPosts = await syncActiveFeedPosts(curFeedId);
+          if (treeChanged || JSON.stringify(syncedPosts.map(p => p.link || p.id)) !== JSON.stringify(oldPosts.map(p => p.link || p.id))) {
             await loadPostsFromStorage();
           }
         }
@@ -234,7 +233,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     settingsButton.addEventListener('click', async (e) => {
       e.preventDefault();
-      const st = await SatelliteBridge.checkStatus(400);
+      let st = await SatelliteBridge.checkStatus(500);
+      if (!st.connected) {
+        SatelliteBridge.launchDesktop();
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 400));
+          st = await SatelliteBridge.checkStatus(300);
+          if (st.connected) break;
+        }
+      }
       if (st.connected) {
         await SatelliteBridge.openSettings();
         window.close();
@@ -468,7 +475,7 @@ async function populateFeedSelector() {
           
           selectOptions.appendChild(li);
           
-          if (node.id === activeFeedId) {
+          if (String(node.id) === String(activeFeedId)) {
             activeFeedName = (count > 0) ? `${decodeHTML(node.name)} (${count})` : decodeHTML(node.name);
             activeFeedIcon = faviconUrl;
             activeFeedIsSet = true;
@@ -500,20 +507,40 @@ async function populateFeedSelector() {
 // Ensures posts for the active feed are retrieved (from allPosts or directly refreshed from Desktop)
 async function syncActiveFeedPosts(feedId) {
   if (!feedId) return [];
+  const strFeedId = String(feedId);
   const { allPosts = {} } = await chrome.storage.local.get('allPosts');
-  let posts = allPosts[feedId] || [];
+  let posts = allPosts[strFeedId] || allPosts[feedId] || [];
 
-  // If not found by direct ID, check by node URL or email account matching
+  // If not found by direct ID, check all keys with string conversion or by node URL or email account matching
+  if (!posts || posts.length === 0) {
+    for (const k in allPosts) {
+      if (String(k) === strFeedId) {
+        posts = allPosts[k];
+        break;
+      }
+    }
+  }
+
   if (!posts || posts.length === 0) {
     const node = findNodeById(currentFeedTree, feedId);
-    if (node && node.url && allPosts[node.url]) {
-      posts = allPosts[node.url];
+    if (node && node.url) {
+      if (allPosts[node.url]) {
+        posts = allPosts[node.url];
+      } else {
+        const normUrl = node.url.trim().replace(/\/+$/, '');
+        for (const k in allPosts) {
+          if (k.trim().replace(/\/+$/, '') === normUrl) {
+            posts = allPosts[k];
+            break;
+          }
+        }
+      }
     }
     if ((!posts || posts.length === 0) && node) {
       for (const k in allPosts) {
         const pList = allPosts[k];
         if (Array.isArray(pList) && pList.length > 0) {
-          if (pList[0].feedId === feedId || (node.isEmail && pList[0].isEmail)) {
+          if (String(pList[0].feedId) === strFeedId || (node.isEmail && String(pList[0].accountId) === String(node.emailAccountId || strFeedId.replace('email_', '')))) {
             posts = pList;
             break;
           }
@@ -527,17 +554,20 @@ async function syncActiveFeedPosts(feedId) {
     const st = await SatelliteBridge.checkStatus(300);
     if (st.connected) {
       SatelliteBridge.refresh(feedId).catch(() => {});
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         await new Promise(r => setTimeout(r, 450));
         const fresh = await SatelliteBridge.fetchData();
-        if (fresh && fresh.allPosts && fresh.allPosts[feedId] && fresh.allPosts[feedId].length > 0) {
-          posts = fresh.allPosts[feedId];
-          await chrome.storage.local.set({
-            allPosts: fresh.allPosts,
-            unreadCounts: fresh.unreadCounts || {},
-            posts: posts
-          });
-          return posts;
+        if (fresh && fresh.allPosts) {
+          const freshPosts = fresh.allPosts[strFeedId] || fresh.allPosts[feedId];
+          if (freshPosts && freshPosts.length > 0) {
+            posts = freshPosts;
+            await chrome.storage.local.set({
+              allPosts: fresh.allPosts,
+              unreadCounts: fresh.unreadCounts || {},
+              posts: posts
+            });
+            return posts;
+          }
         }
       }
     }
@@ -608,9 +638,8 @@ async function triggerRefresh(isSelective = false) {
             readLinks: fresh.readLinks || [],
             unreadCounts: fresh.unreadCounts || {}
           });
-          const currentFeedPosts = (fresh.allPosts || {})[activeFeedId] || [];
-          if (currentFeedPosts.length > 0) {
-            await chrome.storage.local.set({ posts: currentFeedPosts });
+          const currentFeedPosts = await syncActiveFeedPosts(activeFeedId);
+          if (currentFeedPosts && currentFeedPosts.length > 0) {
             break;
           }
         }
@@ -768,10 +797,13 @@ async function updateCountsAfterLocalChange(countChange) {
     const { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
 
     // Update the counter for the current feed
-    if (unreadCounts[activeFeedId]) {
+    const fid = String(activeFeedId);
+    if (unreadCounts[fid] !== undefined) {
+      unreadCounts[fid] = Math.max(0, unreadCounts[fid] + countChange);
+    } else if (unreadCounts[activeFeedId] !== undefined) {
       unreadCounts[activeFeedId] = Math.max(0, unreadCounts[activeFeedId] + countChange);
     } else if (countChange > 0) {
-      unreadCounts[activeFeedId] = countChange;
+      unreadCounts[fid] = countChange;
     }
     
     await chrome.storage.local.set({ unreadCounts });
@@ -816,7 +848,10 @@ async function markPostAsRead(element, postLink) {
       }
 
       // Reduce dropdown counter
-      if (unreadCounts[activeFeedId] && unreadCounts[activeFeedId] > 0) {
+      const fid = String(activeFeedId);
+      if (unreadCounts[fid] && unreadCounts[fid] > 0) {
+        unreadCounts[fid]--;
+      } else if (unreadCounts[activeFeedId] && unreadCounts[activeFeedId] > 0) {
         unreadCounts[activeFeedId]--;
       }
 

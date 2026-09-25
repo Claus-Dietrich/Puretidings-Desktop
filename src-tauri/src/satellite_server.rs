@@ -178,11 +178,43 @@ mod desktop_impl {
     pub fn open_browser_extensions_page() -> Result<(), String> {
         #[cfg(target_os = "windows")]
         {
-            // Silently launch Chrome directly without triggering the Windows store prompt
-            let _ = std::process::Command::new("cmd")
-                .args(["/c", "start", "chrome", "chrome://extensions"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn();
+            // Silently launch Chrome, Edge, or Brave directly without triggering the Windows Store prompt
+            let candidate_paths = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            ];
+
+            let mut launched = false;
+            for path in &candidate_paths {
+                if std::path::Path::new(path).exists() {
+                    let target_url = if path.contains("msedge") {
+                        "edge://extensions"
+                    } else {
+                        "chrome://extensions"
+                    };
+                    let _ = std::process::Command::new(path)
+                        .arg(target_url)
+                        .creation_flags(CREATE_NO_WINDOW)
+                        .spawn();
+                    launched = true;
+                    break;
+                }
+            }
+
+            if !launched {
+                if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                    let chrome_user = format!(r"{}\Google\Chrome\Application\chrome.exe", local_app_data);
+                    if std::path::Path::new(&chrome_user).exists() {
+                        let _ = std::process::Command::new(&chrome_user)
+                            .arg("chrome://extensions")
+                            .creation_flags(CREATE_NO_WINDOW)
+                            .spawn();
+                    }
+                }
+            }
         }
         #[cfg(target_os = "macos")]
         {

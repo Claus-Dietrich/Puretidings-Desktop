@@ -386,13 +386,44 @@
         return total;
     }
 
+    function sanitizePostsForSatellite(postsMap) {
+        const result = {};
+        if (!postsMap || typeof postsMap !== 'object') return result;
+        for (const fId in postsMap) {
+            const list = postsMap[fId];
+            if (!Array.isArray(list)) continue;
+            result[fId] = list.map(p => ({
+                id: p.id || p.link,
+                link: p.link,
+                title: p.title || '',
+                date: p.date || p.pubDate || '',
+                pubDate: p.pubDate || p.date || '',
+                snippet: (p.snippet || p.description || '').substring(0, 350),
+                description: (p.description || p.snippet || '').substring(0, 350),
+                author: p.author || '',
+                feedId: p.feedId || fId,
+                feedTitle: p.feedTitle || p.feedName || '',
+                feedName: p.feedName || p.feedTitle || '',
+                isEmail: !!p.isEmail,
+                emailUid: p.emailUid || '',
+                accountId: p.accountId || '',
+                featuredImage: p.featuredImage || null,
+                videoLength: p.videoLength || null,
+                readingTime: p.readingTime || null,
+                matchedRules: Array.isArray(p.matchedRules) ? p.matchedRules : [],
+                isHidden: !!p.isHidden
+            }));
+        }
+        return result;
+    }
+
     function syncSatelliteStateToRust() {
         if (typeof tauriInvoke !== 'function') return;
         try {
             const totalUnread = calculateTotalUnreadCount();
             const snapshot = {
                 feedTree: memLocal.feedTree || [],
-                allPosts: memLocal.allPosts || {},
+                allPosts: sanitizePostsForSatellite(memLocal.allPosts || {}),
                 readLinks: memLocal.readLinks || [],
                 favoritedLinks: memLocal.favoritedLinks || [],
                 summaryLinks: memLocal.summaryLinks || [],
@@ -1493,7 +1524,7 @@
             // Handle native IMAP email feeds
             if (targetFeedId.startsWith('email_')) {
                 const accountId = targetFeedId.replace('email_', '');
-                const account = emailAccounts.find(a => a && a.id === accountId);
+                const account = emailAccounts.find(a => a && String(a.id) === String(accountId));
                 if (!account) {
                     console.warn(`[PureTidings Desktop] Email account not found for feed: ${targetFeedId}`);
                     return;
@@ -1524,7 +1555,7 @@
             let targetFeed = null;
             function findFeed(nodes) {
                 for (const n of (nodes || [])) {
-                    if (n.type === 'feed' && n.id === targetFeedId) {
+                    if (n.type === 'feed' && String(n.id) === String(targetFeedId)) {
                         targetFeed = n;
                         return;
                     } else if (n.type === 'folder' && n.children) {
@@ -8528,7 +8559,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const totalUnread = calculateTotalUnreadCount();
                 const snapshot = {
                     feedTree: memLocal.feedTree || [],
-                    allPosts: memLocal.allPosts || {},
+                    allPosts: sanitizePostsForSatellite(memLocal.allPosts || {}),
                     readLinks: memLocal.readLinks || [],
                     favoritedLinks: memLocal.favoritedLinks || [],
                     summaryLinks: memLocal.summaryLinks || [],
@@ -8693,6 +8724,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 // 6. Open Settings
                 window.__TAURI__.event.listen('satellite_open_settings', () => {
                     try {
+                        if (typeof window.openSettingsModal === 'function') {
+                            window.openSettingsModal();
+                            return;
+                        }
                         const settingsBtn = document.getElementById('sidebar-settings-btn') || 
                                             document.getElementById('mobile-settings-btn') || 
                                             document.getElementById('settings-btn') || 
@@ -8701,7 +8736,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             settingsBtn.click();
                         } else {
                             const modal = document.getElementById('settings-modal');
-                            if (modal) modal.style.display = 'flex';
+                            if (modal) modal.style.display = 'block';
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_open_settings:', e);
@@ -8761,7 +8796,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             console.warn('[PureTidings Desktop] prepare_satellite_extension failed:', err);
                         }
                         if (!satelliteFolder) {
-                            satelliteFolder = 'D:\\Claus\\Buiz\\Chrome Extentions\\Recent Posts all multi URLs\\PureTidings\\puretidings-extension-satellite';
+                            satelliteFolder = 'satellite-extension';
                         }
 
                         // 3. Copy to clipboard

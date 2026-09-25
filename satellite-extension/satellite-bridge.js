@@ -160,6 +160,28 @@ const SatelliteBridge = (function () {
         }
     }
 
+    /**
+     * Launches the PureTidings Desktop Application on demand via the custom protocol puretidings://open
+     */
+    function launchDesktop() {
+        try {
+            if (typeof document !== 'undefined') {
+                const a = document.createElement('a');
+                a.href = 'puretidings://open';
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    try { a.remove(); } catch (_) {}
+                }, 1000);
+            } else if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+                chrome.tabs.create({ url: 'puretidings://open' });
+            }
+        } catch (e) {
+            console.warn('[SatelliteBridge] launchDesktop failed:', e);
+        }
+    }
+
     return {
         checkStatus,
         fetchData,
