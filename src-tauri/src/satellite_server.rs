@@ -62,6 +62,24 @@ mod desktop_impl {
         }))
     }
 
+    fn find_manifest_recursively(dir: &std::path::Path, max_depth: usize) -> Option<std::path::PathBuf> {
+        if max_depth == 0 { return None; }
+        if dir.join("manifest.json").exists() {
+            return Some(dir.to_path_buf());
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(found) = find_manifest_recursively(&path, max_depth - 1) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        None
+    }
+
     #[tauri::command]
     pub fn prepare_satellite_extension(app: AppHandle) -> Result<String, String> {
         let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
@@ -71,7 +89,15 @@ mod desktop_impl {
         // Find candidate source directory
         let mut candidates = Vec::new();
         if let Ok(res_dir) = app.path().resource_dir() {
+            candidates.push(res_dir.join("_up_").join("satellite-extension"));
             candidates.push(res_dir.join("satellite-extension"));
+            candidates.push(res_dir.clone());
+        }
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                candidates.push(exe_dir.join("_up_").join("satellite-extension"));
+                candidates.push(exe_dir.join("satellite-extension"));
+            }
         }
         candidates.push(std::path::PathBuf::from("satellite-extension"));
         candidates.push(std::path::PathBuf::from("../satellite-extension"));
@@ -79,14 +105,29 @@ mod desktop_impl {
         candidates.push(std::path::PathBuf::from("../../puretidings-extension-satellite"));
         if let Ok(cwd) = std::env::current_dir() {
             candidates.push(cwd.join("satellite-extension"));
+            candidates.push(cwd.join("_up_").join("satellite-extension"));
             candidates.push(cwd.join("../puretidings-extension-satellite"));
         }
 
         let mut found_src = None;
-        for c in candidates {
+        for c in &candidates {
             if c.exists() && c.join("manifest.json").exists() {
-                found_src = Some(c);
+                found_src = Some(c.clone());
                 break;
+            }
+        }
+
+        // Recursive search fallback in resource dir and exe dir
+        if found_src.is_none() {
+            if let Ok(res_dir) = app.path().resource_dir() {
+                found_src = find_manifest_recursively(&res_dir, 4);
+            }
+        }
+        if found_src.is_none() {
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(exe_dir) = exe_path.parent() {
+                    found_src = find_manifest_recursively(exe_dir, 4);
+                }
             }
         }
 
@@ -103,6 +144,10 @@ mod desktop_impl {
                     }
                 }
             }
+        }
+
+        if !target_dir.join("manifest.json").exists() {
+            return Err("Manifest-Datei konnte in den Installationsdateien nicht gefunden werden.".to_string());
         }
 
         // Open target folder in OS file manager (Explorer on Windows, Finder on macOS, xdg-open on Linux)
