@@ -376,12 +376,46 @@
         return fallback;
     }
 
-    // Satellite Companion State Sync Helper
     function calculateTotalUnreadCount() {
-        const counts = memLocal.unreadCounts || {};
+        const feedTree = memLocal.feedTree || [];
+        const validFeedIds = new Set();
+        function collect(nodes) {
+            for (const n of (nodes || [])) {
+                if (n && n.type === 'feed' && n.id) {
+                    validFeedIds.add(String(n.id));
+                }
+                if (n && n.children) collect(n.children);
+            }
+        }
+        collect(feedTree);
+
+        const allPosts = memLocal.allPosts || {};
+        const readLinksSet = new Set(memLocal.readLinks || []);
         let total = 0;
+        let hasPostsData = false;
+
+        for (const fId in allPosts) {
+            if (validFeedIds.size > 0 && !validFeedIds.has(String(fId))) continue;
+            const posts = allPosts[fId];
+            if (Array.isArray(posts) && posts.length > 0) {
+                hasPostsData = true;
+                for (const p of posts) {
+                    if (p && p.link && !p.isHidden && !readLinksSet.has(p.link)) {
+                        total++;
+                    }
+                }
+            }
+        }
+
+        if (hasPostsData) {
+            return total;
+        }
+
+        const counts = memLocal.unreadCounts || {};
         for (const k in counts) {
-            total += (parseInt(counts[k], 10) || 0);
+            if (validFeedIds.size === 0 || validFeedIds.has(String(k))) {
+                total += (parseInt(counts[k], 10) || 0);
+            }
         }
         return total;
     }
@@ -8544,14 +8578,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // ==========================================
         // 17. Browser Satellite Bridge & Event Sync
         // ==========================================
-        function calculateTotalUnreadCount() {
-            const counts = memLocal.unreadCounts || {};
-            let total = 0;
-            for (const k in counts) {
-                total += (parseInt(counts[k], 10) || 0);
-            }
-            return total;
-        }
+        // calculateTotalUnreadCount is defined above with exact active feed & post counting
 
         function syncSatelliteStateToRust() {
             if (typeof tauriInvoke !== 'function') return;
@@ -8740,6 +8767,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_open_settings:', e);
+                    }
+                });
+
+                // 7. Open View (all, unread, favorites, keywords, summary)
+                window.__TAURI__.event.listen('satellite_open_view', (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { view } = payload || {};
+                        if (view) {
+                            if (typeof window.switchView === 'function') {
+                                window.switchView(view);
+                            } else if (typeof switchView === 'function') {
+                                switchView(view);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_open_view:', e);
                     }
                 });
             } catch (err) {

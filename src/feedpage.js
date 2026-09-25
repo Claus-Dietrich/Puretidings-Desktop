@@ -356,6 +356,7 @@ function getSummaryFilters() {
  * @param {boolean} isRefresh - If true, preserves scroll position and search box content.
  */
 async function switchView(view, isRefresh = false) {
+  window.switchView = switchView;
   currentViewMode = view;
 
   if (!isRefresh) {

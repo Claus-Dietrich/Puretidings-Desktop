@@ -206,28 +206,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     searchBox.addEventListener('input', handleSearch);
     scanPageButton.addEventListener('click', handleScanPage);
     
-    openKeywordsPageButton.addEventListener('click', (e) => { 
+    openKeywordsPageButton.addEventListener('click', async (e) => { 
       e.preventDefault();
-      chrome.tabs.create({ url: 'feedpage.html?view=keywords' }); 
+      const st = await SatelliteBridge.checkStatus(400);
+      if (st.connected) {
+        await SatelliteBridge.openView('keywords');
+      } else {
+        SatelliteBridge.launchDesktop();
+        setTimeout(() => SatelliteBridge.openView('keywords'), 1000);
+      }
       window.close();
     });
     
-    openFavoritesPageButton.addEventListener('click', (e) => {
+    openFavoritesPageButton.addEventListener('click', async (e) => {
       e.preventDefault();
-      chrome.tabs.create({ url: 'feedpage.html?view=favorites' }); 
+      const st = await SatelliteBridge.checkStatus(400);
+      if (st.connected) {
+        await SatelliteBridge.openView('favorites');
+      } else {
+        SatelliteBridge.launchDesktop();
+        setTimeout(() => SatelliteBridge.openView('favorites'), 1000);
+      }
       window.close();
     });
     
     openFullPageButton.addEventListener('click', async (e) => {
       e.preventDefault();
+      const { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
       const st = await SatelliteBridge.checkStatus(400);
       if (st.connected) {
-        const { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
-        await SatelliteBridge.openFeed(activeFeedId || '');
-        window.close();
-        return;
+        if (activeFeedId) {
+          await SatelliteBridge.openFeed(activeFeedId);
+        } else {
+          await SatelliteBridge.openView('all');
+        }
+      } else {
+        SatelliteBridge.launchDesktop();
+        setTimeout(() => {
+          if (activeFeedId) SatelliteBridge.openFeed(activeFeedId);
+          else SatelliteBridge.openView('all');
+        }, 1000);
       }
-      chrome.tabs.create({ url: 'feedpage.html' });
       window.close();
     });
     
@@ -244,16 +263,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (st.connected) {
         await SatelliteBridge.openSettings();
-        window.close();
-        return;
       }
-      const optionsUrl = chrome.runtime.getURL('options.html');
-      chrome.windows.create({
-        url: optionsUrl,
-        type: 'popup',
-        width: 550,
-        height: 750
-      });
+      window.close();
     });
     
     refreshButton.addEventListener('click', async (e) => {
@@ -1380,14 +1391,11 @@ async function checkSyncWarnings() {
         banner.classList.remove('hidden');
 
         // Add click listener to open settings
-        banner.onclick = () => {
-            const optionsUrl = chrome.runtime.getURL('options.html');
-            chrome.windows.create({
-                url: optionsUrl,
-                type: 'popup',
-                width: 550,
-                height: 750
-            });
+        banner.onclick = async () => {
+            let st = await SatelliteBridge.checkStatus(400);
+            if (!st.connected) SatelliteBridge.launchDesktop();
+            await SatelliteBridge.openSettings();
+            window.close();
         };
     } else {
         banner.classList.add('hidden');

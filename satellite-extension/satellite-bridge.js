@@ -143,6 +143,25 @@ const SatelliteBridge = (function () {
     }
 
     /**
+     * Focuses the Desktop App window and navigates to the specified view (all, unread, favorites, keywords, summary).
+     * @param {string} view
+     * @returns {Promise<boolean>}
+     */
+    async function openView(view) {
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/open-view`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ view })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] openView failed:', e);
+            return false;
+        }
+    }
+
+    /**
      * Focuses the Desktop App window and opens the Settings modal.
      * @returns {Promise<boolean>}
      */
@@ -188,6 +207,7 @@ const SatelliteBridge = (function () {
         markRead,
         openArticle,
         openFeed,
+        openView,
         refresh,
         openSettings,
         launchDesktop

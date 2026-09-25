@@ -10,21 +10,31 @@ const SUMMARY_ALARM_NAME = 'unreadSummaryAlarm';
 const AUTO_BACKUP_ALARM_NAME = 'autoBackupAlarm';
 const SATELLITE_ALARM_NAME = 'satelliteSyncAlarm';
 
-async function updateSatelliteBadge() {
+let lastKnownUnread = null;
+async function syncBadgeFromDesktop() {
   try {
-    const status = await SatelliteBridge.checkStatus(600);
+    const status = await SatelliteBridge.checkStatus(400);
     if (status.connected) {
       const count = status.totalUnread || 0;
+      lastKnownUnread = count;
       const text = count > 0 ? String(count) : '';
       await chrome.action.setBadgeText({ text });
       await chrome.action.setBadgeBackgroundColor({ color: '#2563eb' });
-      await chrome.action.setTitle({ title: `PureTidings Satellite - Connected (${count} unread)` });
+      await chrome.action.setTitle({ title: `PureTidings Desktop - Connected (${count} unread)` });
+      await chrome.storage.local.set({ lastTotalUnreadCount: count });
       return true;
     } else {
-      await chrome.action.setTitle({ title: 'PureTidings Satellite - Desktop Offline' });
+      lastKnownUnread = null;
+      await chrome.action.setTitle({ title: 'PureTidings Desktop - Offline (Click to open)' });
+      return false;
     }
-  } catch (_) {}
-  return false;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function updateSatelliteBadge() {
+  return await syncBadgeFromDesktop();
 }
 
 let isSyncingFromCloud = false;
@@ -311,14 +321,13 @@ async function performInitialSyncMigration() {
     }
 }
 
-// Force tooltip to update periodically since alarms can be unreliable.
-setInterval(async () => {
-  // Only update if a fetch isn't already in progress, since the fetch
-  // process manages its own tooltip messages ("Checking feeds...").
-  if (!isFetching) {
-    await updateTooltipCountdown();
-  }
-}, 15 * 1000); // every 15 seconds
+// Sync badge & status with Desktop periodically while worker is alive
+setInterval(syncBadgeFromDesktop, 3500);
+
+try {
+  chrome.tabs.onActivated.addListener(() => { syncBadgeFromDesktop(); });
+  chrome.windows.onFocusChanged.addListener(() => { syncBadgeFromDesktop(); });
+} catch (_) {}
 
 // --- Icon Animation ---
 let animationInterval = null;
@@ -481,71 +490,42 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await performInitialSyncMigration();
   }
   
+async function cleanupLegacyAlarms() {
+  try {
+    await chrome.alarms.clear(FETCH_ALARM_NAME);
+    await chrome.alarms.clear(SUMMARY_ALARM_NAME);
+    await chrome.alarms.clear(AUTO_BACKUP_ALARM_NAME);
+  } catch (_) {}
+}
+
+  await cleanupLegacyAlarms();
   await generateAnimationFrames();
-  await createOrUpdateAlarm();
-  await createOrUpdateSummaryAlarm(); // Initialize summary alarm
-  await createOrUpdateAutoBackupAlarm(); // Initialize auto backup alarm
-  
-  await updateTooltipCountdown();
+  await syncBadgeFromDesktop();
+  chrome.alarms.create(SATELLITE_ALARM_NAME, { periodInMinutes: 1 });
 });
 
 chrome.runtime.onStartup.addListener(async () => {
-  await setupNetworkRules();
+  await cleanupLegacyAlarms();
   await generateAnimationFrames();
-  await checkAndSyncFromCloud(false);
-  await createOrUpdateAlarm();
-  await createOrUpdateSummaryAlarm();
-  await createOrUpdateAutoBackupAlarm();
-  await updateTooltipCountdown();
-
-  // Create periodic satellite sync alarm
+  await syncBadgeFromDesktop();
   chrome.alarms.create(SATELLITE_ALARM_NAME, { periodInMinutes: 1 });
-
-  // Update satellite badge on startup
-  const isSatelliteConnected = await updateSatelliteBadge();
-
-  if (!isSatelliteConnected) {
-    try {
-      const { lastTotalUnreadCount = 0 } = await chrome.storage.local.get('lastTotalUnreadCount');
-      await updateBadge(lastTotalUnreadCount, lastTotalUnreadCount);
-    } catch (err) {
-      console.error("Failed to restore badge on startup:", err);
-    }
-  }
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === SATELLITE_ALARM_NAME) {
-    const isConn = await updateSatelliteBadge();
-    if (isConn) {
-      try {
-        const fresh = await SatelliteBridge.fetchData();
-        if (fresh) {
-          await chrome.storage.local.set({
-            feedTree: fresh.feedTree || [],
-            allPosts: fresh.allPosts || {},
-            readLinks: fresh.readLinks || [],
-            unreadCounts: fresh.unreadCounts || {}
-          });
-        }
-      } catch (_) {}
-    }
+    await syncBadgeFromDesktop();
+    try {
+      const fresh = await SatelliteBridge.fetchData();
+      if (fresh) {
+        await chrome.storage.local.set({
+          feedTree: fresh.feedTree || [],
+          allPosts: fresh.allPosts || {},
+          readLinks: fresh.readLinks || [],
+          unreadCounts: fresh.unreadCounts || {}
+        });
+      }
+    } catch (_) {}
     return;
-  }
-
-  if (alarm.name === FETCH_ALARM_NAME) {
-    console.log('Alarm triggered: Fetching all feeds...');
-    await fetchAllFeedsAndUpdate(false); // Do NOT force, respect schedule
-  }
-
-  if (alarm.name === SUMMARY_ALARM_NAME) {
-    console.log('Alarm triggered: Sending unread posts summary...');
-    await sendSummaryNotification();
-  }
-  
-  if (alarm.name === AUTO_BACKUP_ALARM_NAME) {
-    console.log('Alarm triggered: Executing auto backup...');
-    await executeAutoBackup();
   }
 });
 
@@ -554,12 +534,20 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const actions = {
     "forceFetch": async () => {
-      const desktop = await SatelliteBridge.checkStatus(600);
-      if (desktop.connected) {
-        startIconAnimation();
-        await SatelliteBridge.refresh(null);
+      startIconAnimation();
+      let desktop = await SatelliteBridge.checkStatus(400);
+      if (!desktop.connected) {
+        SatelliteBridge.launchDesktop();
         for (let i = 0; i < 6; i++) {
-          await new Promise(r => setTimeout(r, 600));
+          await new Promise(r => setTimeout(r, 450));
+          desktop = await SatelliteBridge.checkStatus(300);
+          if (desktop.connected) break;
+        }
+      }
+      if (desktop.connected) {
+        await SatelliteBridge.refresh(null);
+        for (let i = 0; i < 8; i++) {
+          await new Promise(r => setTimeout(r, 500));
           const fresh = await SatelliteBridge.fetchData();
           if (fresh) {
             await chrome.storage.local.set({
@@ -571,22 +559,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             break;
           }
         }
-        await updateSatelliteBadge();
-        stopIconAnimation();
-        return { status: 'ok' };
       }
-      await chrome.action.setTitle({ title: "Checking feeds..." });
-      await fetchAllFeedsAndUpdate(true); // Force manual fetch
-      await updateTooltipCountdown();
+      await syncBadgeFromDesktop();
+      stopIconAnimation();
       return { status: 'ok' };
     },
     "forceFetchSingle": async () => {
-      const desktop = await SatelliteBridge.checkStatus(600);
-      if (desktop.connected) {
-        startIconAnimation();
-        await SatelliteBridge.refresh(request.feedId);
+      startIconAnimation();
+      let desktop = await SatelliteBridge.checkStatus(400);
+      if (!desktop.connected) {
+        SatelliteBridge.launchDesktop();
         for (let i = 0; i < 6; i++) {
-          await new Promise(r => setTimeout(r, 500));
+          await new Promise(r => setTimeout(r, 450));
+          desktop = await SatelliteBridge.checkStatus(300);
+          if (desktop.connected) break;
+        }
+      }
+      if (desktop.connected) {
+        await SatelliteBridge.refresh(request.feedId);
+        for (let i = 0; i < 8; i++) {
+          await new Promise(r => setTimeout(r, 450));
           const fresh = await SatelliteBridge.fetchData();
           if (fresh && fresh.allPosts && fresh.allPosts[request.feedId] && fresh.allPosts[request.feedId].length > 0) {
             await chrome.storage.local.set({
@@ -599,26 +591,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             break;
           }
         }
-        await updateSatelliteBadge();
-        stopIconAnimation();
-        return { status: 'ok' };
       }
-      await chrome.action.setTitle({ title: "Checking feed..." });
-      await fetchAllFeedsAndUpdate(true, request.feedId); // Force manual single fetch
-      await updateTooltipCountdown();
+      await syncBadgeFromDesktop();
+      stopIconAnimation();
       return { status: 'ok' };
     },
     "updateAlarm": async () => {
-      await createOrUpdateAlarm();
-      await updateTooltipCountdown();
       return { status: 'ok' };
     },
     "updateSummaryAlarm": async () => {
-      await createOrUpdateSummaryAlarm();
       return { status: 'ok' };
     },
     "updateAutoBackupAlarm": async () => {
-      await createOrUpdateAutoBackupAlarm();
       return { status: 'ok' };
     },
     "safeStorageSet": async () => {
@@ -626,7 +610,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return { status: 'ok', success };
     },
     "triggerCloudSync": async () => {
-      await checkAndSyncFromCloud(false);
       return { status: 'ok' };
     },
     "scanCurrentPage": async () => {
@@ -1656,56 +1639,7 @@ async function executeAutoBackup() {
 }
 
 async function updateTooltipCountdown() {
-  try {
-    const { checkInterval = DEFAULT_CHECK_INTERVAL, fetchSchedule } = await chrome.storage.sync.get(['checkInterval', 'fetchSchedule']);
-    if (parseInt(checkInterval, 10) === 0) {
-      await chrome.action.setTitle({ title: "PureTidings (Auto-fetch: OFF)" });
-      return;
-    }
-
-    // --- Schedule Check for Tooltip ---
-    if (fetchSchedule) {
-      const now = new Date();
-      const day = now.getDay();
-      const currentTimeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-      const dayConfig = fetchSchedule[day];
-      if (dayConfig) {
-        if (!dayConfig.active) {
-          await chrome.action.setTitle({ title: "PureTidings (Inactive today)" });
-          return;
-        }
-        if (currentTimeStr < dayConfig.from) {
-          await chrome.action.setTitle({ title: `PureTidings (Sleeping until ${dayConfig.from})` });
-          return;
-        }
-        if (currentTimeStr > dayConfig.to) {
-          await chrome.action.setTitle({ title: "PureTidings (Sleeping until tomorrow)" });
-          return;
-        }
-      }
-    }
-
-    const fetchAlarm = await chrome.alarms.get(FETCH_ALARM_NAME);
-    if (!fetchAlarm) {
-      await chrome.action.setTitle({ title: "PureTidings (Alarm not set)" });
-      return;
-    }
-    
-    const remainingSeconds = Math.round((fetchAlarm.scheduledTime - Date.now()) / 1000);
-    let newTitle = "PureTidings";
-
-    if (remainingSeconds <= 1) { 
-      newTitle = "Next check: Soon...";
-    } else if (remainingSeconds < 60) {
-      newTitle = `Next check: in ${remainingSeconds}s`;
-    } else {
-      const remainingMinutes = Math.round(remainingSeconds / 60);
-      newTitle = `Next check: in approx. ${remainingMinutes} min`;
-    }
-    await chrome.action.setTitle({ title: newTitle });
-  } catch (error) {
-    console.error("Error updating tooltip:", error);
-  }
+  await syncBadgeFromDesktop();
 }
 
 // --- Offscreen Document Helpers ---
