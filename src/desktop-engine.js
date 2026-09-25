@@ -1702,6 +1702,17 @@
             readLinks: newReadLinks,
             unreadCounts: newUnreadCounts
         });
+        if (typeof window.recalculateCounters === 'function') {
+            window.recalculateCounters();
+        } else if (typeof window.filterSidebarFeeds === 'function') {
+            window.filterSidebarFeeds();
+        }
+        if (typeof window.renderPosts === 'function') {
+            window.renderPosts();
+        }
+        if (typeof syncSatelliteStateToRust === 'function') {
+            syncSatelliteStateToRust();
+        }
     }
     window.markAllAsReadNative = markAllAsReadNative;
 
@@ -1739,6 +1750,17 @@
             readLinks: newReadLinks,
             unreadCounts: newUnreadCounts
         });
+        if (typeof window.recalculateCounters === 'function') {
+            window.recalculateCounters();
+        } else if (typeof window.filterSidebarFeeds === 'function') {
+            window.filterSidebarFeeds();
+        }
+        if (typeof window.renderPosts === 'function') {
+            window.renderPosts();
+        }
+        if (typeof syncSatelliteStateToRust === 'function') {
+            syncSatelliteStateToRust();
+        }
     }
     window.markAllAsUnreadNative = markAllAsUnreadNative;
 
@@ -6750,6 +6772,74 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             });
         }
 
+        // Add Feed Helper & Global API
+        async function addNewFeedToTree(url, title, folderId) {
+            if (!url || typeof url !== 'string' || !url.trim()) return null;
+            const finalUrl = url.trim();
+            let feedName = (title && typeof title === 'string' && title.trim()) ? title.trim() : finalUrl;
+            if (feedName === finalUrl || feedName === 'Current Page URL') {
+                try { feedName = new URL(finalUrl).hostname; } catch (_) { feedName = "New Feed"; }
+            }
+
+            const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+            const existingFeed = findFeedByUrlInTree(feedTree, finalUrl);
+            if (existingFeed) {
+                console.log('[PureTidings Desktop] Feed already subscribed:', existingFeed.id, existingFeed.name);
+                return existingFeed;
+            }
+
+            const newFeed = {
+                id: 'feed-' + Date.now(),
+                name: feedName,
+                url: finalUrl,
+                type: 'feed',
+                fetchOgImage: true
+            };
+
+            if (folderId) {
+                function addToFolder(nodes) {
+                    for (const n of nodes) {
+                        if (n.id === folderId && n.type === 'folder') {
+                            if (!n.children) n.children = [];
+                            n.children.push(newFeed);
+                            return true;
+                        }
+                        if (n.children && addToFolder(n.children)) return true;
+                    }
+                    return false;
+                }
+                if (!addToFolder(feedTree)) {
+                    feedTree.push(newFeed);
+                }
+            } else {
+                feedTree.push(newFeed);
+            }
+
+            const { deletedFeedUrls = {} } = await chrome.storage.local.get('deletedFeedUrls');
+            const normUrl = finalUrl.toLowerCase().replace(/\/+$/, '');
+            if (deletedFeedUrls[normUrl]) {
+                delete deletedFeedUrls[normUrl];
+            }
+
+            const now = Date.now();
+            await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now, deletedFeedUrls });
+
+            if (typeof renderSettingsFeeds === 'function') {
+                renderSettingsFeeds();
+            }
+            if (typeof renderSidebarFeedTree === 'function') {
+                renderSidebarFeedTree();
+            }
+            if (typeof refreshSingleFeedNative === 'function') {
+                refreshSingleFeedNative(newFeed.id);
+            }
+            if (typeof scheduleSatelliteStateSync === 'function') {
+                scheduleSatelliteStateSync();
+            }
+            return newFeed;
+        }
+        window.addNewFeedToTree = addNewFeedToTree;
+
         // Add Feed Form in Settings
         const addFeedBtn = document.getElementById('btn-add-feed');
         if (addFeedBtn) {
@@ -6778,43 +6868,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         return;
                     }
                 }
-                const newFeed = {
-                    id: 'feed-' + Date.now(),
-                    name: name.trim(),
-                    url: url.trim(),
-                    type: 'feed',
-                    fetchOgImage: true
-                };
 
-                if (folderId) {
-                    function addToFolder(nodes) {
-                        for (const n of nodes) {
-                            if (n.id === folderId && n.type === 'folder') {
-                                if (!n.children) n.children = [];
-                                n.children.push(newFeed);
-                                return true;
-                            }
-                            if (n.children && addToFolder(n.children)) return true;
-                        }
-                        return false;
-                    }
-                    addToFolder(feedTree);
-                } else {
-                    feedTree.push(newFeed);
-                }
-
-                const { deletedFeedUrls = {} } = await chrome.storage.local.get('deletedFeedUrls');
-                const normUrl = url.trim().toLowerCase().replace(/\/+$/, '');
-                if (deletedFeedUrls[normUrl]) {
-                    delete deletedFeedUrls[normUrl];
-                }
-
-                const now = Date.now();
-                await chrome.storage.local.set({ feedTree, feedTreeUpdatedAt: now, feedTreeLastEditedLocally: now, deletedFeedUrls });
-                document.getElementById('new-feed-name').value = '';
-                document.getElementById('new-feed-url').value = '';
-                renderSettingsFeeds();
-                refreshSingleFeedNative(newFeed.id);
+                await addNewFeedToTree(url.trim(), name.trim(), folderId);
+                const nameInput = document.getElementById('new-feed-name');
+                const urlInput = document.getElementById('new-feed-url');
+                if (nameInput) nameInput.value = '';
+                if (urlInput) urlInput.value = '';
             });
         }
 
@@ -8622,43 +8681,75 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // Listen for Satellite Events dispatched from Tauri Rust
         if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
             try {
-                // 1. Mark Read
-                window.__TAURI__.event.listen('satellite_mark_read', (event) => {
+                // 1. Mark Read / Unread
+                window.__TAURI__.event.listen('satellite_mark_read', async (event) => {
                     try {
                         const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
-                        const { link, isRead } = payload || {};
-                        if (!link) return;
+                        const { link, links, feedId, isRead, all } = payload || {};
 
-                        let readLinks = memLocal.readLinks || [];
-                        const readSet = new Set(readLinks);
-                        if (isRead) {
-                            readSet.add(link);
-                        } else {
-                            readSet.delete(link);
+                        const { readLinks = [], allPosts = {}, unreadCounts = {} } = await chrome.storage.local.get(['readLinks', 'allPosts', 'unreadCounts']);
+                        const readSet = new Set(readLinks || []);
+
+                        if (all) {
+                            if (isRead) {
+                                for (const fId in allPosts) {
+                                    (allPosts[fId] || []).forEach(p => { if (p.link) readSet.add(p.link); });
+                                }
+                            } else {
+                                readSet.clear();
+                            }
+                        } else if (feedId && !link && (!links || links.length === 0)) {
+                            // Bulk mark/unmark feed
+                            const feedPosts = allPosts[feedId] || [];
+                            if (isRead) {
+                                feedPosts.forEach(p => { if (p.link) readSet.add(p.link); });
+                            } else {
+                                feedPosts.forEach(p => { if (p.link) readSet.delete(p.link); });
+                            }
+                        } else if (Array.isArray(links) && links.length > 0) {
+                            links.forEach(l => {
+                                if (isRead) readSet.add(l);
+                                else readSet.delete(l);
+                            });
+                        } else if (link) {
+                            if (isRead) {
+                                readSet.add(link);
+                            } else {
+                                readSet.delete(link);
+                            }
                         }
-                        const newReadLinks = Array.from(readSet);
-                        setLocalItem('readLinks', newReadLinks);
 
-                        // Update in-memory unread counts
-                        const allPosts = memLocal.allPosts || {};
-                        const unreadCounts = memLocal.unreadCounts || {};
-                        for (const feedId in allPosts) {
-                            const posts = allPosts[feedId] || [];
+                        const newReadLinks = Array.from(readSet);
+                        const newUnreadCounts = { ...unreadCounts };
+
+                        for (const fId in allPosts) {
+                            const posts = allPosts[fId] || [];
                             let unread = 0;
                             for (let i = 0; i < posts.length; i++) {
-                                if (!readSet.has(posts[i].link)) {
+                                if (!posts[i].isHidden && !readSet.has(posts[i].link)) {
                                     unread++;
                                 }
                             }
-                            unreadCounts[feedId] = unread;
+                            newUnreadCounts[fId] = unread;
                         }
-                        setLocalItem('unreadCounts', unreadCounts);
+
+                        // Use storage.local.set so storageListeners and feedpage readLinksSet are triggered!
+                        await chrome.storage.local.set({
+                            readLinks: newReadLinks,
+                            unreadCounts: newUnreadCounts
+                        });
 
                         // Refresh feedpage UI if available
                         if (typeof window.recalculateCounters === 'function') {
                             window.recalculateCounters();
                         } else if (typeof window.filterSidebarFeeds === 'function') {
                             window.filterSidebarFeeds();
+                        }
+                        if (typeof window.renderPosts === 'function') {
+                            window.renderPosts();
+                        }
+                        if (typeof syncSatelliteStateToRust === 'function') {
+                            syncSatelliteStateToRust();
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_mark_read:', e);
@@ -8669,21 +8760,26 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 window.__TAURI__.event.listen('satellite_open_article', (event) => {
                     try {
                         const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
-                        const { link, title } = payload || {};
+                        const { link, title, feedId } = payload || {};
                         if (!link) return;
 
                         let foundPost = null;
                         const allPosts = memLocal.allPosts || {};
-                        for (const fId in allPosts) {
-                            const posts = allPosts[fId] || [];
-                            foundPost = posts.find(p => p.link === link);
-                            if (foundPost) break;
+                        if (feedId && allPosts[feedId]) {
+                            foundPost = allPosts[feedId].find(p => p.link === link);
+                        }
+                        if (!foundPost) {
+                            for (const fId in allPosts) {
+                                const posts = allPosts[fId] || [];
+                                foundPost = posts.find(p => p.link === link);
+                                if (foundPost) break;
+                            }
                         }
 
                         if (foundPost && typeof window.openReaderModal === 'function') {
                             window.openReaderModal(foundPost);
                         } else if (typeof window.openReaderModal === 'function') {
-                            window.openReaderModal({ link, title: title || link, content: '' });
+                            window.openReaderModal({ link, title: title || link, feedId: feedId || '', content: '' });
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_open_article:', e);

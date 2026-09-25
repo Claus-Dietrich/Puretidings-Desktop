@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzgyHUzd5137U+WRBN1RXryCkkl7ZTCcEOHILzH8+awYXe2RB8Z1XLtzOdaK/nab/wOpdizhXZIPkjrKtLUnGE4zR5kbWaMhqTodegi1TCOKN2KiDsmJf+727R36QAQfBfvU14cIOku9InltOKesBwUfZYB87j3M9/iBYOtXM3tyX0y6kbEB/onRdj1HR2cwKbvp63LrrCpcjB5ab4pA7Z9VHhziShuhrB1yCvlozkoCXVrMHMLsUps7/14JQT8NIV73mDgS6NISFlCzmMA+gJO9u/7HxQcvRMGk1SLbopphY2Q8GMgkYfYEoabxQ+JyesjKBsXIUMjHfCtMcpt+SvwIDAQAB",
   "name": "PureTidings Satellite",
-  "version": "2.14",
+  "version": "2.15",
   "description": "Browser Satellite & Remote Control for PureTidings Desktop RSS & Newsletter Reader",
   "minimum_chrome_version": "109",
   "permissions": [

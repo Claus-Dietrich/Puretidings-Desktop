@@ -714,6 +714,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (feedTree.length === 1) {
         await chrome.storage.sync.set({ activeFeedId: newFeed.id });
       }
+
+      // Sync new feed to PureTidings Desktop App
+      SatelliteBridge.addFeed(finalUrl, feedName).catch(() => {});
+
       await fetchAllFeedsAndUpdate(true, newFeed.id); // Force fetch for ONLY the newly added feed
       return { status: 'ok' };
     },
@@ -787,10 +791,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const readSet = new Set(readLinks);
         linksToMark.forEach(link => readSet.add(link));
         await chrome.storage.local.set({ readLinks: Array.from(readSet) });
+        SatelliteBridge.markFeedRead(request.feedId).catch(() => {});
       } else {
         // Global bulk action: Mark everything as read
         linksToMark = Object.values(allPosts).flat().map(post => post.link).filter(Boolean);
         await chrome.storage.local.set({ readLinks: linksToMark });
+        SatelliteBridge.markAllRead().catch(() => {});
       }
       
       await recalculateUnreadCountsAndBadge();
@@ -805,9 +811,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         const newReadLinks = readLinks.filter(link => !feedLinksSet.has(link));
         await chrome.storage.local.set({ readLinks: newReadLinks });
+        SatelliteBridge.markFeedUnread(request.feedId).catch(() => {});
       } else {
         // Global bulk action: Clear all read links
         await chrome.storage.local.set({ readLinks: [] });
+        SatelliteBridge.markAllUnread().catch(() => {});
       }
       
       await recalculateUnreadCountsAndBadge();
@@ -818,6 +826,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (!readLinks.includes(request.link)) {
         readLinks.push(request.link);
         await chrome.storage.local.set({ readLinks });
+        SatelliteBridge.markRead(request.link, true, request.feedId || null).catch(() => {});
         await recalculateUnreadCountsAndBadge();
       }
       return { status: 'ok' };
@@ -1035,12 +1044,20 @@ function scanPageForFeeds() {
 }
 
 // --- Notification Click Handler ---
-chrome.notifications.onClicked.addListener((notificationId) => {
-  let url = 'feedpage.html';
-  if (notificationId === SUMMARY_ALARM_NAME) {
-    url += '?view=unread';
-  }
-  chrome.tabs.create({ url });
+chrome.notifications.onClicked.addListener(async (notificationId) => {
+  const targetView = (notificationId === SUMMARY_ALARM_NAME) ? 'unread' : 'all';
+  try {
+    let st = await SatelliteBridge.checkStatus(400);
+    if (!st.connected) {
+      SatelliteBridge.launchDesktop();
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 250));
+        st = await SatelliteBridge.checkStatus(250);
+        if (st.connected) break;
+      }
+    }
+    await SatelliteBridge.openView(targetView);
+  } catch (_) {}
   chrome.notifications.clear(notificationId);
 });
 

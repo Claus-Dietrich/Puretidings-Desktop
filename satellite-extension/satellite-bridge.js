@@ -63,19 +63,116 @@ const SatelliteBridge = (function () {
      * Toggles an article's read status in PureTidings Desktop.
      * @param {string} link
      * @param {boolean} isRead
+     * @param {string} [feedId]
      * @returns {Promise<boolean>}
      */
-    async function markRead(link, isRead) {
+    async function markRead(link, isRead, feedId = null) {
         if (!link) return false;
         try {
             const res = await fetch(`${DESKTOP_BASE_URL}/api/mark-read`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ link, isRead })
+                body: JSON.stringify({ link, isRead, feedId })
             });
             return res.ok;
         } catch (e) {
             console.warn('[SatelliteBridge] markRead failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Marks all posts in a specific feed as unread in PureTidings Desktop.
+     * @param {string} feedId
+     * @returns {Promise<boolean>}
+     */
+    async function markFeedUnread(feedId) {
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/mark-read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ feedId, isRead: false })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] markFeedUnread failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Marks all posts in a specific feed as read in PureTidings Desktop.
+     * @param {string} feedId
+     * @returns {Promise<boolean>}
+     */
+    async function markFeedRead(feedId) {
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/mark-read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ feedId, isRead: true })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] markFeedRead failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Marks all posts across all feeds as read in PureTidings Desktop.
+     * @returns {Promise<boolean>}
+     */
+    async function markAllRead() {
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/mark-read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ all: true, isRead: true })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] markAllRead failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Marks all posts across all feeds as unread in PureTidings Desktop.
+     * @returns {Promise<boolean>}
+     */
+    async function markAllUnread() {
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/mark-read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ all: true, isRead: false })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] markAllUnread failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Subscribes a new feed in PureTidings Desktop.
+     * @param {string} url
+     * @param {string} [title]
+     * @param {string} [folderId]
+     * @returns {Promise<boolean>}
+     */
+    async function addFeed(url, title, folderId) {
+        if (!url) return false;
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/add-feed`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, title, folderId })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] addFeed failed:', e);
             return false;
         }
     }
@@ -205,6 +302,11 @@ const SatelliteBridge = (function () {
         checkStatus,
         fetchData,
         markRead,
+        markFeedRead,
+        markFeedUnread,
+        markAllRead,
+        markAllUnread,
+        addFeed,
         openArticle,
         openFeed,
         openView,

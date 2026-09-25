@@ -282,12 +282,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       const { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
       showFooterStatus("Marking feed as read...");
       try {
+        if (activeFeedId) {
+          await SatelliteBridge.markFeedRead(activeFeedId);
+        } else {
+          await SatelliteBridge.markAllRead();
+        }
         const response = await chrome.runtime.sendMessage({ 
           action: "doMarkAllAsRead",
           feedId: activeFeedId
         });
-        if (response.status === 'ok') {
-          // The storage listener will trigger the UI update
+        if (response && response.status === 'ok') {
           showFooterStatus("Feed marked as read!");
           setTimeout(hideFooterStatus, 2000);
         }
@@ -301,12 +305,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       const { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
       showFooterStatus("Marking feed as unread...");
       try {
+        if (activeFeedId) {
+          await SatelliteBridge.markFeedUnread(activeFeedId);
+        } else {
+          await SatelliteBridge.markAllUnread();
+        }
         const response = await chrome.runtime.sendMessage({ 
           action: "doMarkAllAsUnread",
           feedId: activeFeedId
         });
-        if (response.status === 'ok') {
-          // The storage listener will trigger the UI update
+        if (response && response.status === 'ok') {
           showFooterStatus("Feed marked as unread!");
           setTimeout(hideFooterStatus, 2000);
         }
@@ -789,7 +797,7 @@ function addMarkAsUnreadListener(element, post) {
       await chrome.storage.local.set({ readLinks: updatedReadLinks });
       
       // Sync to PureTidings Desktop
-      SatelliteBridge.markRead(post.link, false).catch(() => {});
+      await SatelliteBridge.markRead(post.link, false, post.feedId || null);
 
       // Manually increase the counter
       await updateCountsAfterLocalChange(1);
@@ -870,7 +878,7 @@ async function markPostAsRead(element, postLink) {
       await chrome.storage.local.set({ readLinks: readLinks, unreadCounts: unreadCounts });
       
       // Sync to PureTidings Desktop
-      SatelliteBridge.markRead(postLink, true).catch(() => {});
+      SatelliteBridge.markRead(postLink, true, activeFeedId || null).catch(() => {});
 
       // Reload dropdown to show counter
       await populateFeedSelector(); 
@@ -893,10 +901,16 @@ async function addTitleClickListener(element, post) {
 
     // If it's an IMAP email, always open in Desktop Reader Mode
     if (post.isEmail || (post.link && post.link.startsWith('imap:'))) {
-      const st = await SatelliteBridge.checkStatus(400);
-      if (st.connected) {
-        await SatelliteBridge.openArticle(post.link, post.title, post.feedId);
+      let st = await SatelliteBridge.checkStatus(400);
+      if (!st.connected) {
+        SatelliteBridge.launchDesktop();
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 250));
+          st = await SatelliteBridge.checkStatus(250);
+          if (st.connected) break;
+        }
       }
+      await SatelliteBridge.openArticle(post.link, post.title, post.feedId);
       return;
     }
 
@@ -934,7 +948,7 @@ function addFavoriteMarkerListener(element, post) {
 }
 
 /**
- * Adds the click listener for "Reader Mode" (CHANGED)
+ * Adds the click listener for "Reader Mode" (Directly routed to PureTidings Desktop Reader)
  */
 function addReaderModeListener(element, post) {
   const readBtn = element.querySelector('.read-mode-btn');
@@ -947,18 +961,16 @@ function addReaderModeListener(element, post) {
     try {
       await markPostAsRead(element, post.link);
       
-      const st = await SatelliteBridge.checkStatus(400);
-      if (st.connected) {
-        await SatelliteBridge.openArticle(post.link, post.title, post.feedId);
-        return;
+      let st = await SatelliteBridge.checkStatus(400);
+      if (!st.connected) {
+        SatelliteBridge.launchDesktop();
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 250));
+          st = await SatelliteBridge.checkStatus(250);
+          if (st.connected) break;
+        }
       }
-      
-      // Fallback if desktop offline and not email
-      if (!post.isEmail && !(post.link && post.link.startsWith('imap:'))) {
-        const readerUrl = `reader.html?url=${encodeURIComponent(post.link)}&description=${encodeURIComponent(post.description || '')}&title=${encodeURIComponent(post.title || '')}&videoLength=${encodeURIComponent(post.videoLength || '')}&featuredImage=${encodeURIComponent(post.featuredImage || '')}&source=${encodeURIComponent(post.feedName || '')}&feedId=${encodeURIComponent(post.feedId)}&fullContentHtmlText=${encodeURIComponent(post.fullContentHtml || '')}`;
-        chrome.tabs.create({ url: readerUrl });
-      }
-      
+      await SatelliteBridge.openArticle(post.link, post.title, post.feedId);
     } catch (error) {
       console.error("Error in reader button listener:", error);
     }
@@ -1089,6 +1101,55 @@ function hideFooterStatus() {
   footerStatus.classList.add('hidden');
 }
 
+function normalizeFeedUrlForComparison(url) {
+  if (!url || typeof url !== 'string') return '';
+  try {
+    let u = url.trim().toLowerCase();
+    u = u.replace(/^https?:\/\//i, '');
+    u = u.replace(/^www\./i, '');
+    u = u.replace(/\/+$/, '');
+    return u;
+  } catch (_) {
+    return (url || '').trim().toLowerCase().replace(/\/+$/, '');
+  }
+}
+
+function extractFeedYouTubeChannelId(url) {
+  if (!url || typeof url !== 'string') return null;
+  const matchId = url.match(/channel_id=([a-zA-Z0-9_-]+)/i) || url.match(/\/channel\/([a-zA-Z0-9_-]+)/i);
+  if (matchId) return matchId[1];
+  const matchHandle = url.match(/youtube\.com\/@([a-zA-Z0-9_.-]+)/i);
+  if (matchHandle) return '@' + matchHandle[1].toLowerCase();
+  return null;
+}
+
+function checkIsFeedAlreadyAdded(feed, existingFeeds) {
+  if (!feed || !existingFeeds || existingFeeds.length === 0) return false;
+  const targetUrls = [feed.url, feed.originalUrl].filter(Boolean);
+  
+  for (const tUrl of targetUrls) {
+    const normTarget = normalizeFeedUrlForComparison(tUrl);
+    const targetYtId = extractFeedYouTubeChannelId(tUrl);
+
+    for (const existing of existingFeeds) {
+      if (!existing || !existing.url) continue;
+      const normExisting = normalizeFeedUrlForComparison(existing.url);
+      if (normTarget === normExisting) return true;
+
+      if (targetYtId) {
+        const existingYtId = extractFeedYouTubeChannelId(existing.url);
+        if (existingYtId && existingYtId === targetYtId) return true;
+      }
+
+      // Check common feed suffixes
+      const cleanTarget = normTarget.replace(/\/feed\/?$/, '').replace(/\.xml\/?$/, '').replace(/\/rss\/?$/, '');
+      const cleanExisting = normExisting.replace(/\/feed\/?$/, '').replace(/\.xml\/?$/, '').replace(/\/rss\/?$/, '');
+      if (cleanTarget.length > 5 && cleanTarget === cleanExisting) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Displays the scan results in the popup
  */
@@ -1096,7 +1157,13 @@ async function displayScanResults(foundFeeds, errorMsg = null) {
   scanResultsContainer.innerHTML = ''; 
   scanResultsContainer.classList.remove('hidden');
 
-  // Flatten currentFeedTree to get existing URLs
+  // Freshly read current feed tree from storage & desktop
+  const localData = await chrome.storage.local.get('feedTree');
+  if (localData.feedTree && Array.isArray(localData.feedTree) && localData.feedTree.length > 0) {
+    currentFeedTree = localData.feedTree;
+  }
+
+  // Flatten currentFeedTree to get existing feeds
   const allExistingFeeds = [];
   function collectFeeds(nodes) {
     nodes.forEach(node => {
@@ -1106,7 +1173,6 @@ async function displayScanResults(foundFeeds, errorMsg = null) {
     });
   }
   collectFeeds(currentFeedTree);
-  const existingUrls = new Set(allExistingFeeds.map(f => f.url));
 
   if (errorMsg) {
     scanResultsContainer.innerHTML = `<p>${errorMsg}</p>`;
@@ -1137,7 +1203,7 @@ async function displayScanResults(foundFeeds, errorMsg = null) {
     let title = feed.title || feed.url;
     if (title.length > 40) title = title.substring(0, 37) + '...';
 
-    const isAlreadyAdded = existingUrls.has(feed.url);
+    const isAlreadyAdded = checkIsFeedAlreadyAdded(feed, allExistingFeeds);
 
     item.innerHTML = `
       <span title="${feed.url}">${feed.isCurrentPage ? 'Current URL: ' : ''}${title}</span>
@@ -1149,30 +1215,47 @@ async function displayScanResults(foundFeeds, errorMsg = null) {
     item.querySelector('button').addEventListener('click', async (e) => {
       const btn = e.target;
       const url = btn.dataset.url;
-      let title = btn.dataset.title;
+      let feedTitle = btn.dataset.title;
 
-      if (!title || title === url || title === "Current Page URL") {
-        try { title = new URL(url).hostname; } catch (e) { title = "New Feed"; }
+      if (!feedTitle || feedTitle === url || feedTitle === "Current Page URL") {
+        try { feedTitle = new URL(url).hostname; } catch (e) { feedTitle = "New Feed"; }
       }
 
       btn.textContent = 'Adding...';
       btn.disabled = true;
 
-      const response = await chrome.runtime.sendMessage({
-        action: "addFeed",
-        feed: { name: title, url: url, type: 'feed' } 
-      });
+      try {
+        // 1. Add to PureTidings Desktop Application via bridge
+        await SatelliteBridge.addFeed(url, feedTitle);
 
-      if (response && response.status === 'ok') {
+        // 2. Also send to extension service worker
+        await chrome.runtime.sendMessage({
+          action: "addFeed",
+          feed: { name: feedTitle, url: url, type: 'feed' } 
+        });
+
+        // 3. Immediately pull latest state from Desktop
+        const freshData = await SatelliteBridge.fetchData();
+        if (freshData && freshData.feedTree) {
+          currentFeedTree = freshData.feedTree;
+          await chrome.storage.local.set({ 
+            feedTree: freshData.feedTree, 
+            allPosts: freshData.allPosts || {},
+            unreadCounts: freshData.unreadCounts || {}
+          });
+        } else {
+          const lData = await chrome.storage.local.get('feedTree');
+          currentFeedTree = lData.feedTree || [];
+        }
+
         btn.textContent = 'Added';
-        // Re-fetch feedTree after adding a new feed
-        const localData = await chrome.storage.local.get('feedTree');
-        currentFeedTree = localData.feedTree || [];
+        btn.disabled = true;
         await populateFeedSelector();
-      } else {
+      } catch (err) {
+        console.error("Error adding feed:", err);
         btn.textContent = 'Error';
         btn.style.backgroundColor = '#d93025';
-        showFooterStatus(response.message || "Could not add feed.", true);
+        showFooterStatus(err.message || "Could not add feed.", true);
         setTimeout(() => {
           btn.textContent = 'Add';
           btn.style.backgroundColor = '';
