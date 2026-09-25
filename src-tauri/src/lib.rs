@@ -8,6 +8,9 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+mod satellite_server;
+use satellite_server::{update_satellite_state, register_deep_link_protocol, get_satellite_status};
+
 #[tauri::command]
 async fn fetch_url(url: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
@@ -1278,6 +1281,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            #[cfg(not(target_os = "android"))]
+            {
+                satellite_server::start_satellite_server(app.handle().clone());
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             fetch_url,
             post_url,
@@ -1296,7 +1306,10 @@ pub fn run() {
             mark_imap_email_read,
             webdav_test_connection,
             webdav_get_sync_file,
-            webdav_put_sync_file
+            webdav_put_sync_file,
+            update_satellite_state,
+            register_deep_link_protocol,
+            get_satellite_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
