@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Reader Mode</title>
+    <link rel="stylesheet" href="reader.css">
+    <link rel="stylesheet" href="dark-theme.css">
+    <script src="theme-loader.js"></script>
+</head>
+<body>
+
+  <div class="reader-container">
+    <div id="reader-toolbar" class="hidden">
+      <div class="toolbar-section">
+        <select id="export-format">
+          <option value="txt">TXT</option>
+          <option value="markdown">Markdown</option>
+          <option value="html">HTML</option>
+        </select>
+        <button id="copy-btn" class="secondary-btn">Copy</button>
+        <button id="save-btn" class="secondary-btn">Save</button>
+        <button id="star-btn" class="secondary-btn" title="Add to favorites">&#9734;</button>
+        <button id="summary-btn" class="secondary-btn" title="Add to summary cart">&#128203;</button>
+      </div>
+      <div class="toolbar-section" style="margin-left: 10px;">
+        <button id="generate-ai-report-btn" class="secondary-btn hidden">AI Summary</button>
+        <button id="generate-youtube-ai-report-btn" class="secondary-btn hidden">🎥 AI Video Summary</button>
+      </div>
+      <p id="copy-status" class="status-message-inline"></p>
+    </div>
+    
+    <div id="ai-report-container" class="hidden" style="margin-top: 15px; margin-bottom: 20px; padding: 20px; background: var(--bg-color-secondary); border-radius: 8px; border: 1px solid var(--border-color);">
+       <div class="ai-report-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+           <h3 style="margin: 0;">AI Summary</h3>
+           <div style="display: flex; align-items: center; gap: 10px;">
+               <select id="export-ai-format" title="Export Format" style="padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                 <option value="txt">TXT</option>
+                 <option value="markdown">Markdown</option>
+                 <option value="html">HTML</option>
+               </select>
+               <button id="copy-ai-report-btn" class="secondary-btn">Copy</button>
+               <button id="download-ai-report-btn" class="secondary-btn">Save</button>
+               <button id="close-ai-report-btn" class="secondary-btn" style="margin-left: 10px;">Close</button>
+           </div>
+       </div>
+       
+       <!-- Prompt Editor Section -->
+       <div id="ai-prompt-editor-section" style="margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+           <div style="display: flex; flex-direction: column; gap: 8px;">
+               <label for="ai-custom-prompt-val" style="font-size: 0.9em; font-weight: bold; color: var(--text-color);">Customize Prompt for this Summary:</label>
+               <div style="display: flex; gap: 10px; align-items: flex-end;">
+                   <textarea id="ai-custom-prompt-val" rows="2" style="flex: 1; padding: 8px; background: var(--bg-color); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 4px; font-family: inherit; font-size: 13px; resize: vertical; outline: none;"></textarea>
+                   <button id="ai-generate-with-prompt-btn" class="secondary-btn" style="height: 38px; padding: 0 15px; font-weight: bold; background: #3c5c8b; color: white; border: none; border-radius: 4px; cursor: pointer;">Generate 🤖</button>
+               </div>
+           </div>
+       </div>
+
+       <div id="ai-report-content" class="ai-report-body" style="line-height: 1.6; font-size: 1.1em; white-space: pre-wrap;"></div>
+    </div>
+
+    <div id="reader-loading">
+      <h2>Loading article...</h2>
+      <div id="loading-spinner"></div>
+      <p id="reader-error" class="hidden"></p>
+    </div>
+
+    <article id="reader-content" class="hidden">
+      <div id="reader-header">
+        <img id="reader-thumbnail" class="hidden" />
+        <h1 id="reader-title"></h1>
+      </div>
+      <div id="reader-video-info" class="hidden"></div>
+      <p id="reader-byline"></p>
+      <hr>
+      <div id="reader-article-body">
+        </div>
+    </article>
+  </div>
+  
+  <script src="Readability.js"></script>
+  <script src="utils.js"></script>
+  <script src="reader.js"></script>
+</body>
+</html>

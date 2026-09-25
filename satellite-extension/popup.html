@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>PureTidings</title>
+    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="dark-theme.css">
+    <script src="theme-loader.js"></script>
+</head>
+<body>
+  <header>
+    
+    <div id="custom-select-wrapper" class="select-wrapper">
+      <div id="custom-select-trigger" tabindex="0">
+        <img src="128.png" class="feed-favicon" alt="">
+        <span class="select-trigger-text">Loading...</span>
+        <span class="dropdown-arrow">▼</span>
+      </div>
+      <ul id="custom-select-options" class="select-options hidden">
+        </ul>
+    </div>
+
+    <div id="refresh-buttons-group">
+      <a href="#" id="selective-refresh-button" class="hidden" title="Refresh Current Feed"></a>
+      <a href="#" id="refresh-button" title="Refresh All Feeds"></a>
+    </div>
+  </header>
+
+  <div id="sync-warning-banner" class="hidden"></div>
+  
+  <div id="offline-container" class="hidden" style="padding: 28px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;">
+    <img src="128.png" style="width: 56px; height: 56px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.25);">
+    <h3 style="margin: 0; font-size: 17px; font-weight: bold;">PureTidings Desktop is Closed</h3>
+    <p style="margin: 0; font-size: 13px; opacity: 0.85; line-height: 1.5;">Launch the desktop application to access live feeds, unread articles, and email newsletters.</p>
+    <button type="button" id="btn-launch-desktop" style="margin-top: 6px; padding: 10px 22px; border-radius: 6px; background: #2563eb; color: white; border: none; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 8px rgba(37,99,235,0.4);">
+      🚀 Launch PureTidings Desktop
+    </button>
+    <span id="offline-retry-status" style="font-size: 12px; opacity: 0.7; display: none;">⏳ Waiting for PureTidings Desktop to start...</span>
+  </div>
+  
+  <div id="search-bar-container">
+    <input type="search" id="search-box" placeholder="Search... (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone">
+  </div>
+
+  <div id="scan-results-container" class="hidden">
+    </div>
+  
+  <div id="posts-container">
+    <div id="loading-spinner" class="hidden"></div>
+    <p id="empty-message" class="hidden">No posts found.</p>
+    <div id="posts-list"></div>
+  </div>
+
+  <div id="ai-report-container" class="hidden">
+    <div class="ai-report-header">
+        <h3 style="margin: 0; font-size: 16px;">AI Analysis</h3>
+        <button id="close-ai-report-btn" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-color);">&times;</button>
+    </div>
+    <div id="ai-report-content"></div>
+    
+    <div class="ai-report-footer">
+        <select id="export-ai-format" style="padding: 4px; border-radius: 4px; background: var(--bg-color); color: var(--text-color); border: 1px solid var(--border-color);">
+            <option value="markdown">Markdown</option>
+            <option value="html">HTML</option>
+            <option value="txt">Text</option>
+        </select>
+        <button id="copy-ai-report-btn" style="padding: 5px 10px; border-radius: 4px; background: var(--link-color); color: white; border: none; cursor: pointer; font-size: 12px;">Copy</button>
+        <button id="download-ai-report-btn" style="padding: 5px 10px; border-radius: 4px; background: var(--header-bg); color: var(--text-color); border: 1px solid var(--border-color); cursor: pointer; font-size: 12px;">Save</button>
+    </div>
+  </div>
+
+  <footer>
+    <div id="footer-left">
+      <a href="https://clausdietrich.com/#pure-tidings" target="_blank" id="logo-link" title="Visit PureTidings">
+        <img src="128.png" id="footer-logo" alt="Logo">
+      </a>
+      <a href="#" id="settings-button" title="Settings"></a>
+    </div>
+    
+    <div id="footer-buttons">
+      <a href="#" id="ai-analyze-page-button" class="footer-icon-btn hidden" title="AI Analyze current page"></a>
+      <a href="#" id="scan-page-button" class="footer-icon-btn" title="Find feeds on this page"></a>
+      <a href="#" id="open-keywords-page" class="footer-icon-btn" title="Show Keyword Matches"></a>
+      <a href="#" id="open-favorites-page" class="footer-icon-btn" title="Show Favorites"></a>
+      <a href="#" id="open-full-page" class="footer-icon-btn" title="Show All Posts"></a>
+      <a href="#" id="mark-all-read" class="footer-icon-btn" title="Mark all as read"></a>
+      <a href="#" id="mark-all-unread" class="footer-icon-btn" title="Mark all as unread"></a>
+    </div>
+  </footer>
+
+  <p id="footer-status" class="hidden"></p>
+  
+  <script src="Readability.js"></script>
+  <script src="utils.js"></script>
+  <script src="feed-tree-utils.js"></script>
+  <script src="satellite-bridge.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

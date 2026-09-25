@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PureTidings Settings</title>
+  <link rel="stylesheet" href="options.css">
+  <link rel="stylesheet" href="dark-theme.css">
+  <script src="theme-loader.js"></script>
+</head>
+<body>
+  <div class="container">
+    
+    <h1>Settings</h1>
+
+    <!-- Tab Navigation -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" data-tab="tab-feeds">Feeds</button>
+      <button class="tab-btn" data-tab="tab-ai">AI Features</button>
+      <button class="tab-btn" data-tab="tab-automation">Automation</button>
+      <button class="tab-btn" data-tab="tab-rules">Rules & UI</button>
+      <button class="tab-btn" data-tab="tab-backup">Backup & System</button>
+    </div>
+
+    <!-- Tab: Feeds & Folders -->
+    <div id="tab-feeds" class="tab-content">
+      <h2 id="feed-list-title">Manage Feeds</h2>
+      <ul id="feed-list"></ul>
+
+      <h2 id="add-feed-title">Add New Feed</h2>
+      <form id="add-feed-form">
+        <div class="form-group">
+          <label for="feed-name">Name:</label>
+          <input type="text" id="feed-name" placeholder="e.g. My Tech Blog" required>
+        </div>
+        <div class="form-group">
+          <label for="feed-folder">Folder (optional):</label>
+          <select id="feed-folder">
+            <option value="">Root</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="feed-url">Feed URL:</label>
+          <input type="url" id="feed-url" placeholder="https://example.com/feed.xml" required>
+        </div>
+        <div class="form-group">
+          <input type="checkbox" id="fetch-og-image" checked>
+          <label for="fetch-og-image">Fetch missing images from page (slow)</label>
+          <p class="settings-description">Enable this if a feed has no images, but the linked articles do. Warning: This will significantly slow down fetching for this feed as it needs to download each article page.</p>
+        </div>
+        
+        <div class="button-group">
+          <button type="submit" id="save-button">Add Feed</button>
+          <button type="button" id="cancel-edit-button" class="secondary-btn hidden">Cancel</button>
+        </div>
+        <p id="status-message"></p>
+      </form>
+
+      <h2 id="gmail-integration-title">Gmail Integration (Advanced)</h2>
+      <div class="form-group settings-group">
+        <p class="settings-description">
+          Connect your Gmail account to read full emails directly within PureTidings. This requires you to set up your own OAuth Client ID in the Google Cloud Console and add it to the extension's <code>manifest.json</code> file.
+        </p>
+        <div class="button-group">
+          <button type="button" id="authorize-gmail-button">Connect Gmail</button>
+          <button type="button" id="revoke-gmail-button" class="secondary-btn hidden">Disconnect Gmail</button>
+        </div>
+        <p id="gmail-auth-status" class="status-message-inline"></p>
+      </div>
+
+      <h2 id="manage-folders-title">Manage Folders</h2>
+      <ul id="folder-list"></ul>
+
+      <h3 id="add-folder-title">Add New Folder</h3>
+      <form id="add-folder-form">
+        <div class="form-group">
+          <label for="new-folder-name">Folder Name:</label>
+          <input type="text" id="new-folder-name" placeholder="e.g. My New Folder" required>
+        </div>
+        <div class="form-group">
+          <label for="parent-folder-select">Parent Folder (optional):</label>
+          <select id="parent-folder-select">
+            <option value="">Root</option>
+          </select>
+        </div>
+        <div class="button-group">
+          <button type="submit" id="save-folder-button">Add Folder</button>
+          <button type="button" id="cancel-folder-edit-button" class="secondary-btn hidden">Cancel</button>
+        </div>
+        <p id="folder-status-message"></p>
+      </form>
+    </div>
+
+    <!-- Tab: AI Features -->
+    <div id="tab-ai" class="tab-content hidden">
+      <h2 id="ai-title">AI Features</h2>
+      <div class="form-group settings-group">
+        <label for="gemini-api-key">Google Gemini API Key (for AI Report):</label>
+        <input type="password" id="gemini-api-key" placeholder="AIzaSy...">
+        <p id="api-key-status" class="status-message-inline"></p>
+        <p class="settings-description">
+          Provide your Bring Your Own Key (BYOK) from Google AI Studio to enable the "AI Report" feature in the Summary Cart view.<br><br>
+          <strong>How to get a Gemini API Key:</strong><br>
+          1. Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a> and sign in.<br>
+          2. Click on "Get API key" and create a new key.<br>
+          3. <strong>Important Note:</strong> Even if you only use the free tier, it is highly recommended to link a billing account to your Google Cloud project. Otherwise, your free usage may be blocked or heavily rate-limited over time.
+        </p>
+        
+        <label for="ai-report-prompt" style="margin-top: 15px; display: block;">Custom AI Prompt:</label>
+        <textarea id="ai-report-prompt" rows="4" placeholder="Enter your custom instructions for the AI report here..."></textarea>
+        <p id="ai-prompt-status" class="status-message-inline"></p>
+        <p class="settings-description">
+          Customize how the AI generates your report. The AI will receive this prompt followed by the content of your selected articles.
+        </p>
+
+        <label for="youtube-ai-prompt" style="margin-top: 15px; display: block;">YouTube AI Prompt (TL;DW):</label>
+        <textarea id="youtube-ai-prompt" rows="4" placeholder="You are an assistant that summarizes YouTube videos..."></textarea>
+        <p id="youtube-ai-prompt-status" class="status-message-inline"></p>
+        <p class="settings-description">
+          Customize how the AI summarizes YouTube videos. The AI will receive this prompt followed by the video transcript or description.
+        </p>
+      </div>
+    </div>
+
+    <!-- Tab: Automation & Schedule -->
+    <div id="tab-automation" class="tab-content hidden">
+      <h2 id="automation-title">Fetch Automation</h2>
+      <div class="form-group settings-group">
+        <label for="interval-minutes">Check for new posts every (minutes, 0 = off):</label>
+        <input type="number" id="interval-minutes" min="0" value="30">
+        <p id="interval-status" class="status-message-inline"></p>
+      </div>
+
+      <div class="form-group settings-group">
+        <input type="checkbox" id="randomize-fetch-toggle">
+        <label for="randomize-fetch-toggle">Randomize fetch intervals & delay requests</label>
+        <p class="settings-description">Simulates human-like behavior to avoid being blocked by feed providers.</p>
+      </div>
+
+      <div class="form-group settings-group schedule-group">
+        <h3>Active Fetch Schedule</h3>
+        <p class="settings-description">Set specific times for each day when background fetching should be active. Outside these hours, no automatic fetches will occur.</p>
+        <table class="schedule-table" id="schedule-table">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Active</th>
+              <th>From</th>
+              <th>To</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Rows will be generated by JS -->
+          </tbody>
+        </table>
+        <p id="schedule-status" class="status-message-inline"></p>
+      </div>
+    </div>
+
+    <!-- Tab: Rules & UI -->
+    <div id="tab-rules" class="tab-content hidden">
+      <h2 id="appearance-title">Appearance</h2>
+      <div class="form-group settings-group">
+        <input type="checkbox" id="dark-mode-toggle">
+        <label for="dark-mode-toggle">Enable Dark Mode</label>
+      </div>
+
+      <h2 id="notifications-title">Notifications</h2>
+      <div class="form-group settings-group notification-group">
+        <input type="checkbox" id="notification-toggle">
+        <label for="notification-toggle">Show desktop notification for new posts</label>
+        <p class="settings-description">
+          Without rules, a notification is shown for every new post. If rules exist, notifications are only shown for matching 'notify' rules.
+        </p>
+      </div>
+
+      <div class="form-group settings-group notification-group">
+        <input type="checkbox" id="summary-notification-toggle">
+        <label for="summary-notification-toggle">Show periodic summary of unread posts</label>
+        <div class="summary-settings-row">
+          <label for="summary-interval-minutes">Interval (minutes):</label>
+          <input type="number" id="summary-interval-minutes" min="1" value="60">
+          <p id="summary-interval-status" class="status-message-inline"></p>
+        </div>
+        <p class="settings-description">Shows a periodic list of unread headlines.</p>
+      </div>
+
+      <h2 id="rules-title">Popup & UI Appearance</h2>
+      <p class="settings-description">
+        Customize how the extension popup looks.
+      </p>
+      
+      <div class="setting-item">
+        <div class="setting-row">
+          <label for="popup-width">Popup Width (px):</label>
+          <input type="number" id="popup-width" min="350" max="800" value="430">
+          <span class="range-info">Max: 800px</span>
+        </div>
+        <div class="setting-row">
+          <label for="popup-height">Popup Height (px):</label>
+          <input type="number" id="popup-height" min="400" max="600" value="530">
+          <span class="range-info">Max: 600px</span>
+        </div>
+        <p id="popup-size-status" class="status-message-inline"></p>
+      </div>
+
+      <h2 id="rules-title">Rules Engine</h2>
+      <p class="settings-description">
+        Create rules to automatically manage incoming posts.
+      </p>
+      
+      <ul id="rules-list"></ul>
+
+      <h3 id="add-rule-title">Add New Rule</h3>
+      <form id="add-rule-form">
+        <div class="rule-form-row">
+          <span>IF post</span>
+          <select id="rule-field" required>
+            <option value="title">Title</option>
+            <option value="author">Author</option>
+          </select>
+          <select id="rule-condition" required>
+            <option value="contains">contains</option>
+            <option value="not-contains">does not contain</option>
+            <option value="equals">equals</option>
+          </select>
+          <input type="text" id="rule-value" placeholder="keyword (+ AND, , OR, - NOT)" title="Example: Apple +Macbook -iPhone" required>
+          <span>THEN</span>
+          <select id="rule-action" required>
+            <option value="notify">notify me</option>
+            <option value="markAsRead">mark as read</option>
+            <option value="hide">hide post</option>
+          </select>
+        </div>
+        <div class="button-group" style="margin-top: 15px;">
+          <button type="submit" id="save-rule-button">Add Rule</button>
+          <button type="button" id="cancel-rule-edit-button" class="secondary-btn hidden">Cancel</button>
+        </div>
+      </form>
+
+      <div class="global-actions" style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 15px;">
+        <h2 id="actions-title">Bulk Actions</h2>
+        <button type="button" id="mark-all-read-button" class="secondary-btn">Mark all as read</button>
+        <button type="button" id="mark-all-unread-button" class="secondary-btn">Mark all as unread</button>
+        <p id="mark-all-read-status" class="status-message-inline"></p>
+      </div>
+    </div>
+
+    <!-- Tab: Backup & System -->
+    <div id="tab-backup" class="tab-content hidden">
+      <h2 id="danger-zone-title">Backup, Restore & Reset</h2>
+      
+      <div class="backup-import-group">
+        <h3>Proprietary Backup (Full)</h3>
+        <p class="backup-description">Save/load ALL settings, feeds, favorites, and read-marks as a JSON file.</p>
+        <div class="backup-import-buttons">
+            <button type="button" id="backup-json-button" class="secondary-btn">Full Backup (JSON)</button>
+            <button type="button" id="import-json-button" class="secondary-btn">Full Import (JSON)</button>
+            <input type="file" id="import-json-input" accept=".json" class="hidden">
+        </div>
+      </div>
+
+      <div class="backup-import-group">
+        <h3>Standard Feed Exchange (OPML)</h3>
+        <p class="backup-description">Export or import feeds using the standard OPML format.</p>
+        <div class="backup-import-buttons">
+            <button type="button" id="export-opml-button" class="secondary-btn">Export (OPML)</button>
+            <button type="button" id="import-opml-button" class="secondary-btn">Import (OPML)</button>
+            <input type="file" id="import-opml-input" accept=".opml" class="hidden">
+        </div>
+      </div>
+
+      <div class="backup-import-group">
+        <h3>Automatic Backup</h3>
+        <p class="backup-description">Schedule automated backups to your Downloads folder.</p>
+        <div class="setting-group-inline">
+          <label for="auto-backup-interval">Interval:</label>
+          <select id="auto-backup-interval" class="settings-select">
+            <option value="0">Never</option>
+            <option value="1">Daily</option>
+            <option value="7">Weekly</option>
+            <option value="30">Monthly</option>
+          </select>
+        </div>
+        <div class="setting-group-inline" id="auto-backup-time-group" style="display: none;">
+          <label for="auto-backup-time">Time:</label>
+          <input type="time" id="auto-backup-time" class="settings-input" value="12:00">
+        </div>
+        <div class="setting-group-inline" id="auto-backup-day-group" style="display: none;">
+          <label for="auto-backup-day">Day:</label>
+          <select id="auto-backup-day" class="settings-select">
+            <option value="1">Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+            <option value="0">Sunday</option>
+          </select>
+        </div>
+        <div class="setting-group-inline" id="auto-backup-monthly-day-group" style="display: none;">
+          <label for="auto-backup-monthly-day">Day of Month:</label>
+          <input type="number" id="auto-backup-monthly-day" class="settings-input" min="1" max="31" value="1">
+        </div>
+        <div class="setting-group-inline">
+          <label for="auto-backup-format">Format:</label>
+          <select id="auto-backup-format" class="settings-select">
+            <option value="json">JSON (Full Backup)</option>
+            <option value="opml">OPML (Feeds Only)</option>
+            <option value="both">Both (JSON + OPML)</option>
+          </select>
+        </div>
+        <p id="auto-backup-status" class="status-message-inline"></p>
+      </div>
+
+      <div class="backup-import-group">
+        <h3>Cloud Synchronization (Supabase)</h3>
+        <p class="backup-description">Synchronize your feed tree automatically across multiple devices and the WebApp.</p>
+        <div class="setting-group-inline" style="margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+          <label for="sync-email-input" style="min-width: 90px;">Sync Email:</label>
+          <input type="email" id="sync-email-input" class="settings-input" style="flex: 1; max-width: 250px; background-color: #222; color: #fff; border: 1px solid #444; padding: 6px 10px; border-radius: 4px;" placeholder="email@example.com">
+          <button type="button" id="save-sync-email-btn" class="secondary-btn" style="background-color: var(--primary-color); color: white; border: none; padding: 6px 12px;">Save & Sync</button>
+        </div>
+        <div class="backup-import-buttons" style="display: flex; gap: 10px; margin-top: 10px;">
+            <button type="button" id="force-upload-web-btn" class="secondary-btn" style="background-color: var(--primary-orange); color: white; border: none;">Force Upload to Cloud</button>
+            <button type="button" id="force-download-web-btn" class="secondary-btn" style="background-color: #555; color: white; border: none;">Force Download from Cloud</button>
+        </div>
+        <p id="export-web-status" class="status-message-inline" style="margin-top: 10px; min-height: 18px;"></p>
+      </div>
+
+      <div class="backup-import-group">
+        <h3>Sync Storage Health</h3>
+        <p class="backup-description">Status of critical data stored in Chrome Sync vs. Unlimited Local Sync.</p>
+        <div id="sync-health-status">
+          <div class="sync-health-item">
+            <span class="sync-health-label">Feed Tree:</span>
+            <div class="sync-health-bar-bg"><div id="health-bar-tree" class="sync-health-bar" style="width: 100%; background-color: #28a745;"></div></div>
+            <span id="health-text-tree" class="sync-health-percent">Unlimited (Supabase)</span>
+          </div>
+          <div class="sync-health-item">
+            <span class="sync-health-label">Favorites:</span>
+            <div class="sync-health-bar-bg"><div id="health-bar-favorites" class="sync-health-bar"></div></div>
+            <span id="health-text-favorites" class="sync-health-percent">0%</span>
+          </div>
+          <div class="sync-health-item">
+            <span class="sync-health-label">Summary Cart:</span>
+            <div class="sync-health-bar-bg"><div id="health-bar-summary" class="sync-health-bar"></div></div>
+            <span id="health-text-summary" class="sync-health-percent">0%</span>
+          </div>
+        </div>
+      </div>
+      
+      <hr class="danger-zone-divider">
+      
+      <h3 style="color: #dc3545;">Factory Reset</h3>
+      <p>Permanently delete all data and restore original settings.</p>
+      <button type="button" id="reset-button" class="delete-btn">Reset to Factory Settings</button>
+      <p id="backup-status" class="status-message-inline"></p>
+    </div>
+
+  </div>
+  
+  <script src="utils.js"></script> 
+  <script src="feed-tree-utils.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

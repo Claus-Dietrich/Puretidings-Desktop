@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzgyHUzd5137U+WRBN1RXryCkkl7ZTCcEOHILzH8+awYXe2RB8Z1XLtzOdaK/nab/wOpdizhXZIPkjrKtLUnGE4zR5kbWaMhqTodegi1TCOKN2KiDsmJf+727R36QAQfBfvU14cIOku9InltOKesBwUfZYB87j3M9/iBYOtXM3tyX0y6kbEB/onRdj1HR2cwKbvp63LrrCpcjB5ab4pA7Z9VHhziShuhrB1yCvlozkoCXVrMHMLsUps7/14JQT8NIV73mDgS6NISFlCzmMA+gJO9u/7HxQcvRMGk1SLbopphY2Q8GMgkYfYEoabxQ+JyesjKBsXIUMjHfCtMcpt+SvwIDAQAB",
+  "name": "PureTidings Satellite",
+  "version": "2.13",
+  "description": "Browser Satellite & Remote Control for PureTidings Desktop RSS & Newsletter Reader",
+  "minimum_chrome_version": "109",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "offscreen",
+    "windows",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "declarativeNetRequest",
+    "identity",
+    "unlimitedStorage"
+  ],
+  "oauth2": {
+    "client_id": "171776279788-sk097deakhp2v4u7okom7obljid12p01.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly"
+    ]
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "16.png",
+      "48": "48.png",
+      "128": "128.png"
+    }
+  },
+  "icons": {
+    "16": "16.png",
+    "48": "48.png",
+    "128": "128.png"
+  },
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "options_page": "options.html",
+  "externally_connectable": {
+    "matches": [
+      "*://localhost/*",
+      "http://localhost/*",
+      "https://*.supabase.co/*",
+      "https://puretidings-web.vercel.app/*"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "feedpage.html",
+        "utils.js",
+        "reader.html",
+        "reader.js",
+        "reader.css",
+        "Readability.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

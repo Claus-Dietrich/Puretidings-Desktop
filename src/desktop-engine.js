@@ -354,6 +354,9 @@
             for (const k in idbSync) {
                 memSync[k] = idbSync[k];
             }
+            if (typeof scheduleSatelliteStateSync === 'function') {
+                scheduleSatelliteStateSync();
+            }
         }
 
         // Clean up pt_local_allPosts from localStorage to permanently free up the 5MB quota
@@ -372,6 +375,52 @@
         }
         return fallback;
     }
+
+    // Satellite Companion State Sync Helper
+    function calculateTotalUnreadCount() {
+        const counts = memLocal.unreadCounts || {};
+        let total = 0;
+        for (const k in counts) {
+            total += (parseInt(counts[k], 10) || 0);
+        }
+        return total;
+    }
+
+    function syncSatelliteStateToRust() {
+        if (typeof tauriInvoke !== 'function') return;
+        try {
+            const totalUnread = calculateTotalUnreadCount();
+            const snapshot = {
+                feedTree: memLocal.feedTree || [],
+                allPosts: memLocal.allPosts || {},
+                readLinks: memLocal.readLinks || [],
+                favoritedLinks: memLocal.favoritedLinks || [],
+                summaryLinks: memLocal.summaryLinks || [],
+                unreadCounts: memLocal.unreadCounts || {},
+                rules: memSync.rules || [],
+                geminiApiKey: memSync.geminiApiKey || '',
+                customAiPrompt: memSync.customAiPrompt || '',
+                youtubeAiPrompt: memSync.youtubeAiPrompt || '',
+                darkMode: memSync.darkMode !== false,
+                totalUnread: totalUnread
+            };
+
+            tauriInvoke('update_satellite_state', {
+                stateJson: JSON.stringify(snapshot),
+                totalUnread: totalUnread
+            }).catch(() => {});
+        } catch (err) {
+            console.warn('[PureTidings Desktop] Satellite sync error:', err);
+        }
+    }
+    window.syncSatelliteStateToRust = syncSatelliteStateToRust;
+
+    let satelliteDebounceTimer = null;
+    function scheduleSatelliteStateSync() {
+        if (satelliteDebounceTimer) clearTimeout(satelliteDebounceTimer);
+        satelliteDebounceTimer = setTimeout(syncSatelliteStateToRust, 300);
+    }
+    window.scheduleSatelliteStateSync = scheduleSatelliteStateSync;
 
     let webdavDebounceTimer = null;
     let isWebdavSyncing = false;
@@ -534,6 +583,11 @@
                             scheduleWebdavDebouncedSync();
                         }
 
+                        // Trigger debounced Satellite companion state sync
+                        if (typeof scheduleSatelliteStateSync === 'function') {
+                            scheduleSatelliteStateSync();
+                        }
+
                         if (typeof callback === 'function') callback();
                         resolve();
                     });
@@ -661,6 +715,11 @@
                         const hasSyncKey = Object.keys(items).some(k => syncSyncKeys.includes(k));
                         if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
                             scheduleWebdavDebouncedSync();
+                        }
+
+                        // Trigger debounced Satellite companion state sync
+                        if (typeof scheduleSatelliteStateSync === 'function') {
+                            scheduleSatelliteStateSync();
                         }
 
                         if (typeof callback === 'function') callback();
@@ -8599,11 +8658,19 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const payload = event.payload ? (typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload) : {};
                         const { feedId } = payload || {};
                         if (feedId) {
-                            const singleBtn = document.querySelector(`.feed-single-refresh-btn[data-id="${feedId}"]`);
-                            if (singleBtn) singleBtn.click();
+                            if (typeof window.refreshSingleFeedNative === 'function') {
+                                window.refreshSingleFeedNative(feedId);
+                            } else {
+                                const singleBtn = document.querySelector(`.feed-single-refresh-btn[data-id="${feedId}"]`);
+                                if (singleBtn) singleBtn.click();
+                            }
                         } else {
-                            const refreshBtn = document.getElementById('refresh-button') || document.getElementById('refresh-all-btn');
-                            if (refreshBtn) refreshBtn.click();
+                            if (typeof window.refreshAllFeedsNative === 'function') {
+                                window.refreshAllFeedsNative();
+                            } else {
+                                const refreshBtn = document.getElementById('refresh-button') || document.getElementById('refresh-all-btn');
+                                if (refreshBtn) refreshBtn.click();
+                            }
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_refresh:', e);
@@ -8620,6 +8687,24 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_add_feed:', e);
+                    }
+                });
+
+                // 6. Open Settings
+                window.__TAURI__.event.listen('satellite_open_settings', () => {
+                    try {
+                        const settingsBtn = document.getElementById('sidebar-settings-btn') || 
+                                            document.getElementById('mobile-settings-btn') || 
+                                            document.getElementById('settings-btn') || 
+                                            document.getElementById('options-btn');
+                        if (settingsBtn) {
+                            settingsBtn.click();
+                        } else {
+                            const modal = document.getElementById('settings-modal');
+                            if (modal) modal.style.display = 'flex';
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_open_settings:', e);
                     }
                 });
             } catch (err) {
@@ -8668,20 +8753,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         // 1. Register deep link protocol
                         await tauriInvoke('register_deep_link_protocol').catch(() => {});
 
-                        // 2. Resolve satellite extension folder path
-                        const satelliteFolder = 'D:\\Claus\\Buiz\\Chrome Extentions\\Recent Posts all multi URLs\\PureTidings\\puretidings-extension-satellite';
+                        // 2. Prepare satellite extension in safe local folder and open Explorer
+                        let satelliteFolder = '';
+                        try {
+                            satelliteFolder = await tauriInvoke('prepare_satellite_extension');
+                        } catch (err) {
+                            console.warn('[PureTidings Desktop] prepare_satellite_extension failed:', err);
+                        }
+                        if (!satelliteFolder) {
+                            satelliteFolder = 'D:\\Claus\\Buiz\\Chrome Extentions\\Recent Posts all multi URLs\\PureTidings\\puretidings-extension-satellite';
+                        }
 
                         // 3. Copy to clipboard
                         if (navigator.clipboard && navigator.clipboard.writeText) {
                             await navigator.clipboard.writeText(satelliteFolder);
                         }
 
-                        // 4. Open chrome://extensions/ in browser
-                        await tauriOpenBrowser('chrome://extensions/');
+                        // 4. Silently launch browser extensions page without triggering Windows Store prompt
+                        await tauriInvoke('open_browser_extensions_page').catch(() => {});
 
-                        // 5. Show guidance box
+                        // 5. Show guidance box and update path display
                         if (guide) {
                             guide.style.display = 'block';
+                            const pathDisplay = guide.querySelector('.satellite-path-display') || guide.querySelector('code');
+                            if (pathDisplay) {
+                                pathDisplay.textContent = satelliteFolder;
+                            }
                         }
 
                         // Poll status

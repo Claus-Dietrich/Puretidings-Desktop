@@ -62,6 +62,98 @@ mod desktop_impl {
         }))
     }
 
+    #[tauri::command]
+    pub fn prepare_satellite_extension(app: AppHandle) -> Result<String, String> {
+        let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
+        let target_dir = app_data_dir.join("satellite-extension");
+        let _ = std::fs::create_dir_all(&target_dir);
+
+        // Find candidate source directory
+        let mut candidates = Vec::new();
+        if let Ok(res_dir) = app.path().resource_dir() {
+            candidates.push(res_dir.join("satellite-extension"));
+        }
+        candidates.push(std::path::PathBuf::from("satellite-extension"));
+        candidates.push(std::path::PathBuf::from("../satellite-extension"));
+        candidates.push(std::path::PathBuf::from("../puretidings-extension-satellite"));
+        candidates.push(std::path::PathBuf::from("../../puretidings-extension-satellite"));
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd.join("satellite-extension"));
+            candidates.push(cwd.join("../puretidings-extension-satellite"));
+        }
+
+        let mut found_src = None;
+        for c in candidates {
+            if c.exists() && c.join("manifest.json").exists() {
+                found_src = Some(c);
+                break;
+            }
+        }
+
+        if let Some(src) = found_src {
+            // Copy files from src to target_dir
+            if let Ok(entries) = std::fs::read_dir(&src) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(fname) = path.file_name() {
+                            let dest = target_dir.join(fname);
+                            let _ = std::fs::copy(&path, &dest);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Open target folder in OS file manager (Explorer on Windows, Finder on macOS, xdg-open on Linux)
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("explorer")
+                .arg(&target_dir)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open")
+                .arg(&target_dir)
+                .spawn();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(&target_dir)
+                .spawn();
+        }
+
+        Ok(target_dir.to_string_lossy().to_string())
+    }
+
+    #[tauri::command]
+    pub fn open_browser_extensions_page() -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            // Silently launch Chrome directly without triggering the Windows store prompt
+            let _ = std::process::Command::new("cmd")
+                .args(["/c", "start", "chrome", "chrome://extensions"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open")
+                .args(["-a", "Google Chrome", "chrome://extensions"])
+                .spawn();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = std::process::Command::new("google-chrome")
+                .arg("chrome://extensions")
+                .spawn();
+        }
+        Ok(())
+    }
+
     fn build_cors_headers() -> Vec<Header> {
         vec![
             Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
@@ -232,6 +324,17 @@ mod desktop_impl {
                         let _ = request.respond(resp);
                     }
 
+                    (Method::Post, "/api/open-settings") => {
+                        focus_desktop_window(&app);
+                        let _ = app.emit("satellite_open_settings", ());
+
+                        let mut resp = Response::from_string(serde_json::json!({ "success": true }).to_string());
+                        for h in build_cors_headers() {
+                            resp.add_header(h);
+                        }
+                        let _ = request.respond(resp);
+                    }
+
                     _ => {
                         let mut resp = Response::from_string(serde_json::json!({ "error": "Not Found" }).to_string());
                         resp = resp.with_status_code(StatusCode(404));
@@ -273,4 +376,16 @@ pub fn get_satellite_status() -> Result<Value, String> {
         "totalUnread": 0,
         "android": true
     }))
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn prepare_satellite_extension(_app: tauri::AppHandle) -> Result<String, String> {
+    Ok(String::new())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn open_browser_extensions_page() -> Result<(), String> {
+    Ok(())
 }

@@ -9,7 +9,7 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 mod satellite_server;
-use satellite_server::{update_satellite_state, register_deep_link_protocol, get_satellite_status};
+use satellite_server::{update_satellite_state, register_deep_link_protocol, get_satellite_status, prepare_satellite_extension, open_browser_extensions_page};
 
 #[tauri::command]
 async fn fetch_url(url: String) -> Result<String, String> {
@@ -1309,7 +1309,9 @@ pub fn run() {
             webdav_put_sync_file,
             update_satellite_state,
             register_deep_link_protocol,
-            get_satellite_status
+            get_satellite_status,
+            prepare_satellite_extension,
+            open_browser_extensions_page
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
