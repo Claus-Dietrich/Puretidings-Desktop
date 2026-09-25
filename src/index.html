@@ -1231,6 +1231,44 @@
                 <div id="webdav-sync-status-box" style="display: none; margin-top: 6px; padding: 8px 12px; border-radius: 4px; font-size: 13px;"></div>
               </div>
             </div>
+
+            <!-- Card 4: Browser Satellite Extension -->
+            <div id="settings-satellite-section" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; background: var(--hover-bg, rgba(255,255,255,0.04)); margin-top: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <h4 style="margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+                  🧩 <span data-i18n="settings_satellite_title">Browser Satellite Extension</span>
+                </h4>
+                <span id="satellite-status-badge" style="padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; background: rgba(148, 163, 184, 0.2); color: var(--secondary-text-color);">⚪ Checking...</span>
+              </div>
+              <p class="settings-description" style="margin-bottom: 12px;" data-i18n="settings_satellite_desc">
+                Connect Google Chrome directly to PureTidings Desktop. Browse live feeds, sync read states in real time, launch the desktop app on demand, and summarize web pages and YouTube videos with Gemini AI.
+              </p>
+              
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                  <button type="button" id="btn-install-satellite" class="primary-btn" style="padding: 8px 16px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    📦 <span data-i18n="settings_satellite_install_btn">Install / Prepare Satellite</span>
+                  </button>
+                  <button type="button" id="btn-test-satellite" class="secondary-btn" style="padding: 8px 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                    🔌 <span data-i18n="settings_satellite_test_btn">Test Connection</span>
+                  </button>
+                </div>
+                
+                <div id="satellite-install-guide" style="display: none; margin-top: 8px; padding: 12px 14px; border-radius: 6px; background: rgba(37, 99, 235, 0.08); border: 1px solid rgba(37, 99, 235, 0.25); font-size: 12px; line-height: 1.6;">
+                  <strong style="color: var(--link-color); display: flex; align-items: center; gap: 6px;">
+                    ✅ <span data-i18n="settings_satellite_path_copied">Path copied to clipboard & Explorer opened!</span>
+                  </strong>
+                  <ol style="margin: 6px 0 0 18px; padding: 0;">
+                    <li data-i18n="settings_satellite_step1">Chrome has been opened to <code>chrome://extensions/</code></li>
+                    <li data-i18n="settings_satellite_step2">Toggle on <strong>"Developer mode"</strong> in the top-right corner</li>
+                    <li data-i18n="settings_satellite_step3">Click <strong>"Load unpacked"</strong> and paste the folder path (<kbd>Ctrl+V</kbd>)</li>
+                  </ol>
+                  <div style="margin-top: 8px; font-size: 11px; opacity: 0.85;" data-i18n="settings_satellite_handshake_note">
+                    ⚡ Once loaded, the Satellite automatically pairs with PureTidings Desktop via <code>127.0.0.1:41789</code>.
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

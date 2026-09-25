@@ -233,6 +233,19 @@
             settings_webdav_sync_success: "✓ Synchronized successfully!",
             settings_webdav_sync_in_progress: "Syncing with Nextcloud / WebDAV...",
 
+            // Browser Satellite
+            settings_satellite_title: "🧩 Browser Satellite Extension",
+            settings_satellite_desc: "Connect Google Chrome directly to PureTidings Desktop. Browse live feeds, sync read states in real time, launch the desktop app on demand, and summarize web pages and YouTube videos with Gemini AI.",
+            settings_satellite_install_btn: "Install / Prepare Satellite",
+            settings_satellite_test_btn: "Test Connection",
+            settings_satellite_path_copied: "Path copied to clipboard & Explorer opened!",
+            settings_satellite_step1: "Chrome has been opened to chrome://extensions/",
+            settings_satellite_step2: "Toggle on \"Developer mode\" in the top-right corner",
+            settings_satellite_step3: "Click \"Load unpacked\" and paste the folder path (Ctrl+V)",
+            settings_satellite_handshake_note: "⚡ Once loaded, the Satellite automatically pairs with PureTidings Desktop via 127.0.0.1:41789.",
+            settings_satellite_connected: "🟢 Connected",
+            settings_satellite_disconnected: "⚪ Disconnected",
+
             // Reader Mode
             reader_copy: "Copy",
             reader_save: "Save",
@@ -492,6 +505,19 @@
             settings_webdav_failed: "✗ Verbindung fehlgeschlagen: ",
             settings_webdav_sync_success: "✓ Erfolgreich synchronisiert!",
             settings_webdav_sync_in_progress: "Synchronisiere mit Nextcloud / WebDAV...",
+
+            // Browser Satellite
+            settings_satellite_title: "🧩 Browser-Satellit (Chrome Extension)",
+            settings_satellite_desc: "Verbinde Google Chrome direkt mit PureTidings Desktop. Durchstöbere Live-Feeds, synchronisiere Gelesen-Status in Echtzeit, starte die Desktop-App auf Knopfdruck und fasse Webseiten und YouTube-Videos mit Gemini-KI zusammen.",
+            settings_satellite_install_btn: "Satellit installieren / vorbereiten",
+            settings_satellite_test_btn: "Verbindung testen",
+            settings_satellite_path_copied: "Pfad in Zwischenablage kopiert & Explorer geöffnet!",
+            settings_satellite_step1: "Chrome wurde mit chrome://extensions/ geöffnet",
+            settings_satellite_step2: "Schalte oben rechts den \"Entwicklermodus\" ein",
+            settings_satellite_step3: "Klicke auf \"Entpackte Erweiterung laden\" und füge den Pfad ein (Strg+V)",
+            settings_satellite_handshake_note: "⚡ Nach dem Laden koppelt sich der Satellit automatisch über 127.0.0.1:41789 mit PureTidings Desktop.",
+            settings_satellite_connected: "🟢 Verbunden",
+            settings_satellite_disconnected: "⚪ Nicht verbunden",
 
             // Reader Mode
             reader_copy: "Kopieren",
@@ -753,6 +779,19 @@
             settings_webdav_sync_success: "✓ ¡Sincronizado con éxito!",
             settings_webdav_sync_in_progress: "Sincronizando con Nextcloud / WebDAV...",
 
+            // Browser Satellite
+            settings_satellite_title: "🧩 Extensión Satélite para Navegador",
+            settings_satellite_desc: "Conecta Google Chrome directamente a PureTidings Desktop. Consulta feeds en vivo, sincroniza estados de lectura en tiempo real y resume páginas web.",
+            settings_satellite_install_btn: "Instalar / Preparar Satélite",
+            settings_satellite_test_btn: "Probar Conexión",
+            settings_satellite_path_copied: "¡Ruta copiada al portapapeles y explorador abierto!",
+            settings_satellite_step1: "Chrome se ha abierto en chrome://extensions/",
+            settings_satellite_step2: "Activa el \"Modo de desarrollador\" en la esquina superior derecha",
+            settings_satellite_step3: "Haz clic en \"Cargar descomprimida\" y pega la ruta (Ctrl+V)",
+            settings_satellite_handshake_note: "⚡ Una vez cargado, el satélite se conecta automáticamente a PureTidings Desktop.",
+            settings_satellite_connected: "🟢 Conectado",
+            settings_satellite_disconnected: "⚪ Desconectado",
+
             // Reader Mode
             reader_copy: "Copiar",
             reader_save: "Guardar",
@@ -1012,6 +1051,19 @@
             settings_webdav_failed: "✗ Échec de la connexion : ",
             settings_webdav_sync_success: "✓ Synchronisé avec succès !",
             settings_webdav_sync_in_progress: "Synchronisation avec Nextcloud / WebDAV en cours...",
+
+            // Browser Satellite
+            settings_satellite_title: "🧩 Extension Satellite de Navigateur",
+            settings_satellite_desc: "Connectez Google Chrome directement à PureTidings Desktop. Consultez les flux en direct, synchronisez l'état de lecture en temps réel et résumez les pages avec l'IA.",
+            settings_satellite_install_btn: "Installer / Préparer le Satellite",
+            settings_satellite_test_btn: "Tester la Connexion",
+            settings_satellite_path_copied: "Chemin copié dans le presse-papiers et explorateur ouvert !",
+            settings_satellite_step1: "Chrome s'est ouvert sur chrome://extensions/",
+            settings_satellite_step2: "Activez le \"Mode développeur\" en haut à droite",
+            settings_satellite_step3: "Cliquez sur \"Charger l'extension non empaquetée\" et collez le chemin (Ctrl+V)",
+            settings_satellite_handshake_note: "⚡ Une fois chargé, le satellite s'associe automatiquement à PureTidings Desktop.",
+            settings_satellite_connected: "🟢 Connecté",
+            settings_satellite_disconnected: "⚪ Déconnecté",
 
             // Reader Mode
             reader_copy: "Copier",

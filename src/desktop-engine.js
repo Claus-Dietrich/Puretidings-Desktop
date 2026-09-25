@@ -425,6 +425,9 @@
         if (key === 'readLinks' || key === 'favoritedLinks' || key === 'summaryLinks' || key === 'feedTree') {
             scheduleWebdavDebouncedSync();
         }
+        if (typeof window.scheduleSatelliteStateSync === 'function') {
+            window.scheduleSatelliteStateSync();
+        }
     }
 
     function getSyncItem(key, fallback = null) {
@@ -448,8 +451,11 @@
         try {
             localStorage.setItem('pt_sync_' + key, JSON.stringify(val));
         } catch (_) {}
-        if (key === 'rules' || key === 'emailAccounts') {
+        if (key === 'rules' || key === 'emailAccounts' || key === 'geminiApiKey') {
             scheduleWebdavDebouncedSync();
+        }
+        if (typeof window.scheduleSatelliteStateSync === 'function') {
+            window.scheduleSatelliteStateSync();
         }
     }
 
@@ -8444,6 +8450,259 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 summaryBtn.title = window.i18n.t(isSum ? 'tooltip_remove_summary' : 'tooltip_add_summary');
             }
         });
+
+        // ==========================================
+        // 17. Browser Satellite Bridge & Event Sync
+        // ==========================================
+        function calculateTotalUnreadCount() {
+            const counts = memLocal.unreadCounts || {};
+            let total = 0;
+            for (const k in counts) {
+                total += (parseInt(counts[k], 10) || 0);
+            }
+            return total;
+        }
+
+        function syncSatelliteStateToRust() {
+            if (typeof tauriInvoke !== 'function') return;
+            try {
+                const totalUnread = calculateTotalUnreadCount();
+                const snapshot = {
+                    feedTree: memLocal.feedTree || [],
+                    allPosts: memLocal.allPosts || {},
+                    readLinks: memLocal.readLinks || [],
+                    favoritedLinks: memLocal.favoritedLinks || [],
+                    summaryLinks: memLocal.summaryLinks || [],
+                    unreadCounts: memLocal.unreadCounts || {},
+                    rules: memSync.rules || [],
+                    geminiApiKey: memSync.geminiApiKey || '',
+                    customAiPrompt: memSync.customAiPrompt || '',
+                    youtubeAiPrompt: memSync.youtubeAiPrompt || '',
+                    darkMode: memSync.darkMode !== false,
+                    totalUnread: totalUnread
+                };
+
+                tauriInvoke('update_satellite_state', {
+                    stateJson: JSON.stringify(snapshot),
+                    totalUnread: totalUnread
+                }).catch(() => {});
+            } catch (err) {
+                console.warn('[PureTidings Desktop] Satellite sync error:', err);
+            }
+        }
+        window.syncSatelliteStateToRust = syncSatelliteStateToRust;
+
+        let satelliteDebounceTimer = null;
+        function scheduleSatelliteStateSync() {
+            if (satelliteDebounceTimer) clearTimeout(satelliteDebounceTimer);
+            satelliteDebounceTimer = setTimeout(syncSatelliteStateToRust, 350);
+        }
+        window.scheduleSatelliteStateSync = scheduleSatelliteStateSync;
+
+        // Perform initial state sync to Rust
+        setTimeout(syncSatelliteStateToRust, 1200);
+
+        // Listen for Satellite Events dispatched from Tauri Rust
+        if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+            try {
+                // 1. Mark Read
+                window.__TAURI__.event.listen('satellite_mark_read', (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { link, isRead } = payload || {};
+                        if (!link) return;
+
+                        let readLinks = memLocal.readLinks || [];
+                        const readSet = new Set(readLinks);
+                        if (isRead) {
+                            readSet.add(link);
+                        } else {
+                            readSet.delete(link);
+                        }
+                        const newReadLinks = Array.from(readSet);
+                        setLocalItem('readLinks', newReadLinks);
+
+                        // Update in-memory unread counts
+                        const allPosts = memLocal.allPosts || {};
+                        const unreadCounts = memLocal.unreadCounts || {};
+                        for (const feedId in allPosts) {
+                            const posts = allPosts[feedId] || [];
+                            let unread = 0;
+                            for (let i = 0; i < posts.length; i++) {
+                                if (!readSet.has(posts[i].link)) {
+                                    unread++;
+                                }
+                            }
+                            unreadCounts[feedId] = unread;
+                        }
+                        setLocalItem('unreadCounts', unreadCounts);
+
+                        // Refresh feedpage UI if available
+                        if (typeof window.recalculateCounters === 'function') {
+                            window.recalculateCounters();
+                        } else if (typeof window.filterSidebarFeeds === 'function') {
+                            window.filterSidebarFeeds();
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_mark_read:', e);
+                    }
+                });
+
+                // 2. Open Article
+                window.__TAURI__.event.listen('satellite_open_article', (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { link, title } = payload || {};
+                        if (!link) return;
+
+                        let foundPost = null;
+                        const allPosts = memLocal.allPosts || {};
+                        for (const fId in allPosts) {
+                            const posts = allPosts[fId] || [];
+                            foundPost = posts.find(p => p.link === link);
+                            if (foundPost) break;
+                        }
+
+                        if (foundPost && typeof window.openReaderModal === 'function') {
+                            window.openReaderModal(foundPost);
+                        } else if (typeof window.openReaderModal === 'function') {
+                            window.openReaderModal({ link, title: title || link, content: '' });
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_open_article:', e);
+                    }
+                });
+
+                // 3. Open Feed
+                window.__TAURI__.event.listen('satellite_open_feed', (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { feedId } = payload || {};
+                        if (feedId) {
+                            const row = document.querySelector(`.feed-item-row[data-id="${feedId}"]`);
+                            if (row) {
+                                row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                const toggle = row.querySelector('.tree-toggle');
+                                if (toggle && toggle.textContent.includes('+')) {
+                                    toggle.click();
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_open_feed:', e);
+                    }
+                });
+
+                // 4. Refresh Feeds
+                window.__TAURI__.event.listen('satellite_refresh', (event) => {
+                    try {
+                        const payload = event.payload ? (typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload) : {};
+                        const { feedId } = payload || {};
+                        if (feedId) {
+                            const singleBtn = document.querySelector(`.feed-single-refresh-btn[data-id="${feedId}"]`);
+                            if (singleBtn) singleBtn.click();
+                        } else {
+                            const refreshBtn = document.getElementById('refresh-button') || document.getElementById('refresh-all-btn');
+                            if (refreshBtn) refreshBtn.click();
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_refresh:', e);
+                    }
+                });
+
+                // 5. Add Feed
+                window.__TAURI__.event.listen('satellite_add_feed', (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { url, title, folderId } = payload || {};
+                        if (url && typeof window.addNewFeedToTree === 'function') {
+                            window.addNewFeedToTree(url, title, folderId);
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_add_feed:', e);
+                    }
+                });
+            } catch (err) {
+                console.warn('[PureTidings Desktop] Could not register satellite event listeners:', err);
+            }
+        }
+
+        // Setup Settings Satellite UI handlers
+        function initSatelliteSettingsUI() {
+            const installBtn = document.getElementById('btn-install-satellite');
+            const testBtn = document.getElementById('btn-test-satellite');
+            const statusBadge = document.getElementById('satellite-status-badge');
+            const guide = document.getElementById('satellite-install-guide');
+
+            async function checkSatelliteStatus() {
+                if (!statusBadge) return;
+                try {
+                    const res = await fetch('http://127.0.0.1:41789/api/status', { method: 'GET', cache: 'no-store' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        statusBadge.textContent = window.i18n ? window.i18n.t('settings_satellite_connected') : '🟢 Connected';
+                        statusBadge.style.background = 'rgba(34, 197, 94, 0.2)';
+                        statusBadge.style.color = '#22c55e';
+                        return true;
+                    }
+                } catch (_) {}
+                statusBadge.textContent = window.i18n ? window.i18n.t('settings_satellite_disconnected') : '⚪ Disconnected';
+                statusBadge.style.background = 'rgba(148, 163, 184, 0.2)';
+                statusBadge.style.color = 'var(--secondary-text-color)';
+                return false;
+            }
+
+            if (testBtn) {
+                testBtn.addEventListener('click', async () => {
+                    testBtn.disabled = true;
+                    testBtn.textContent = '⏳ Testing...';
+                    await checkSatelliteStatus();
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = `🔌 <span>${window.i18n ? window.i18n.t('settings_satellite_test_btn') : 'Test Connection'}</span>`;
+                });
+            }
+
+            if (installBtn) {
+                installBtn.addEventListener('click', async () => {
+                    try {
+                        // 1. Register deep link protocol
+                        await tauriInvoke('register_deep_link_protocol').catch(() => {});
+
+                        // 2. Resolve satellite extension folder path
+                        const satelliteFolder = 'D:\\Claus\\Buiz\\Chrome Extentions\\Recent Posts all multi URLs\\PureTidings\\puretidings-extension-satellite';
+
+                        // 3. Copy to clipboard
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(satelliteFolder);
+                        }
+
+                        // 4. Open chrome://extensions/ in browser
+                        await tauriOpenBrowser('chrome://extensions/');
+
+                        // 5. Show guidance box
+                        if (guide) {
+                            guide.style.display = 'block';
+                        }
+
+                        // Poll status
+                        setTimeout(checkSatelliteStatus, 2000);
+                        setTimeout(checkSatelliteStatus, 5000);
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error preparing satellite installation:', e);
+                    }
+                });
+            }
+
+            // Check status when Settings opens
+            const settingsBtn = document.getElementById('settings-btn') || document.getElementById('options-btn');
+            if (settingsBtn) {
+                settingsBtn.addEventListener('click', () => {
+                    setTimeout(checkSatelliteStatus, 200);
+                });
+            }
+            setTimeout(checkSatelliteStatus, 1500);
+        }
+        initSatelliteSettingsUI();
 
         // Note: Automatic feed fetch on startup is disabled per user preference.
         // Feeds are fetched only according to the user's background schedule or upon manual refresh (F5 / 🔄).
