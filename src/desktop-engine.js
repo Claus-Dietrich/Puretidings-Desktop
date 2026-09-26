@@ -235,7 +235,11 @@
         memLocal.favoritedLinks = [];
         memLocal.summaryLinks = [];
         memLocal.unreadArticleUrls = {};
+        memLocal.unfavoritedArticleUrls = {};
+        memLocal.unsummaryArticleUrls = {};
     }
+    if (!memLocal.unfavoritedArticleUrls) memLocal.unfavoritedArticleUrls = {};
+    if (!memLocal.unsummaryArticleUrls) memLocal.unsummaryArticleUrls = {};
     if (memSync.darkMode === undefined) memSync.darkMode = true;
     if (memSync.rules === undefined) memSync.rules = [];
     if (memSync.checkInterval === undefined) memSync.checkInterval = 30;
@@ -1102,6 +1106,34 @@
                 featuredImage: featuredImage || null
             });
         }
+
+        let feedTitle = '';
+        const channelEl = doc.getElementsByTagName("channel")[0];
+        if (channelEl) {
+            const t = channelEl.getElementsByTagName("title")[0];
+            if (t && t.textContent.trim()) feedTitle = t.textContent.trim();
+        } else {
+            const authorEl = doc.getElementsByTagName("author")[0];
+            if (authorEl) {
+                const nameEl = authorEl.getElementsByTagName("name")[0];
+                if (nameEl && nameEl.textContent.trim()) feedTitle = nameEl.textContent.trim();
+            }
+            if (!feedTitle) {
+                const feedEl = doc.getElementsByTagName("feed")[0];
+                if (feedEl) {
+                    const t = feedEl.getElementsByTagName("title")[0];
+                    if (t && t.textContent.trim()) feedTitle = t.textContent.trim();
+                }
+            }
+        }
+        if (feedTitle && feedTitle.toLowerCase() === 'youtube') {
+            const authorEl = doc.getElementsByTagName("author")[0];
+            if (authorEl) {
+                const nameEl = authorEl.getElementsByTagName("name")[0];
+                if (nameEl && nameEl.textContent.trim()) feedTitle = nameEl.textContent.trim();
+            }
+        }
+        posts.feedTitle = feedTitle;
         return posts;
     }
 
@@ -1442,6 +1474,18 @@
                     try {
                         const xml = await tauriInvoke('fetch_url', { url: feed.url });
                         const posts = parseFeedXml(xml, feed);
+                        if (posts && posts.feedTitle) {
+                            const isGeneric = !feed.name ||
+                                feed.name === feed.url ||
+                                feed.name === 'YouTube Channel' ||
+                                feed.name === 'New Feed' ||
+                                feed.name.toLowerCase().includes('youtube.com') ||
+                                feed.name.toLowerCase() === 'youtube';
+                            if (isGeneric && posts.feedTitle !== feed.name) {
+                                feed.name = posts.feedTitle;
+                                feedTreeUpdated = true;
+                            }
+                        }
                         if (posts && posts.length > 0) {
                             posts.forEach(p => {
                                 if (!p.featuredImage && existingImageMap.has(p.link)) {
@@ -1534,6 +1578,13 @@
                 readLinks: Array.from(readLinksSet)
             });
 
+            if (feedTreeUpdated) {
+                await chrome.storage.local.set({ feedTree });
+                if (typeof renderSidebarFeedTree === 'function') {
+                    renderSidebarFeedTree(feedTree);
+                }
+            }
+
         } catch (e) {
             console.error("Failed to refresh feeds:", e);
         } finally {
@@ -1617,6 +1668,36 @@
 
             const xml = await tauriInvoke('fetch_url', { url: targetFeed.url });
             const posts = parseFeedXml(xml, targetFeed);
+            if (posts && posts.feedTitle) {
+                const isGenericName = !targetFeed.name || 
+                    targetFeed.name === targetFeed.url || 
+                    targetFeed.name === 'YouTube Channel' || 
+                    targetFeed.name === 'New Feed' || 
+                    targetFeed.name.toLowerCase().includes('youtube.com') ||
+                    targetFeed.name.toLowerCase() === 'youtube';
+                if (isGenericName && posts.feedTitle !== targetFeed.name) {
+                    targetFeed.name = posts.feedTitle;
+                    try {
+                        const { feedTree = [] } = await chrome.storage.local.get('feedTree');
+                        function updateTreeFeedName(nodes) {
+                            for (const n of nodes) {
+                                if (n.id === targetFeed.id || n.url === targetFeed.url) {
+                                    n.name = posts.feedTitle;
+                                    return true;
+                                }
+                                if (n.children && updateTreeFeedName(n.children)) return true;
+                            }
+                            return false;
+                        }
+                        if (updateTreeFeedName(feedTree)) {
+                            await chrome.storage.local.set({ feedTree });
+                            if (typeof renderSidebarFeedTree === 'function') {
+                                renderSidebarFeedTree(feedTree);
+                            }
+                        }
+                    } catch (_) {}
+                }
+            }
             if (posts && posts.length > 0) {
                 posts.forEach(p => {
                     if (!p.featuredImage && existingImageMap.has(p.link)) {
@@ -1958,14 +2039,17 @@
         let feedName = (typeof customName === 'string' && customName.trim()) ? customName.trim() : '';
 
         // Check if YouTube
-        const ytChannelMatch = cleanUrl.match(/youtube\.com\/channel\/([a-zA-Z0-9_-]+)/);
-        const ytCustomMatch = cleanUrl.match(/youtube\.com\/@([a-zA-Z0-9_-]+)/);
-        const ytVideoMatch = cleanUrl.match(/(?:v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+        const ytFeedMatch = cleanUrl.match(/youtube\.com\/feeds\/videos\.xml\?channel_id=([a-zA-Z0-9_-]+)/i);
+        const ytChannelMatch = cleanUrl.match(/youtube\.com\/channel\/([a-zA-Z0-9_-]+)/i);
+        const ytCustomMatch = cleanUrl.match(/youtube\.com\/@([a-zA-Z0-9_.-]+)/i);
+        const ytVideoMatch = cleanUrl.match(/(?:v=|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+        const ytUserMatch = cleanUrl.match(/youtube\.com\/(?:user|c)\/([a-zA-Z0-9_-]+)/i);
 
-        if (ytChannelMatch) {
+        if (ytFeedMatch) {
+            feedUrl = cleanUrl;
+        } else if (ytChannelMatch) {
             feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ytChannelMatch[1]}`;
-            if (!feedName) feedName = `YouTube Channel`;
-        } else if (ytCustomMatch || ytVideoMatch) {
+        } else if (ytCustomMatch || ytVideoMatch || ytUserMatch) {
             try {
                 const pageHtml = await tauriInvoke('fetch_url', { url: cleanUrl });
                 const rssMatch = pageHtml.match(/https:\/\/www\.youtube\.com\/feeds\/videos\.xml\?channel_id=([a-zA-Z0-9_-]+)/);
@@ -1974,7 +2058,7 @@
                 }
                 if (!feedName) {
                     const titleMatch = pageHtml.match(/<title>([^<]+)<\/title>/i);
-                    if (titleMatch) feedName = titleMatch[1].replace(' - YouTube', '').trim();
+                    if (titleMatch) feedName = titleMatch[1].replace(/ - YouTube$/i, '').trim();
                 }
             } catch (e) {
                 console.warn("YouTube discovery error:", e);
@@ -1999,6 +2083,21 @@
             }
         }
 
+        // If it's a YouTube feed and name is still missing or generic, fetch the XML feed directly to extract authentic channel name!
+        if (feedUrl.includes('youtube.com/feeds/videos.xml') && (!feedName || feedName === 'YouTube Channel' || feedName === 'youtube.com')) {
+            try {
+                const feedXml = await tauriInvoke('fetch_url', { url: feedUrl });
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(feedXml, "application/xml");
+                const channelTitle = doc.querySelector('title')?.textContent || doc.querySelector('author > name')?.textContent;
+                if (channelTitle && channelTitle.trim()) {
+                    feedName = channelTitle.replace(/ - YouTube$/i, '').trim();
+                }
+            } catch (e) {
+                console.warn("YouTube channel name extraction from XML error:", e);
+            }
+        }
+
         // If discovery resolved to a different feed URL, check if that feed URL already exists
         if (feedUrl !== cleanUrl) {
             const resolvedCheckFeed = findFeedByUrlInTree(feedTree, feedUrl);
@@ -2011,6 +2110,21 @@
                     return null;
                 }
             }
+        }
+
+        // If name is still missing, try to extract title from feed XML or fallback to hostname
+        if (!feedName) {
+            try {
+                if (feedUrl.endsWith('.xml') || feedUrl.endsWith('.rss') || feedUrl.includes('/feed') || feedUrl.includes('youtube.com')) {
+                    const feedXml = await tauriInvoke('fetch_url', { url: feedUrl });
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(feedXml, "application/xml");
+                    const parsedTitle = doc.querySelector('channel > title, feed > title')?.textContent || doc.querySelector('author > name')?.textContent;
+                    if (parsedTitle && parsedTitle.trim()) {
+                        feedName = parsedTitle.replace(/ - YouTube$/i, '').trim();
+                    }
+                }
+            } catch (_) {}
         }
 
         if (!feedName) {
@@ -4270,6 +4384,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }, 1500);
     }
 
+    function getReportTimestamp() {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+    }
+    window.getReportTimestamp = getReportTimestamp;
+
     function htmlToMarkdownSimple(html) {
         if (!html) return '';
         let cleanHtml = html;
@@ -4974,7 +5095,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             const prefix = metaParts.length ? metaParts.join(' &middot; ') + ' &middot; ' : '';
             const isEmail = data.isEmail || (data.url && data.url.startsWith('imap:'));
             if (data.url && !isEmail) {
-                bylineEl.innerHTML = `${prefix}Link: <a href="#" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="${window.i18n ? window.i18n.t('tooltip_open_browser') : 'Open original article in browser'}" data-i18n-title="tooltip_open_browser">${escapeHtml(data.url)}</a>`;
+                bylineEl.innerHTML = `${prefix}Link: <a href="${escapeHtml(data.url)}" target="_blank" rel="noopener noreferrer" id="reader-original-link" style="color:var(--accent-color, #1a73e8); text-decoration:underline; cursor:pointer;" title="${window.i18n ? window.i18n.t('tooltip_open_browser') : 'Open original article in browser'}" data-i18n-title="tooltip_open_browser">${escapeHtml(data.url)}</a>`;
                 const origLink = document.getElementById('reader-original-link');
                 if (origLink) {
                     origLink.addEventListener('click', (e) => {
@@ -5448,7 +5569,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     function setupReaderToolbar() {
         // Copy Article
         const copyBtn = document.getElementById('reader-copy-btn');
-        if (copyBtn) {
+        if (copyBtn && !copyBtn._attached) {
+            copyBtn._attached = true;
             copyBtn.addEventListener('click', async () => {
                 if (!currentReaderArticle) return;
                 const format = document.getElementById('reader-export-format')?.value || 'markdown';
@@ -5490,7 +5612,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Save Article
         const saveBtn = document.getElementById('reader-save-btn');
-        if (saveBtn) {
+        if (saveBtn && !saveBtn._attached) {
+            saveBtn._attached = true;
             saveBtn.addEventListener('click', () => {
                 if (!currentReaderArticle) return;
                 const format = document.getElementById('reader-export-format')?.value || 'markdown';
@@ -5509,16 +5632,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const activeHtml = emailHtml || bodyEl?.innerHTML || '';
                 const md = `# ${currentReaderArticle.title || 'Untitled'}\n\n${byline ? `*${byline}*\n\n` : ''}${htmlToMarkdownSimple(activeHtml)}`;
 
+                const ts = getReportTimestamp();
                 let filename = '';
                 if (format === 'markdown') {
-                    filename = `${title}.md`;
+                    filename = `${title}_${ts}.md`;
                     downloadTextFile(filename, md, 'text/markdown');
                 } else if (format === 'html') {
-                    filename = `${title}.html`;
+                    filename = `${title}_${ts}.html`;
                     const html = formatArticleHtml(currentReaderArticle.title || 'Untitled', byline, activeHtml || bodyEl, md);
                     downloadTextFile(filename, html, 'text/html');
                 } else {
-                    filename = `${title}.txt`;
+                    filename = `${title}_${ts}.txt`;
                     const txt = cleanMarkdownToPlainText(md);
                     downloadTextFile(filename, txt, 'text/plain');
                 }
@@ -5557,16 +5681,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Star / Favorite
         const starBtn = document.getElementById('reader-star-btn');
-        if (starBtn) {
+        if (starBtn && !starBtn._attached) {
+            starBtn._attached = true;
             starBtn.addEventListener('click', async () => {
                 if (!currentReaderArticle || !currentReaderArticle.url) return;
                 const url = currentReaderArticle.url;
-                const { favoritedLinks = [] } = await chrome.storage.local.get('favoritedLinks');
+                const { favoritedLinks = [], unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'unfavoritedArticleUrls']);
                 const isFav = favoritedLinks.includes(url);
                 const newFavs = isFav ? favoritedLinks.filter(u => u !== url) : [...favoritedLinks, url];
-                await chrome.storage.local.set({ favoritedLinks: newFavs });
-
+                const newUnfavs = { ...unfavoritedArticleUrls };
                 const nowFav = newFavs.includes(url);
+                if (nowFav) {
+                    delete newUnfavs[url];
+                } else {
+                    newUnfavs[url] = Date.now();
+                }
+                await chrome.storage.local.set({ favoritedLinks: newFavs, unfavoritedArticleUrls: newUnfavs });
+
                 starBtn.classList.toggle('favorited', nowFav);
                 starBtn.innerHTML = nowFav ? '&#9733;' : '&#9734;';
                 starBtn.title = window.i18n ? window.i18n.t(nowFav ? 'tooltip_remove_favorites' : 'tooltip_add_favorites') : (nowFav ? 'Remove from favorites' : 'Add to favorites');
@@ -5592,16 +5723,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Summary Cart
         const summaryBtn = document.getElementById('reader-summary-btn');
-        if (summaryBtn) {
+        if (summaryBtn && !summaryBtn._attached) {
+            summaryBtn._attached = true;
             summaryBtn.addEventListener('click', async () => {
                 if (!currentReaderArticle || !currentReaderArticle.url) return;
                 const url = currentReaderArticle.url;
-                const { summaryLinks = [] } = await chrome.storage.local.get('summaryLinks');
+                const { summaryLinks = [], unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'unsummaryArticleUrls']);
                 const isSum = summaryLinks.includes(url);
                 const newSums = isSum ? summaryLinks.filter(u => u !== url) : [...summaryLinks, url];
-                await chrome.storage.local.set({ summaryLinks: newSums });
-
+                const newUnsums = { ...unsummaryArticleUrls };
                 const nowSum = newSums.includes(url);
+                if (nowSum) {
+                    delete newUnsums[url];
+                } else {
+                    newUnsums[url] = Date.now();
+                }
+                await chrome.storage.local.set({ summaryLinks: newSums, unsummaryArticleUrls: newUnsums });
+
                 summaryBtn.classList.toggle('active', nowSum);
                 summaryBtn.classList.toggle('in-cart', nowSum);
                 summaryBtn.title = window.i18n ? window.i18n.t(nowSum ? 'tooltip_remove_summary' : 'tooltip_add_summary') : (nowSum ? 'Remove from summary cart' : 'Add to summary cart');
@@ -5626,7 +5764,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // AI Summary Button
         const aiBtn = document.getElementById('reader-generate-ai-btn');
-        if (aiBtn) {
+        if (aiBtn && !aiBtn._attached) {
+            aiBtn._attached = true;
             aiBtn.addEventListener('click', async () => {
                 const container = document.getElementById('reader-ai-container');
                 if (!container) return;
@@ -5655,7 +5794,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // AI Video Summary Button
         const ytAiBtn = document.getElementById('reader-generate-yt-ai-btn');
-        if (ytAiBtn) {
+        if (ytAiBtn && !ytAiBtn._attached) {
+            ytAiBtn._attached = true;
             ytAiBtn.addEventListener('click', async () => {
                 const container = document.getElementById('reader-ai-container');
                 if (!container) return;
@@ -5684,7 +5824,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Generate AI Button
         const genBtn = document.getElementById('reader-ai-generate-btn');
-        if (genBtn) {
+        if (genBtn && !genBtn._attached) {
+            genBtn._attached = true;
             genBtn.addEventListener('click', async () => {
                 const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
                 if (!geminiApiKey || !geminiApiKey.trim()) {
@@ -5799,7 +5940,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Copy AI Result
         const copyAiBtn = document.getElementById('reader-copy-ai-btn');
-        if (copyAiBtn) {
+        if (copyAiBtn && !copyAiBtn._attached) {
+            copyAiBtn._attached = true;
             copyAiBtn.addEventListener('click', async () => {
                 if (!currentReaderAiMarkdown) return;
                 const format = document.getElementById('reader-export-ai-format')?.value || 'markdown';
@@ -5827,7 +5969,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Save AI Result
         const saveAiBtn = document.getElementById('reader-save-ai-btn');
-        if (saveAiBtn) {
+        if (saveAiBtn && !saveAiBtn._attached) {
+            saveAiBtn._attached = true;
             saveAiBtn.addEventListener('click', () => {
                 let markdown = (currentReaderAiMarkdown || '').trim();
                 if (!markdown) {
@@ -5852,17 +5995,18 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     .replace(/^_+|_+$/g, '')
                     .substring(0, 45) || 'article';
                 const baseTitle = `${cleanTitle}_KI_Summary`;
+                const ts = getReportTimestamp();
 
                 let filename = '';
                 if (format === 'markdown') {
-                    filename = `${baseTitle}.md`;
+                    filename = `${baseTitle}_${ts}.md`;
                     downloadTextFile(filename, markdown, 'text/markdown');
                 } else if (format === 'html') {
-                    filename = `${baseTitle}.html`;
+                    filename = `${baseTitle}_${ts}.html`;
                     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AI Summary</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6;padding:0 20px;}hr{border:0;border-top:1px solid #ddd;margin:20px 0;}</style></head><body><h1>AI Summary</h1><hr>${typeof formatMarkdownToHtml === 'function' ? formatMarkdownToHtml(markdown) : markdown}</body></html>`;
                     downloadTextFile(filename, html, 'text/html');
                 } else {
-                    filename = `${baseTitle}.txt`;
+                    filename = `${baseTitle}_${ts}.txt`;
                     const txt = cleanMarkdownToPlainText(markdown);
                     downloadTextFile(filename, txt, 'text/plain');
                 }
@@ -5877,7 +6021,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Close AI Result
         const closeAiBtn = document.getElementById('reader-close-ai-btn');
-        if (closeAiBtn) {
+        if (closeAiBtn && !closeAiBtn._attached) {
+            closeAiBtn._attached = true;
             closeAiBtn.addEventListener('click', () => {
                 const container = document.getElementById('reader-ai-container');
                 if (container) container.style.display = 'none';
@@ -6812,6 +6957,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             let feedName = (title && typeof title === 'string' && title.trim()) ? title.trim() : finalUrl;
             if (feedName === finalUrl || feedName === 'Current Page URL') {
                 try { feedName = new URL(finalUrl).hostname; } catch (_) { feedName = "New Feed"; }
+            }
+            if (finalUrl.includes('youtube.com') && (!title || title === finalUrl || title === 'YouTube Channel' || title === 'Current Page URL' || title.toLowerCase().includes('youtube.com') || title === 'New Feed')) {
+                try {
+                    const xml = await tauriInvoke('fetch_url', { url: finalUrl });
+                    let chTitle = '';
+                    const aMatch = xml.match(/<author>\s*<name>([^<]+)<\/name>/i);
+                    if (aMatch && aMatch[1] && aMatch[1].trim()) {
+                        chTitle = aMatch[1].trim();
+                    } else {
+                        const tMatch = xml.match(/<feed[^>]*>[\s\S]*?<title>([^<]+)<\/title>/i) || xml.match(/<title>([^<]+)<\/title>/i);
+                        if (tMatch && tMatch[1] && tMatch[1].trim() && tMatch[1].trim().toLowerCase() !== 'youtube') {
+                            chTitle = tMatch[1].trim();
+                        }
+                    }
+                    if (chTitle) feedName = chTitle;
+                } catch (_) {}
             }
 
             const { feedTree = [] } = await chrome.storage.local.get('feedTree');
@@ -7800,6 +7961,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
             mergedLocal.unreadArticleUrls = localUnreadArticles;
 
+            // 1c. Unfavorited articles tombstone merge
+            const localUnfavoritedArticles = { ...(mergedLocal.unfavoritedArticleUrls || {}) };
+            const remoteUnfavoritedArticles = remote.unfavoritedArticleUrls || {};
+            for (const u in remoteUnfavoritedArticles) {
+                localUnfavoritedArticles[u] = Math.max(localUnfavoritedArticles[u] || 0, remoteUnfavoritedArticles[u]);
+            }
+            mergedLocal.unfavoritedArticleUrls = localUnfavoritedArticles;
+
+            // 1d. Unsummary articles tombstone merge
+            const localUnsummaryArticles = { ...(mergedLocal.unsummaryArticleUrls || {}) };
+            const remoteUnsummaryArticles = remote.unsummaryArticleUrls || {};
+            for (const u in remoteUnsummaryArticles) {
+                localUnsummaryArticles[u] = Math.max(localUnsummaryArticles[u] || 0, remoteUnsummaryArticles[u]);
+            }
+            mergedLocal.unsummaryArticleUrls = localUnsummaryArticles;
+
             // 2. Read links merge (respecting unread tombstones)
             const localRead = new Set(Array.isArray(mergedLocal.readLinks) ? mergedLocal.readLinks : []);
             const remoteRead = Array.isArray(remote.readLinks) ? remote.readLinks : [];
@@ -7816,10 +7993,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
 
             const localFav = new Set(Array.isArray(mergedLocal.favoritedLinks) ? mergedLocal.favoritedLinks : []);
+            // Purge locally unfavorited links
+            for (const u in localUnfavoritedArticles) {
+                if (localFav.has(u)) {
+                    localFav.delete(u);
+                    hasChanges = true;
+                }
+            }
             const remoteFav = Array.isArray(remote.favoritedLinks) ? remote.favoritedLinks : [];
             let favChanged = false;
             remoteFav.forEach(link => {
-                if (link && !localFav.has(link)) {
+                if (link && !localUnfavoritedArticles[link] && !localFav.has(link)) {
                     localFav.add(link);
                     favChanged = true;
                 }
@@ -7830,10 +8014,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
 
             const localSum = new Set(Array.isArray(mergedLocal.summaryLinks) ? mergedLocal.summaryLinks : []);
+            // Purge locally unsummary links
+            for (const u in localUnsummaryArticles) {
+                if (localSum.has(u)) {
+                    localSum.delete(u);
+                    hasChanges = true;
+                }
+            }
             const remoteSum = Array.isArray(remote.summaryLinks) ? remote.summaryLinks : [];
             let sumChanged = false;
             remoteSum.forEach(link => {
-                if (link && !localSum.has(link)) {
+                if (link && !localUnsummaryArticles[link] && !localSum.has(link)) {
                     localSum.add(link);
                     sumChanged = true;
                 }
@@ -8115,7 +8306,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const localData = await chrome.storage.local.get([
                     'feedTree', 'feedTreeUpdatedAt', 'feedTreeLastEditedLocally',
                     'lastWebdavSyncTime', 'deletedFeedUrls', 'deletedFolderIds',
-                    'unreadArticleUrls', 'readLinks', 'favoritedLinks', 'summaryLinks'
+                    'unreadArticleUrls', 'unfavoritedArticleUrls', 'unsummaryArticleUrls',
+                    'readLinks', 'favoritedLinks', 'summaryLinks'
                 ]);
                 if (localData.lastWebdavSyncTime) {
                     lastWebdavSyncTime = Math.max(lastWebdavSyncTime, localData.lastWebdavSyncTime);
@@ -8149,6 +8341,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 let localDeletedFeeds = { ...(localData.deletedFeedUrls || {}) };
                 let localDeletedFolders = { ...(localData.deletedFolderIds || {}) };
+                let localUnreadArticles = { ...(localData.unreadArticleUrls || {}) };
+                let localUnfavoritedArticles = { ...(localData.unfavoritedArticleUrls || {}) };
+                let localUnsummaryArticles = { ...(localData.unsummaryArticleUrls || {}) };
                 let finalReadLinks = Array.isArray(localData.readLinks) ? [...localData.readLinks] : [];
                 let finalFavLinks = Array.isArray(localData.favoritedLinks) ? [...localData.favoritedLinks] : [];
                 let finalSumLinks = Array.isArray(localData.summaryLinks) ? [...localData.summaryLinks] : [];
@@ -8182,11 +8377,28 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
 
                     // Merge tombstones (unread articles)
-                    let localUnreadArticles = { ...(localData.unreadArticleUrls || {}) };
                     const remoteUnreadArticles = remoteObj.unreadArticleUrls || {};
                     for (const u in remoteUnreadArticles) {
                         if (!localUnreadArticles[u] || remoteUnreadArticles[u] > localUnreadArticles[u]) {
                             localUnreadArticles[u] = remoteUnreadArticles[u];
+                            localNeedsSave = true;
+                        }
+                    }
+
+                    // Merge tombstones (unfavorited articles)
+                    const remoteUnfavoritedArticles = remoteObj.unfavoritedArticleUrls || {};
+                    for (const u in remoteUnfavoritedArticles) {
+                        if (!localUnfavoritedArticles[u] || remoteUnfavoritedArticles[u] > localUnfavoritedArticles[u]) {
+                            localUnfavoritedArticles[u] = remoteUnfavoritedArticles[u];
+                            localNeedsSave = true;
+                        }
+                    }
+
+                    // Merge tombstones (unsummary articles)
+                    const remoteUnsummaryArticles = remoteObj.unsummaryArticleUrls || {};
+                    for (const u in remoteUnsummaryArticles) {
+                        if (!localUnsummaryArticles[u] || remoteUnsummaryArticles[u] > localUnsummaryArticles[u]) {
+                            localUnsummaryArticles[u] = remoteUnsummaryArticles[u];
                             localNeedsSave = true;
                         }
                     }
@@ -8298,14 +8510,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                     // Favorited Links
                     const localFavSet = new Set(finalFavLinks);
+                    // Purge any links that are currently tombstoned as unfavorited locally
+                    for (const u in localUnfavoritedArticles) {
+                        if (localFavSet.has(u)) {
+                            localFavSet.delete(u);
+                            localNeedsSave = true;
+                        }
+                    }
                     const remoteFav = Array.isArray(remoteObj.favoritedLinks) ? remoteObj.favoritedLinks : [];
                     let favLocalAdded = false;
-                    remoteFav.forEach(l => {
-                        if (l && !localFavSet.has(l)) {
-                            localFavSet.add(l);
-                            favLocalAdded = true;
-                        }
-                    });
+                    if (isFromAnotherDevice) {
+                        remoteFav.forEach(l => {
+                            if (l && !localUnfavoritedArticles[l] && !localFavSet.has(l)) {
+                                localFavSet.add(l);
+                                favLocalAdded = true;
+                            }
+                        });
+                    }
                     if (favLocalAdded) localNeedsSave = true;
                     const remoteFavSet = new Set(remoteFav);
                     for (const l of localFavSet) {
@@ -8314,22 +8535,43 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             break;
                         }
                     }
+                    for (const l of remoteFav) {
+                        if (localUnfavoritedArticles[l]) {
+                            remoteNeedsUpload = true;
+                            break;
+                        }
+                    }
                     finalFavLinks = Array.from(localFavSet);
 
                     // Summary Links
                     const localSumSet = new Set(finalSumLinks);
+                    // Purge any links that are currently tombstoned as unsummary locally
+                    for (const u in localUnsummaryArticles) {
+                        if (localSumSet.has(u)) {
+                            localSumSet.delete(u);
+                            localNeedsSave = true;
+                        }
+                    }
                     const remoteSum = Array.isArray(remoteObj.summaryLinks) ? remoteObj.summaryLinks : [];
                     let sumLocalAdded = false;
-                    remoteSum.forEach(l => {
-                        if (l && !localSumSet.has(l)) {
-                            localSumSet.add(l);
-                            sumLocalAdded = true;
-                        }
-                    });
+                    if (isFromAnotherDevice) {
+                        remoteSum.forEach(l => {
+                            if (l && !localUnsummaryArticles[l] && !localSumSet.has(l)) {
+                                localSumSet.add(l);
+                                sumLocalAdded = true;
+                            }
+                        });
+                    }
                     if (sumLocalAdded) localNeedsSave = true;
                     const remoteSumSet = new Set(remoteSum);
                     for (const l of localSumSet) {
                         if (!remoteSumSet.has(l)) {
+                            remoteNeedsUpload = true;
+                            break;
+                        }
+                    }
+                    for (const l of remoteSum) {
+                        if (localUnsummaryArticles[l]) {
                             remoteNeedsUpload = true;
                             break;
                         }
@@ -8422,6 +8664,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
                         unreadArticleUrls: localUnreadArticles,
+                        unfavoritedArticleUrls: localUnfavoritedArticles,
+                        unsummaryArticleUrls: localUnsummaryArticles,
                         readLinks: finalReadLinks,
                         favoritedLinks: finalFavLinks,
                         summaryLinks: finalSumLinks
@@ -8471,6 +8715,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
                         unreadArticleUrls: localUnreadArticles,
+                        unfavoritedArticleUrls: localUnfavoritedArticles,
+                        unsummaryArticleUrls: localUnsummaryArticles,
                         readLinks: finalReadLinks,
                         favoritedLinks: finalFavLinks,
                         summaryLinks: finalSumLinks,
@@ -9032,6 +9278,118 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_summarize_url:', e);
+                    }
+                });
+
+                // 9. Toggle Favorite (delegated from Satellite popup)
+                window.__TAURI__.event.listen('satellite_toggle_favorite', async (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { link, isFavorited } = payload || {};
+                        if (!link) return;
+
+                        const { favoritedLinks = [], unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'unfavoritedArticleUrls']);
+                        const favSet = new Set(favoritedLinks || []);
+                        const unfavs = { ...unfavoritedArticleUrls };
+
+                        if (isFavorited) {
+                            favSet.add(link);
+                            delete unfavs[link];
+                        } else {
+                            favSet.delete(link);
+                            unfavs[link] = Date.now();
+                        }
+
+                        const newFavs = Array.from(favSet);
+                        await chrome.storage.local.set({
+                            favoritedLinks: newFavs,
+                            unfavoritedArticleUrls: unfavs
+                        });
+
+                        if (typeof memLocal !== 'undefined' && memLocal) {
+                            memLocal.favoritedLinks = newFavs;
+                            memLocal.unfavoritedArticleUrls = unfavs;
+                        }
+
+                        if (currentReaderArticle && currentReaderArticle.url === link) {
+                            const starBtn = document.getElementById('reader-star-btn');
+                            if (starBtn) {
+                                starBtn.classList.toggle('favorited', !!isFavorited);
+                                starBtn.innerHTML = isFavorited ? '&#9733;' : '&#9734;';
+                            }
+                        }
+
+                        try {
+                            const card = document.querySelector(`.post-item[data-link="${CSS.escape(link)}"]`);
+                            if (card) {
+                                const cardStar = card.querySelector('.favorite-btn');
+                                if (cardStar) {
+                                    cardStar.classList.toggle('favorited', !!isFavorited);
+                                    cardStar.innerHTML = isFavorited ? '&#9733;' : '&#9734;';
+                                }
+                            }
+                        } catch (_) {}
+
+                        if (typeof updateFavoritesView === 'function') updateFavoritesView();
+                        if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+                        if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_toggle_favorite:', e);
+                    }
+                });
+
+                // 10. Toggle Summary Cart (delegated from Satellite popup)
+                window.__TAURI__.event.listen('satellite_toggle_summary', async (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { link, isSummary } = payload || {};
+                        if (!link) return;
+
+                        const { summaryLinks = [], unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'unsummaryArticleUrls']);
+                        const sumSet = new Set(summaryLinks || []);
+                        const unsums = { ...unsummaryArticleUrls };
+
+                        if (isSummary) {
+                            sumSet.add(link);
+                            delete unsums[link];
+                        } else {
+                            sumSet.delete(link);
+                            unsums[link] = Date.now();
+                        }
+
+                        const newSums = Array.from(sumSet);
+                        await chrome.storage.local.set({
+                            summaryLinks: newSums,
+                            unsummaryArticleUrls: unsums
+                        });
+
+                        if (typeof memLocal !== 'undefined' && memLocal) {
+                            memLocal.summaryLinks = newSums;
+                            memLocal.unsummaryArticleUrls = unsums;
+                        }
+
+                        if (currentReaderArticle && currentReaderArticle.url === link) {
+                            const summaryBtn = document.getElementById('reader-summary-btn');
+                            if (summaryBtn) {
+                                summaryBtn.classList.toggle('active', !!isSummary);
+                            }
+                        }
+
+                        try {
+                            const card = document.querySelector(`.post-item[data-link="${CSS.escape(link)}"]`);
+                            if (card) {
+                                const cardSum = card.querySelector('.summary-btn');
+                                if (cardSum) {
+                                    cardSum.classList.toggle('active', !!isSummary);
+                                }
+                            }
+                        } catch (_) {}
+
+                        if (typeof updateSummaryView === 'function') updateSummaryView();
+                        if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+                        if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_toggle_summary:', e);
                     }
                 });
             } catch (err) {

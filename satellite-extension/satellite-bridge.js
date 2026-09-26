@@ -297,6 +297,48 @@ const SatelliteBridge = (function () {
     }
 
     /**
+     * Toggles an article's favorite status in PureTidings Desktop.
+     * @param {string} link
+     * @param {boolean} isFavorited
+     * @returns {Promise<boolean>}
+     */
+    async function toggleFavorite(link, isFavorited) {
+        if (!link) return false;
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/toggle-favorite`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ link, isFavorited: !!isFavorited })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] toggleFavorite failed:', e);
+            return false;
+        }
+    }
+
+    /**
+     * Toggles an article's summary cart status in PureTidings Desktop.
+     * @param {string} link
+     * @param {boolean} isSummary
+     * @returns {Promise<boolean>}
+     */
+    async function toggleSummary(link, isSummary) {
+        if (!link) return false;
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/toggle-summary`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ link, isSummary: !!isSummary })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] toggleSummary failed:', e);
+            return false;
+        }
+    }
+
+    /**
      * Launches the PureTidings Desktop Application on demand via the custom protocol puretidings://open
      */
     function launchDesktop() {
@@ -326,6 +368,8 @@ const SatelliteBridge = (function () {
         markFeedUnread,
         markAllRead,
         markAllUnread,
+        toggleFavorite,
+        toggleSummary,
         addFeed,
         openArticle,
         summarizeUrl,

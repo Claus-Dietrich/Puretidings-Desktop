@@ -705,21 +705,26 @@ function addSummaryBtnListener(element, post) {
      e.stopPropagation();
      e.preventDefault();
 
-     const { summaryLinks = [] } = await chrome.storage.local.get('summaryLinks');
-    const index = summaryLinks.indexOf(post.link);
+     const { summaryLinks = [], unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'unsummaryArticleUrls']);
+     const index = summaryLinks.indexOf(post.link);
+     const newUnsums = { ...unsummaryArticleUrls };
 
-    if (index > -1) {
-      summaryLinks.splice(index, 1);
-      summaryBtn.classList.remove('active');
-      summaryBtn.title = 'Add to summary list';
-    } else {
-      summaryLinks.push(post.link);
-      summaryBtn.classList.add('active');
-      summaryBtn.title = 'Remove from summary list';
-    }
+     if (index > -1) {
+       summaryLinks.splice(index, 1);
+       newUnsums[post.link] = Date.now();
+       summaryBtn.classList.remove('active');
+       summaryBtn.title = 'Add to summary list';
+       await SatelliteBridge.toggleSummary(post.link, false);
+     } else {
+       summaryLinks.push(post.link);
+       delete newUnsums[post.link];
+       summaryBtn.classList.add('active');
+       summaryBtn.title = 'Remove from summary list';
+       await SatelliteBridge.toggleSummary(post.link, true);
+     }
 
-    await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "summaryLinks", data: summaryLinks });
-  });
+     await chrome.storage.local.set({ summaryLinks, unsummaryArticleUrls: newUnsums });
+   });
 }
 
 /**
@@ -885,20 +890,25 @@ function addFavoriteMarkerListener(element, post) {
     e.preventDefault();
     
     const isFavorited = starBtn.classList.contains('favorited');
-    const { favoritedLinks = [] } = await chrome.storage.local.get('favoritedLinks');
+    const { favoritedLinks = [], unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'unfavoritedArticleUrls']);
+    const newUnfavs = { ...unfavoritedArticleUrls };
     
     if (isFavorited) {
       const newLinks = favoritedLinks.filter(link => link !== post.link);
-      await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "favoritedLinks", data: newLinks });
+      newUnfavs[post.link] = Date.now();
+      await chrome.storage.local.set({ favoritedLinks: newLinks, unfavoritedArticleUrls: newUnfavs });
       starBtn.classList.remove('favorited');
       starBtn.innerHTML = '&#9734;'; 
       starBtn.title = 'Add to favorites';
+      await SatelliteBridge.toggleFavorite(post.link, false);
     } else {
-      favoritedLinks.push(post.link);
-      await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "favoritedLinks", data: favoritedLinks });
+      const newLinks = [...favoritedLinks.filter(link => link !== post.link), post.link];
+      delete newUnfavs[post.link];
+      await chrome.storage.local.set({ favoritedLinks: newLinks, unfavoritedArticleUrls: newUnfavs });
       starBtn.classList.add('favorited');
       starBtn.innerHTML = '&#9733;'; 
       starBtn.title = 'Remove from favorites';
+      await SatelliteBridge.toggleFavorite(post.link, true);
     }
   });
 }

@@ -760,8 +760,9 @@ function handleDownloadSummary() {
 
   const now = new Date();
   const datePart = now.toISOString().split('T')[0];
-  const timePart = now.getHours().toString().padStart(2, '0') + '-' + now.getMinutes().toString().padStart(2, '0');
-  const defaultName = `puretidings-summary-${datePart}_${timePart}.${extension}`;
+  const timePart = now.getHours().toString().padStart(2, '0') + '-' + now.getMinutes().toString().padStart(2, '0') + '-' + now.getSeconds().toString().padStart(2, '0');
+  const ts = (typeof getReportTimestamp === 'function' ? getReportTimestamp() : `${datePart}_${timePart}`);
+  const defaultName = `puretidings-summary-${ts}.${extension}`;
   let fileName = prompt("Enter a name for the report:", defaultName);
   
   // If user cancels or gives empty input, return
@@ -1042,19 +1043,28 @@ function addSummaryBtnListener(element, post) {
 
     summaryBtn.addEventListener('click', async (e) => {
         e.stopPropagation(); e.preventDefault();
+        const { unsummaryArticleUrls = {} } = await chrome.storage.local.get('unsummaryArticleUrls');
+        const newUnsum = { ...unsummaryArticleUrls };
         if (summaryLinksSet.has(post.link)) {
             summaryLinksSet.delete(post.link);
+            newUnsum[post.link] = Date.now();
             summaryBtn.classList.remove('active');
             summaryBtn.title = window.i18n ? window.i18n.t('tooltip_add_summary') : 'Add to summary cart';
             summaryBtn.setAttribute('data-i18n-title', 'tooltip_add_summary');
             if (currentViewMode === 'summary') element.style.display = 'none';
         } else {
             summaryLinksSet.add(post.link);
+            delete newUnsum[post.link];
             summaryBtn.classList.add('active');
             summaryBtn.title = window.i18n ? window.i18n.t('tooltip_remove_summary') : 'Remove from summary cart';
             summaryBtn.setAttribute('data-i18n-title', 'tooltip_remove_summary');
         }
-        await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "summaryLinks", data: Array.from(summaryLinksSet) });
+        await chrome.storage.local.set({
+            summaryLinks: Array.from(summaryLinksSet),
+            unsummaryArticleUrls: newUnsum
+        });
+        if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+        if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
     });
 }
 
@@ -1219,25 +1229,34 @@ function addFavoriteMarkerListener(element, post) {
   const starBtn = element.querySelector('.favorite-btn');
   if(!starBtn) return;
   starBtn.addEventListener('click', async (e) => {
-  e.stopPropagation(); e.preventDefault();
-  const isFavorited = favoritedLinksSet.has(post.link);
-  if (isFavorited) {
-    favoritedLinksSet.delete(post.link);
-    starBtn.classList.remove('favorited');
-    starBtn.innerHTML = '&#9734;';
-    starBtn.title = window.i18n ? window.i18n.t('tooltip_add_favorites') : 'Add to favorites';
-    starBtn.setAttribute('data-i18n-title', 'tooltip_add_favorites');
-    if (currentViewMode === 'favorites') element.style.display = 'none';
-  } else {
-    favoritedLinksSet.add(post.link);
-    starBtn.classList.add('favorited');
-    starBtn.innerHTML = '&#9733;';
-    starBtn.title = window.i18n ? window.i18n.t('tooltip_remove_favorites') : 'Remove from favorites';
-    starBtn.setAttribute('data-i18n-title', 'tooltip_remove_favorites');
-  }
-  await chrome.runtime.sendMessage({ action: "safeStorageSet", key: "favoritedLinks", data: Array.from(favoritedLinksSet) });
+    e.stopPropagation(); e.preventDefault();
+    const isFavorited = favoritedLinksSet.has(post.link);
+    const { unfavoritedArticleUrls = {} } = await chrome.storage.local.get('unfavoritedArticleUrls');
+    const newUnfavs = { ...unfavoritedArticleUrls };
+    if (isFavorited) {
+      favoritedLinksSet.delete(post.link);
+      newUnfavs[post.link] = Date.now();
+      starBtn.classList.remove('favorited');
+      starBtn.innerHTML = '&#9734;';
+      starBtn.title = window.i18n ? window.i18n.t('tooltip_add_favorites') : 'Add to favorites';
+      starBtn.setAttribute('data-i18n-title', 'tooltip_add_favorites');
+      if (currentViewMode === 'favorites') element.style.display = 'none';
+    } else {
+      favoritedLinksSet.add(post.link);
+      delete newUnfavs[post.link];
+      starBtn.classList.add('favorited');
+      starBtn.innerHTML = '&#9733;';
+      starBtn.title = window.i18n ? window.i18n.t('tooltip_remove_favorites') : 'Remove from favorites';
+      starBtn.setAttribute('data-i18n-title', 'tooltip_remove_favorites');
+    }
+    await chrome.storage.local.set({
+      favoritedLinks: Array.from(favoritedLinksSet),
+      unfavoritedArticleUrls: newUnfavs
+    });
+    if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+    if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
   });
-  }
+}
 function addReaderModeListener(element, post) {
   const readBtn = element.querySelector('.read-mode-btn');
   if(!readBtn) return;
@@ -1740,7 +1759,9 @@ downloadAiReportBtn.addEventListener('click', () => {
     
     const now = new Date();
     const datePart = now.toISOString().split('T')[0];
-    const defaultName = `puretidings-ai-report-${datePart}.${extension}`;
+    const timePart = now.getHours().toString().padStart(2, '0') + '-' + now.getMinutes().toString().padStart(2, '0') + '-' + now.getSeconds().toString().padStart(2, '0');
+    const ts = (typeof getReportTimestamp === 'function' ? getReportTimestamp() : `${datePart}_${timePart}`);
+    const defaultName = `puretidings-ai-report-${ts}.${extension}`;
     let fileName = prompt("Enter a name for the AI report:", defaultName);
     
     if (fileName === null) return;
