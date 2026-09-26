@@ -234,11 +234,18 @@
         memLocal.readLinks = [];
         memLocal.favoritedLinks = [];
         memLocal.summaryLinks = [];
+        memLocal.readArticleUrls = {};
         memLocal.unreadArticleUrls = {};
+        memLocal.favoritedArticleUrls = {};
         memLocal.unfavoritedArticleUrls = {};
+        memLocal.summaryArticleUrls = {};
         memLocal.unsummaryArticleUrls = {};
     }
+    if (!memLocal.readArticleUrls) memLocal.readArticleUrls = {};
+    if (!memLocal.unreadArticleUrls) memLocal.unreadArticleUrls = {};
+    if (!memLocal.favoritedArticleUrls) memLocal.favoritedArticleUrls = {};
     if (!memLocal.unfavoritedArticleUrls) memLocal.unfavoritedArticleUrls = {};
+    if (!memLocal.summaryArticleUrls) memLocal.summaryArticleUrls = {};
     if (!memLocal.unsummaryArticleUrls) memLocal.unsummaryArticleUrls = {};
     if (memSync.darkMode === undefined) memSync.darkMode = true;
     if (memSync.rules === undefined) memSync.rules = [];
@@ -472,7 +479,9 @@
                 customAiPrompt: memSync.customAiPrompt || '',
                 youtubeAiPrompt: memSync.youtubeAiPrompt || '',
                 darkMode: memSync.darkMode !== false,
-                totalUnread: totalUnread
+                totalUnread: totalUnread,
+                isRefreshing: !!window.isRefreshingAllFeeds,
+                refreshingFeedId: window.isRefreshingFeedId || null
             };
 
             tauriInvoke('update_satellite_state', {
@@ -1126,11 +1135,22 @@
                 }
             }
         }
-        if (feedTitle && feedTitle.toLowerCase() === 'youtube') {
+        if (!feedTitle || feedTitle.toLowerCase() === 'youtube' || feedTitle.toLowerCase() === 'youtube video feed') {
             const authorEl = doc.getElementsByTagName("author")[0];
             if (authorEl) {
                 const nameEl = authorEl.getElementsByTagName("name")[0];
                 if (nameEl && nameEl.textContent.trim()) feedTitle = nameEl.textContent.trim();
+            }
+            if (!feedTitle || feedTitle.toLowerCase() === 'youtube' || feedTitle.toLowerCase() === 'youtube video feed') {
+                const aMatch = xmlString.match(/<author>\s*<name>([^<]+)<\/name>/i);
+                if (aMatch && aMatch[1] && aMatch[1].trim()) {
+                    feedTitle = aMatch[1].trim();
+                } else {
+                    const tMatch = xmlString.match(/<feed[^>]*>[\s\S]*?<title>([^<]+)<\/title>/i) || xmlString.match(/<title>([^<]+)<\/title>/i);
+                    if (tMatch && tMatch[1] && tMatch[1].trim() && tMatch[1].trim().toLowerCase() !== 'youtube') {
+                        feedTitle = tMatch[1].trim();
+                    }
+                }
             }
         }
         posts.feedTitle = feedTitle;
@@ -1413,6 +1433,8 @@
     window.markEmailReadNative = markEmailReadNative;
 
     async function refreshAllFeedsNative() {
+        window.isRefreshingAllFeeds = true;
+        if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
         const refreshBtn = document.getElementById('sidebar-refresh-btn');
         if (refreshBtn) refreshBtn.classList.add('spinning');
 
@@ -1475,12 +1497,16 @@
                         const xml = await tauriInvoke('fetch_url', { url: feed.url });
                         const posts = parseFeedXml(xml, feed);
                         if (posts && posts.feedTitle) {
+                            const nameLower = (feed.name || '').toLowerCase();
                             const isGeneric = !feed.name ||
                                 feed.name === feed.url ||
                                 feed.name === 'YouTube Channel' ||
+                                feed.name === 'YouTube Video Feed' ||
                                 feed.name === 'New Feed' ||
-                                feed.name.toLowerCase().includes('youtube.com') ||
-                                feed.name.toLowerCase() === 'youtube';
+                                feed.name === 'Current Page URL' ||
+                                nameLower.includes('youtube.com') ||
+                                nameLower === 'youtube' ||
+                                nameLower === 'youtube video feed';
                             if (isGeneric && posts.feedTitle !== feed.name) {
                                 feed.name = posts.feedTitle;
                                 feedTreeUpdated = true;
@@ -1588,6 +1614,8 @@
         } catch (e) {
             console.error("Failed to refresh feeds:", e);
         } finally {
+            window.isRefreshingAllFeeds = false;
+            if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
             if (loading) loading.classList.add('hidden');
             if (refreshBtn) refreshBtn.classList.remove('spinning');
         }
@@ -1596,6 +1624,8 @@
 
     async function refreshSingleFeedNative(targetFeedId) {
         if (!targetFeedId) return;
+        window.isRefreshingFeedId = targetFeedId;
+        if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
         try {
             const rawTree = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
             const feedTree = Array.isArray(rawTree?.feedTree) ? rawTree.feedTree : [];
@@ -1669,12 +1699,16 @@
             const xml = await tauriInvoke('fetch_url', { url: targetFeed.url });
             const posts = parseFeedXml(xml, targetFeed);
             if (posts && posts.feedTitle) {
+                const targetNameLower = (targetFeed.name || '').toLowerCase();
                 const isGenericName = !targetFeed.name || 
                     targetFeed.name === targetFeed.url || 
                     targetFeed.name === 'YouTube Channel' || 
+                    targetFeed.name === 'YouTube Video Feed' || 
                     targetFeed.name === 'New Feed' || 
-                    targetFeed.name.toLowerCase().includes('youtube.com') ||
-                    targetFeed.name.toLowerCase() === 'youtube';
+                    targetFeed.name === 'Current Page URL' || 
+                    targetNameLower.includes('youtube.com') ||
+                    targetNameLower === 'youtube' ||
+                    targetNameLower === 'youtube video feed';
                 if (isGenericName && posts.feedTitle !== targetFeed.name) {
                     targetFeed.name = posts.feedTitle;
                     try {
@@ -1754,19 +1788,25 @@
             if (typeof showInAppToast === 'function') {
                 showInAppToast('Feed Refresh Failed', `${err.message || err}`);
             }
+        } finally {
+            window.isRefreshingFeedId = null;
+            if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
         }
     }
     window.refreshSingleFeedNative = refreshSingleFeedNative;
 
     async function markAllAsReadNative(feedId = null) {
-        const { allPosts = {}, readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {}, readArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls', 'readArticleUrls']);
         const readLinksSet = new Set(readLinks || []);
         const unreadMap = { ...unreadArticleUrls };
+        const readMap = { ...readArticleUrls };
+        const now = Date.now();
         if (feedId) {
             const feedPosts = allPosts[feedId] || [];
             feedPosts.forEach(p => { 
                 if (p.link) {
                     readLinksSet.add(p.link);
+                    readMap[p.link] = now;
                     delete unreadMap[p.link];
                 }
             });
@@ -1774,6 +1814,7 @@
             Object.values(allPosts).flat().forEach(p => { 
                 if (p.link) {
                     readLinksSet.add(p.link);
+                    readMap[p.link] = now;
                     delete unreadMap[p.link];
                 }
             });
@@ -1794,8 +1835,14 @@
         await chrome.storage.local.set({
             readLinks: newReadLinks,
             unreadCounts: newUnreadCounts,
+            readArticleUrls: readMap,
             unreadArticleUrls: unreadMap
         });
+        if (typeof memLocal !== 'undefined' && memLocal) {
+            memLocal.readLinks = newReadLinks;
+            memLocal.readArticleUrls = readMap;
+            memLocal.unreadArticleUrls = unreadMap;
+        }
         if (typeof window.recalculateCounters === 'function') {
             window.recalculateCounters();
         } else if (typeof window.filterSidebarFeeds === 'function') {
@@ -1807,13 +1854,17 @@
         if (typeof syncSatelliteStateToRust === 'function') {
             syncSatelliteStateToRust();
         }
+        if (typeof scheduleWebdavDebouncedSync === 'function') {
+            scheduleWebdavDebouncedSync(3000);
+        }
     }
     window.markAllAsReadNative = markAllAsReadNative;
 
     async function markAllAsUnreadNative(feedId = null) {
-        const { allPosts = {}, readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {}, readArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls', 'readArticleUrls']);
         let readLinksSet = new Set(readLinks || []);
         const unreadMap = { ...unreadArticleUrls };
+        const readMap = { ...readArticleUrls };
         const now = Date.now();
 
         if (feedId) {
@@ -1822,12 +1873,16 @@
                 if (p.link) {
                     readLinksSet.delete(p.link);
                     unreadMap[p.link] = now;
+                    delete readMap[p.link];
                 }
             });
         } else {
             for (const fId in allPosts) {
                 (allPosts[fId] || []).forEach(p => {
-                    if (p.link) unreadMap[p.link] = now;
+                    if (p.link) {
+                        unreadMap[p.link] = now;
+                        delete readMap[p.link];
+                    }
                 });
             }
             readLinksSet.clear();
@@ -1856,8 +1911,14 @@
         await chrome.storage.local.set({
             readLinks: newReadLinks,
             unreadCounts: newUnreadCounts,
+            readArticleUrls: readMap,
             unreadArticleUrls: unreadMap
         });
+        if (typeof memLocal !== 'undefined' && memLocal) {
+            memLocal.readLinks = newReadLinks;
+            memLocal.readArticleUrls = readMap;
+            memLocal.unreadArticleUrls = unreadMap;
+        }
         if (typeof window.recalculateCounters === 'function') {
             window.recalculateCounters();
         } else if (typeof window.filterSidebarFeeds === 'function') {
@@ -2084,14 +2145,26 @@
         }
 
         // If it's a YouTube feed and name is still missing or generic, fetch the XML feed directly to extract authentic channel name!
-        if (feedUrl.includes('youtube.com/feeds/videos.xml') && (!feedName || feedName === 'YouTube Channel' || feedName === 'youtube.com')) {
+        const feedNameLower = (feedName || '').toLowerCase();
+        const isGenericYtName = !feedName || feedName === 'YouTube Channel' ||
+            feedName === 'YouTube Video Feed' || feedName === 'youtube.com' ||
+            feedName === 'Current Page URL' || feedName === 'New Feed' ||
+            feedNameLower === 'youtube' || feedNameLower === 'youtube video feed';
+        if (feedUrl.includes('youtube.com/feeds/videos.xml') && isGenericYtName) {
             try {
                 const feedXml = await tauriInvoke('fetch_url', { url: feedUrl });
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(feedXml, "application/xml");
-                const channelTitle = doc.querySelector('title')?.textContent || doc.querySelector('author > name')?.textContent;
-                if (channelTitle && channelTitle.trim()) {
-                    feedName = channelTitle.replace(/ - YouTube$/i, '').trim();
+                let channelTitle = '';
+                const aMatch = feedXml.match(/<author>\s*<name>([^<]+)<\/name>/i);
+                if (aMatch && aMatch[1] && aMatch[1].trim()) {
+                    channelTitle = aMatch[1].trim();
+                } else {
+                    const tMatch = feedXml.match(/<feed[^>]*>[\s\S]*?<title>([^<]+)<\/title>/i) || feedXml.match(/<title>([^<]+)<\/title>/i);
+                    if (tMatch && tMatch[1] && tMatch[1].trim() && tMatch[1].trim().toLowerCase() !== 'youtube') {
+                        channelTitle = tMatch[1].trim();
+                    }
+                }
+                if (channelTitle) {
+                    feedName = channelTitle.replace(/\s*-\s*YouTube$/i, '').trim();
                 }
             } catch (e) {
                 console.warn("YouTube channel name extraction from XML error:", e);
@@ -2930,7 +3003,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     window.generateOpmlData = generateOpmlData;
 
     async function generateBackupJsonData() {
-        const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks', 'unreadArticleUrls']);
+        const local = await chrome.storage.local.get([
+            'feedTree', 'feedTreeUpdatedAt', 'feedTreeLastEditedLocally',
+            'readLinks', 'readArticleUrls', 'unreadArticleUrls',
+            'favoritedLinks', 'favoritedArticleUrls', 'unfavoritedArticleUrls',
+            'summaryLinks', 'summaryArticleUrls', 'unsummaryArticleUrls',
+            'deletedFeedUrls', 'deletedFolderIds'
+        ]);
         const sync = await chrome.storage.sync.get(null);
         const backup = {
             version: "1.0",
@@ -5686,17 +5765,28 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             starBtn.addEventListener('click', async () => {
                 if (!currentReaderArticle || !currentReaderArticle.url) return;
                 const url = currentReaderArticle.url;
-                const { favoritedLinks = [], unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'unfavoritedArticleUrls']);
+                const { favoritedLinks = [], favoritedArticleUrls = {}, unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'favoritedArticleUrls', 'unfavoritedArticleUrls']);
                 const isFav = favoritedLinks.includes(url);
                 const newFavs = isFav ? favoritedLinks.filter(u => u !== url) : [...favoritedLinks, url];
+                const favMap = { ...favoritedArticleUrls };
                 const newUnfavs = { ...unfavoritedArticleUrls };
                 const nowFav = newFavs.includes(url);
+                const now = Date.now();
                 if (nowFav) {
+                    favMap[url] = now;
                     delete newUnfavs[url];
                 } else {
-                    newUnfavs[url] = Date.now();
+                    newUnfavs[url] = now;
+                    delete favMap[url];
                 }
-                await chrome.storage.local.set({ favoritedLinks: newFavs, unfavoritedArticleUrls: newUnfavs });
+                await chrome.storage.local.set({ favoritedLinks: newFavs, favoritedArticleUrls: favMap, unfavoritedArticleUrls: newUnfavs });
+                if (typeof memLocal !== 'undefined' && memLocal) {
+                    memLocal.favoritedLinks = newFavs;
+                    memLocal.favoritedArticleUrls = favMap;
+                    memLocal.unfavoritedArticleUrls = newUnfavs;
+                }
+                if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+                if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
 
                 starBtn.classList.toggle('favorited', nowFav);
                 starBtn.innerHTML = nowFav ? '&#9733;' : '&#9734;';
@@ -5728,17 +5818,28 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             summaryBtn.addEventListener('click', async () => {
                 if (!currentReaderArticle || !currentReaderArticle.url) return;
                 const url = currentReaderArticle.url;
-                const { summaryLinks = [], unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'unsummaryArticleUrls']);
+                const { summaryLinks = [], summaryArticleUrls = {}, unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'summaryArticleUrls', 'unsummaryArticleUrls']);
                 const isSum = summaryLinks.includes(url);
                 const newSums = isSum ? summaryLinks.filter(u => u !== url) : [...summaryLinks, url];
+                const sumMap = { ...summaryArticleUrls };
                 const newUnsums = { ...unsummaryArticleUrls };
                 const nowSum = newSums.includes(url);
+                const now = Date.now();
                 if (nowSum) {
+                    sumMap[url] = now;
                     delete newUnsums[url];
                 } else {
-                    newUnsums[url] = Date.now();
+                    newUnsums[url] = now;
+                    delete sumMap[url];
                 }
-                await chrome.storage.local.set({ summaryLinks: newSums, unsummaryArticleUrls: newUnsums });
+                await chrome.storage.local.set({ summaryLinks: newSums, summaryArticleUrls: sumMap, unsummaryArticleUrls: newUnsums });
+                if (typeof memLocal !== 'undefined' && memLocal) {
+                    memLocal.summaryLinks = newSums;
+                    memLocal.summaryArticleUrls = sumMap;
+                    memLocal.unsummaryArticleUrls = newUnsums;
+                }
+                if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+                if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
 
                 summaryBtn.classList.toggle('active', nowSum);
                 summaryBtn.classList.toggle('in-cart', nowSum);
@@ -6958,7 +7059,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             if (feedName === finalUrl || feedName === 'Current Page URL') {
                 try { feedName = new URL(finalUrl).hostname; } catch (_) { feedName = "New Feed"; }
             }
-            if (finalUrl.includes('youtube.com') && (!title || title === finalUrl || title === 'YouTube Channel' || title === 'Current Page URL' || title.toLowerCase().includes('youtube.com') || title === 'New Feed')) {
+            const nameLower = (title || '').toLowerCase();
+            const isGenericYt = !title || title === finalUrl || title === 'YouTube Channel' ||
+                title === 'YouTube Video Feed' || title === 'Current Page URL' ||
+                nameLower.includes('youtube.com') || nameLower === 'youtube' ||
+                nameLower === 'youtube video feed' || title === 'New Feed';
+            if (finalUrl.includes('youtube.com') && isGenericYt) {
                 try {
                     const xml = await tauriInvoke('fetch_url', { url: finalUrl });
                     let chTitle = '';
@@ -8306,7 +8412,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const localData = await chrome.storage.local.get([
                     'feedTree', 'feedTreeUpdatedAt', 'feedTreeLastEditedLocally',
                     'lastWebdavSyncTime', 'deletedFeedUrls', 'deletedFolderIds',
-                    'unreadArticleUrls', 'unfavoritedArticleUrls', 'unsummaryArticleUrls',
+                    'readArticleUrls', 'unreadArticleUrls',
+                    'favoritedArticleUrls', 'unfavoritedArticleUrls',
+                    'summaryArticleUrls', 'unsummaryArticleUrls',
                     'readLinks', 'favoritedLinks', 'summaryLinks'
                 ]);
                 if (localData.lastWebdavSyncTime) {
@@ -8341,14 +8449,55 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 let localDeletedFeeds = { ...(localData.deletedFeedUrls || {}) };
                 let localDeletedFolders = { ...(localData.deletedFolderIds || {}) };
+                let localReadArticles = { ...(localData.readArticleUrls || {}) };
                 let localUnreadArticles = { ...(localData.unreadArticleUrls || {}) };
+                let localFavoritedArticles = { ...(localData.favoritedArticleUrls || {}) };
                 let localUnfavoritedArticles = { ...(localData.unfavoritedArticleUrls || {}) };
+                let localSummaryArticles = { ...(localData.summaryArticleUrls || {}) };
                 let localUnsummaryArticles = { ...(localData.unsummaryArticleUrls || {}) };
                 let finalReadLinks = Array.isArray(localData.readLinks) ? [...localData.readLinks] : [];
                 let finalFavLinks = Array.isArray(localData.favoritedLinks) ? [...localData.favoritedLinks] : [];
                 let finalSumLinks = Array.isArray(localData.summaryLinks) ? [...localData.summaryLinks] : [];
                 let finalRules = Array.isArray(syncData.rules) ? [...syncData.rules] : [];
                 const finalSync = { ...syncData };
+
+                function reconcileLwwSet(lActive, lInactive, rActive, rInactive, lList, rList) {
+                    const localAct = { ...(lActive || {}) };
+                    const localInact = { ...(lInactive || {}) };
+                    const remoteAct = { ...(rActive || {}) };
+                    const remoteInact = { ...(rInactive || {}) };
+
+                    (lList || []).forEach(u => {
+                        if (!localAct[u] && !localInact[u]) localAct[u] = 1;
+                    });
+                    (rList || []).forEach(u => {
+                        if (!remoteAct[u] && !remoteInact[u]) remoteAct[u] = 1;
+                    });
+
+                    const allKeys = new Set([
+                        ...Object.keys(localAct), ...Object.keys(localInact),
+                        ...Object.keys(remoteAct), ...Object.keys(remoteInact),
+                        ...(lList || []), ...(rList || [])
+                    ]);
+
+                    const mergedActive = {};
+                    const mergedInactive = {};
+                    const activeList = [];
+
+                    for (const key of allKeys) {
+                        const actTs = Math.max(localAct[key] || 0, remoteAct[key] || 0);
+                        const inactTs = Math.max(localInact[key] || 0, remoteInact[key] || 0);
+
+                        if (actTs > 0) mergedActive[key] = actTs;
+                        if (inactTs > 0) mergedInactive[key] = inactTs;
+
+                        if (actTs > inactTs) {
+                            activeList.push(key);
+                        }
+                    }
+
+                    return { activeMap: mergedActive, inactiveMap: mergedInactive, activeList };
+                }
 
                 if (!remoteObj) {
                     // Initial sync: remote file does not exist yet on server
@@ -8376,32 +8525,6 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         }
                     }
 
-                    // Merge tombstones (unread articles)
-                    const remoteUnreadArticles = remoteObj.unreadArticleUrls || {};
-                    for (const u in remoteUnreadArticles) {
-                        if (!localUnreadArticles[u] || remoteUnreadArticles[u] > localUnreadArticles[u]) {
-                            localUnreadArticles[u] = remoteUnreadArticles[u];
-                            localNeedsSave = true;
-                        }
-                    }
-
-                    // Merge tombstones (unfavorited articles)
-                    const remoteUnfavoritedArticles = remoteObj.unfavoritedArticleUrls || {};
-                    for (const u in remoteUnfavoritedArticles) {
-                        if (!localUnfavoritedArticles[u] || remoteUnfavoritedArticles[u] > localUnfavoritedArticles[u]) {
-                            localUnfavoritedArticles[u] = remoteUnfavoritedArticles[u];
-                            localNeedsSave = true;
-                        }
-                    }
-
-                    // Merge tombstones (unsummary articles)
-                    const remoteUnsummaryArticles = remoteObj.unsummaryArticleUrls || {};
-                    for (const u in remoteUnsummaryArticles) {
-                        if (!localUnsummaryArticles[u] || remoteUnsummaryArticles[u] > localUnsummaryArticles[u]) {
-                            localUnsummaryArticles[u] = remoteUnsummaryArticles[u];
-                            localNeedsSave = true;
-                        }
-                    }
 
                     // --- FEED TREE SYNCHRONIZATION ---
                     const normUrl = (u) => (u || '').trim().toLowerCase().replace(/\/+$/, '');
@@ -8470,113 +8593,63 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         remoteNeedsUpload = false;
                     }
 
-                    // --- ARTICLE STATUSES (Set-Union with Unread Tombstones) ---
-                    // Read Links
-                    const localReadSet = new Set(finalReadLinks);
-                    // Purge any links that are currently marked unread in localUnreadArticles
-                    for (const u in localUnreadArticles) {
-                        if (localReadSet.has(u)) {
-                            localReadSet.delete(u);
-                            localNeedsSave = true;
-                        }
+                    // --- ARTICLE STATUSES (LWW Dual-Map Reconciliation) ---
+                    // 1. Read / Unread
+                    const readReconciled = reconcileLwwSet(
+                        localReadArticles, localUnreadArticles,
+                        remoteObj.readArticleUrls, remoteObj.unreadArticleUrls,
+                        finalReadLinks, remoteObj.readLinks
+                    );
+                    const oldReadStr = JSON.stringify(finalReadLinks.slice().sort());
+                    const newReadStr = JSON.stringify(readReconciled.activeList.slice().sort());
+                    if (oldReadStr !== newReadStr || JSON.stringify(localReadArticles) !== JSON.stringify(readReconciled.activeMap) || JSON.stringify(localUnreadArticles) !== JSON.stringify(readReconciled.inactiveMap)) {
+                        localNeedsSave = true;
                     }
-                    const remoteRead = Array.isArray(remoteObj.readLinks) ? remoteObj.readLinks : [];
-                    let readLocalAdded = false;
-                    // Only adopt remote read links if from another device and NOT explicitly tombstoned as unread locally!
-                    if (isFromAnotherDevice) {
-                        remoteRead.forEach(l => {
-                            if (l && !localUnreadArticles[l] && !localReadSet.has(l)) {
-                                localReadSet.add(l);
-                                readLocalAdded = true;
-                            }
-                        });
+                    const remoteReadStr = JSON.stringify((remoteObj.readLinks || []).slice().sort());
+                    if (newReadStr !== remoteReadStr || JSON.stringify(remoteObj.readArticleUrls || {}) !== JSON.stringify(readReconciled.activeMap) || JSON.stringify(remoteObj.unreadArticleUrls || {}) !== JSON.stringify(readReconciled.inactiveMap)) {
+                        remoteNeedsUpload = true;
                     }
-                    if (readLocalAdded) localNeedsSave = true;
-                    const remoteReadSet = new Set(remoteRead);
-                    for (const l of localReadSet) {
-                        if (!remoteReadSet.has(l)) {
-                            remoteNeedsUpload = true;
-                            break;
-                        }
-                    }
-                    // If remote still has links marked as read that are now tombstoned as unread, upload to purge them!
-                    for (const l of remoteRead) {
-                        if (localUnreadArticles[l]) {
-                            remoteNeedsUpload = true;
-                            break;
-                        }
-                    }
-                    finalReadLinks = Array.from(localReadSet);
+                    finalReadLinks = readReconciled.activeList;
+                    localReadArticles = readReconciled.activeMap;
+                    localUnreadArticles = readReconciled.inactiveMap;
 
-                    // Favorited Links
-                    const localFavSet = new Set(finalFavLinks);
-                    // Purge any links that are currently tombstoned as unfavorited locally
-                    for (const u in localUnfavoritedArticles) {
-                        if (localFavSet.has(u)) {
-                            localFavSet.delete(u);
-                            localNeedsSave = true;
-                        }
+                    // 2. Favorites
+                    const favReconciled = reconcileLwwSet(
+                        localFavoritedArticles, localUnfavoritedArticles,
+                        remoteObj.favoritedArticleUrls, remoteObj.unfavoritedArticleUrls,
+                        finalFavLinks, remoteObj.favoritedLinks
+                    );
+                    const oldFavStr = JSON.stringify(finalFavLinks.slice().sort());
+                    const newFavStr = JSON.stringify(favReconciled.activeList.slice().sort());
+                    if (oldFavStr !== newFavStr || JSON.stringify(localFavoritedArticles) !== JSON.stringify(favReconciled.activeMap) || JSON.stringify(localUnfavoritedArticles) !== JSON.stringify(favReconciled.inactiveMap)) {
+                        localNeedsSave = true;
                     }
-                    const remoteFav = Array.isArray(remoteObj.favoritedLinks) ? remoteObj.favoritedLinks : [];
-                    let favLocalAdded = false;
-                    if (isFromAnotherDevice) {
-                        remoteFav.forEach(l => {
-                            if (l && !localUnfavoritedArticles[l] && !localFavSet.has(l)) {
-                                localFavSet.add(l);
-                                favLocalAdded = true;
-                            }
-                        });
+                    const remoteFavStr = JSON.stringify((remoteObj.favoritedLinks || []).slice().sort());
+                    if (newFavStr !== remoteFavStr || JSON.stringify(remoteObj.favoritedArticleUrls || {}) !== JSON.stringify(favReconciled.activeMap) || JSON.stringify(remoteObj.unfavoritedArticleUrls || {}) !== JSON.stringify(favReconciled.inactiveMap)) {
+                        remoteNeedsUpload = true;
                     }
-                    if (favLocalAdded) localNeedsSave = true;
-                    const remoteFavSet = new Set(remoteFav);
-                    for (const l of localFavSet) {
-                        if (!remoteFavSet.has(l)) {
-                            remoteNeedsUpload = true;
-                            break;
-                        }
-                    }
-                    for (const l of remoteFav) {
-                        if (localUnfavoritedArticles[l]) {
-                            remoteNeedsUpload = true;
-                            break;
-                        }
-                    }
-                    finalFavLinks = Array.from(localFavSet);
+                    finalFavLinks = favReconciled.activeList;
+                    localFavoritedArticles = favReconciled.activeMap;
+                    localUnfavoritedArticles = favReconciled.inactiveMap;
 
-                    // Summary Links
-                    const localSumSet = new Set(finalSumLinks);
-                    // Purge any links that are currently tombstoned as unsummary locally
-                    for (const u in localUnsummaryArticles) {
-                        if (localSumSet.has(u)) {
-                            localSumSet.delete(u);
-                            localNeedsSave = true;
-                        }
+                    // 3. Summary Cart
+                    const sumReconciled = reconcileLwwSet(
+                        localSummaryArticles, localUnsummaryArticles,
+                        remoteObj.summaryArticleUrls, remoteObj.unsummaryArticleUrls,
+                        finalSumLinks, remoteObj.summaryLinks
+                    );
+                    const oldSumStr = JSON.stringify(finalSumLinks.slice().sort());
+                    const newSumStr = JSON.stringify(sumReconciled.activeList.slice().sort());
+                    if (oldSumStr !== newSumStr || JSON.stringify(localSummaryArticles) !== JSON.stringify(sumReconciled.activeMap) || JSON.stringify(localUnsummaryArticles) !== JSON.stringify(sumReconciled.inactiveMap)) {
+                        localNeedsSave = true;
                     }
-                    const remoteSum = Array.isArray(remoteObj.summaryLinks) ? remoteObj.summaryLinks : [];
-                    let sumLocalAdded = false;
-                    if (isFromAnotherDevice) {
-                        remoteSum.forEach(l => {
-                            if (l && !localUnsummaryArticles[l] && !localSumSet.has(l)) {
-                                localSumSet.add(l);
-                                sumLocalAdded = true;
-                            }
-                        });
+                    const remoteSumStr = JSON.stringify((remoteObj.summaryLinks || []).slice().sort());
+                    if (newSumStr !== remoteSumStr || JSON.stringify(remoteObj.summaryArticleUrls || {}) !== JSON.stringify(sumReconciled.activeMap) || JSON.stringify(remoteObj.unsummaryArticleUrls || {}) !== JSON.stringify(sumReconciled.inactiveMap)) {
+                        remoteNeedsUpload = true;
                     }
-                    if (sumLocalAdded) localNeedsSave = true;
-                    const remoteSumSet = new Set(remoteSum);
-                    for (const l of localSumSet) {
-                        if (!remoteSumSet.has(l)) {
-                            remoteNeedsUpload = true;
-                            break;
-                        }
-                    }
-                    for (const l of remoteSum) {
-                        if (localUnsummaryArticles[l]) {
-                            remoteNeedsUpload = true;
-                            break;
-                        }
-                    }
-                    finalSumLinks = Array.from(localSumSet);
+                    finalSumLinks = sumReconciled.activeList;
+                    localSummaryArticles = sumReconciled.activeMap;
+                    localUnsummaryArticles = sumReconciled.inactiveMap;
 
                     // --- RULES UNION ---
                     const localRules = [...finalRules];
@@ -8663,13 +8736,29 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         feedTreeLastEditedLocally: remoteNeedsUpload ? localLastEdited : 0,
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
+                        readArticleUrls: localReadArticles,
                         unreadArticleUrls: localUnreadArticles,
+                        favoritedArticleUrls: localFavoritedArticles,
                         unfavoritedArticleUrls: localUnfavoritedArticles,
+                        summaryArticleUrls: localSummaryArticles,
                         unsummaryArticleUrls: localUnsummaryArticles,
                         readLinks: finalReadLinks,
                         favoritedLinks: finalFavLinks,
                         summaryLinks: finalSumLinks
                     });
+                    if (typeof memLocal !== 'undefined' && memLocal) {
+                        memLocal.feedTree = finalTree;
+                        memLocal.readLinks = finalReadLinks;
+                        memLocal.readArticleUrls = localReadArticles;
+                        memLocal.unreadArticleUrls = localUnreadArticles;
+                        memLocal.favoritedLinks = finalFavLinks;
+                        memLocal.favoritedArticleUrls = localFavoritedArticles;
+                        memLocal.unfavoritedArticleUrls = localUnfavoritedArticles;
+                        memLocal.summaryLinks = finalSumLinks;
+                        memLocal.summaryArticleUrls = localSummaryArticles;
+                        memLocal.unsummaryArticleUrls = localUnsummaryArticles;
+                    }
+                    if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
                     await chrome.storage.sync.set({
                         rules: finalRules,
                         emailAccounts: finalSync.emailAccounts || [],
@@ -8714,8 +8803,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         feedTreeUpdatedAt: finalTreeUpdatedAt,
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
+                        readArticleUrls: localReadArticles,
                         unreadArticleUrls: localUnreadArticles,
+                        favoritedArticleUrls: localFavoritedArticles,
                         unfavoritedArticleUrls: localUnfavoritedArticles,
+                        summaryArticleUrls: localSummaryArticles,
                         unsummaryArticleUrls: localUnsummaryArticles,
                         readLinks: finalReadLinks,
                         favoritedLinks: finalFavLinks,
@@ -8971,7 +9063,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     customAiPrompt: memSync.customAiPrompt || '',
                     youtubeAiPrompt: memSync.youtubeAiPrompt || '',
                     darkMode: memSync.darkMode !== false,
-                    totalUnread: totalUnread
+                    totalUnread: totalUnread,
+                    isRefreshing: !!window.isRefreshingAllFeeds,
+                    refreshingFeedId: window.isRefreshingFeedId || null
                 };
 
                 tauriInvoke('update_satellite_state', {
@@ -9003,9 +9097,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
                         const { link, links, feedId, isRead, all } = payload || {};
 
-                        const { readLinks = [], allPosts = {}, unreadCounts = {}, unreadArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'allPosts', 'unreadCounts', 'unreadArticleUrls']);
+                        const { readLinks = [], allPosts = {}, unreadCounts = {}, unreadArticleUrls = {}, readArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'allPosts', 'unreadCounts', 'unreadArticleUrls', 'readArticleUrls']);
                         const readSet = new Set(readLinks || []);
                         const unreadArticles = { ...unreadArticleUrls };
+                        const readArticles = { ...readArticleUrls };
                         const now = Date.now();
 
                         if (all) {
@@ -9014,6 +9109,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                     (allPosts[fId] || []).forEach(p => { 
                                         if (p.link) {
                                             readSet.add(p.link);
+                                            readArticles[p.link] = now;
                                             delete unreadArticles[p.link];
                                         }
                                     });
@@ -9024,6 +9120,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                         if (p.link) {
                                             readSet.delete(p.link);
                                             unreadArticles[p.link] = now;
+                                            delete readArticles[p.link];
                                         }
                                     });
                                 }
@@ -9035,6 +9132,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                 feedPosts.forEach(p => { 
                                     if (p.link) {
                                         readSet.add(p.link); 
+                                        readArticles[p.link] = now;
                                         delete unreadArticles[p.link];
                                     }
                                 });
@@ -9043,6 +9141,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                     if (p.link) {
                                         readSet.delete(p.link); 
                                         unreadArticles[p.link] = now;
+                                        delete readArticles[p.link];
                                     }
                                 });
                             }
@@ -9050,19 +9149,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             links.forEach(l => {
                                 if (isRead) {
                                     readSet.add(l);
+                                    readArticles[l] = now;
                                     delete unreadArticles[l];
                                 } else {
                                     readSet.delete(l);
                                     unreadArticles[l] = now;
+                                    delete readArticles[l];
                                 }
                             });
                         } else if (link) {
                             if (isRead) {
                                 readSet.add(link);
+                                readArticles[link] = now;
                                 delete unreadArticles[link];
                             } else {
                                 readSet.delete(link);
                                 unreadArticles[link] = now;
+                                delete readArticles[link];
                             }
                         }
 
@@ -9097,8 +9200,15 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         await chrome.storage.local.set({
                             readLinks: newReadLinks,
                             unreadCounts: newUnreadCounts,
+                            readArticleUrls: readArticles,
                             unreadArticleUrls: unreadArticles
                         });
+                        if (typeof memLocal !== 'undefined' && memLocal) {
+                            memLocal.readLinks = newReadLinks;
+                            memLocal.readArticleUrls = readArticles;
+                            memLocal.unreadArticleUrls = unreadArticles;
+                        }
+                        if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
 
                         // Refresh feedpage UI if available
                         if (typeof window.recalculateCounters === 'function') {
@@ -9288,26 +9398,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const { link, isFavorited } = payload || {};
                         if (!link) return;
 
-                        const { favoritedLinks = [], unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'unfavoritedArticleUrls']);
+                        const { favoritedLinks = [], favoritedArticleUrls = {}, unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'favoritedArticleUrls', 'unfavoritedArticleUrls']);
                         const favSet = new Set(favoritedLinks || []);
+                        const favMap = { ...favoritedArticleUrls };
                         const unfavs = { ...unfavoritedArticleUrls };
+                        const now = Date.now();
 
                         if (isFavorited) {
                             favSet.add(link);
+                            favMap[link] = now;
                             delete unfavs[link];
                         } else {
                             favSet.delete(link);
-                            unfavs[link] = Date.now();
+                            unfavs[link] = now;
+                            delete favMap[link];
                         }
 
                         const newFavs = Array.from(favSet);
                         await chrome.storage.local.set({
                             favoritedLinks: newFavs,
+                            favoritedArticleUrls: favMap,
                             unfavoritedArticleUrls: unfavs
                         });
 
                         if (typeof memLocal !== 'undefined' && memLocal) {
                             memLocal.favoritedLinks = newFavs;
+                            memLocal.favoritedArticleUrls = favMap;
                             memLocal.unfavoritedArticleUrls = unfavs;
                         }
 
@@ -9345,26 +9461,32 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const { link, isSummary } = payload || {};
                         if (!link) return;
 
-                        const { summaryLinks = [], unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'unsummaryArticleUrls']);
+                        const { summaryLinks = [], summaryArticleUrls = {}, unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'summaryArticleUrls', 'unsummaryArticleUrls']);
                         const sumSet = new Set(summaryLinks || []);
+                        const sumMap = { ...summaryArticleUrls };
                         const unsums = { ...unsummaryArticleUrls };
+                        const now = Date.now();
 
                         if (isSummary) {
                             sumSet.add(link);
+                            sumMap[link] = now;
                             delete unsums[link];
                         } else {
                             sumSet.delete(link);
-                            unsums[link] = Date.now();
+                            unsums[link] = now;
+                            delete sumMap[link];
                         }
 
                         const newSums = Array.from(sumSet);
                         await chrome.storage.local.set({
                             summaryLinks: newSums,
+                            summaryArticleUrls: sumMap,
                             unsummaryArticleUrls: unsums
                         });
 
                         if (typeof memLocal !== 'undefined' && memLocal) {
                             memLocal.summaryLinks = newSums;
+                            memLocal.summaryArticleUrls = sumMap;
                             memLocal.unsummaryArticleUrls = unsums;
                         }
 

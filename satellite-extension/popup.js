@@ -586,37 +586,79 @@ async function triggerRefresh(isSelective = false) {
   
   try {
     const { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
+    const activeFeedNode = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, activeFeedId) : null;
+    const activeFeedName = activeFeedNode?.name || activeFeedNode?.title || 'Feed';
+
+    if (isSelective) {
+      showFooterStatus(`Refreshing "${activeFeedName}"...`);
+    } else {
+      showFooterStatus("Refreshing all feeds in PureTidings Desktop...");
+    }
+
     const st = await SatelliteBridge.checkStatus(400);
     if (st.connected) {
       await SatelliteBridge.refresh(isSelective ? activeFeedId : null);
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 500));
-        const fresh = await SatelliteBridge.fetchData();
-        if (fresh) {
-          currentFeedTree = fresh.feedTree || [];
-          await chrome.storage.local.set({
-            feedTree: fresh.feedTree || [],
-            allPosts: fresh.allPosts || {},
-            readLinks: fresh.readLinks || [],
-            unreadCounts: fresh.unreadCounts || {}
-          });
-          const currentFeedPosts = await syncActiveFeedPosts(activeFeedId);
-          if (currentFeedPosts && currentFeedPosts.length > 0) {
-            break;
+      if (isSelective) {
+        // Poll for single feed refresh completion
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 400));
+          const fresh = await SatelliteBridge.fetchData();
+          if (fresh) {
+            currentFeedTree = fresh.feedTree || [];
+            await chrome.storage.local.set({
+              feedTree: fresh.feedTree || [],
+              allPosts: fresh.allPosts || {},
+              readLinks: fresh.readLinks || [],
+              unreadCounts: fresh.unreadCounts || {}
+            });
+            await populateFeedSelector();
+            if (i >= 2 && fresh.refreshingFeedId !== activeFeedId) {
+              break;
+            }
           }
         }
+        showFooterStatus(`"${activeFeedName}" updated!`);
+      } else {
+        // Poll for global refresh completion (isRefreshing === false)
+        for (let i = 0; i < 40; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          const fresh = await SatelliteBridge.fetchData();
+          if (fresh) {
+            currentFeedTree = fresh.feedTree || [];
+            await chrome.storage.local.set({
+              feedTree: fresh.feedTree || [],
+              allPosts: fresh.allPosts || {},
+              readLinks: fresh.readLinks || [],
+              unreadCounts: fresh.unreadCounts || {}
+            });
+            await populateFeedSelector();
+            if (i >= 3 && fresh.isRefreshing === false) {
+              break;
+            }
+          }
+        }
+        showFooterStatus("All feeds updated!");
       }
+      setTimeout(hideFooterStatus, 2500);
     } else {
       const action = isSelective ? "forceFetchSingle" : "forceFetch";
       const payload = isSelective ? { action, feedId: activeFeedId } : { action };
       await chrome.runtime.sendMessage(payload);
+      if (isSelective) {
+        showFooterStatus(`"${activeFeedName}" updated!`);
+      } else {
+        showFooterStatus("All feeds updated!");
+      }
+      setTimeout(hideFooterStatus, 2500);
     }
+    await syncActiveFeedPosts(activeFeedId);
     await populateFeedSelector();
     await loadPostsFromStorage();
   } catch (error) {
     console.error("Refresh failed:", error);
     emptyMessage.innerText = "Error loading.";
     emptyMessage.classList.remove('hidden');
+    showFooterStatus("Error during refresh.", true);
   } finally {
     loadingSpinner.classList.add('hidden');
     targetButton.classList.remove('is-loading');
@@ -705,25 +747,29 @@ function addSummaryBtnListener(element, post) {
      e.stopPropagation();
      e.preventDefault();
 
-     const { summaryLinks = [], unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'unsummaryArticleUrls']);
+     const { summaryLinks = [], summaryArticleUrls = {}, unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryLinks', 'summaryArticleUrls', 'unsummaryArticleUrls']);
      const index = summaryLinks.indexOf(post.link);
+     const newSums = { ...summaryArticleUrls };
      const newUnsums = { ...unsummaryArticleUrls };
+     const now = Date.now();
 
      if (index > -1) {
        summaryLinks.splice(index, 1);
-       newUnsums[post.link] = Date.now();
+       newUnsums[post.link] = now;
+       delete newSums[post.link];
        summaryBtn.classList.remove('active');
        summaryBtn.title = 'Add to summary list';
        await SatelliteBridge.toggleSummary(post.link, false);
      } else {
        summaryLinks.push(post.link);
+       newSums[post.link] = now;
        delete newUnsums[post.link];
        summaryBtn.classList.add('active');
        summaryBtn.title = 'Remove from summary list';
        await SatelliteBridge.toggleSummary(post.link, true);
      }
 
-     await chrome.storage.local.set({ summaryLinks, unsummaryArticleUrls: newUnsums });
+     await chrome.storage.local.set({ summaryLinks, summaryArticleUrls: newSums, unsummaryArticleUrls: newUnsums });
    });
 }
 
@@ -740,11 +786,15 @@ function addMarkAsUnreadListener(element, post) {
     element.classList.remove('read'); // Visually mark as unread immediately
 
     try {
-      const { readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'unreadArticleUrls']);
+      const { readLinks = [], readArticleUrls = {}, unreadArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'readArticleUrls', 'unreadArticleUrls']);
       const updatedReadLinks = readLinks.filter(link => link !== post.link);
-      const updatedUnread = { ...unreadArticleUrls, [post.link]: Date.now() };
+      const now = Date.now();
+      const updatedUnread = { ...unreadArticleUrls, [post.link]: now };
+      const updatedRead = { ...readArticleUrls };
+      delete updatedRead[post.link];
       await chrome.storage.local.set({ 
         readLinks: updatedReadLinks,
+        readArticleUrls: updatedRead,
         unreadArticleUrls: updatedUnread
       });
       
@@ -826,16 +876,17 @@ async function markPostAsRead(element, postLink) {
         unreadCounts[activeFeedId]--;
       }
 
-      const { unreadArticleUrls = {} } = await chrome.storage.local.get('unreadArticleUrls');
-      if (unreadArticleUrls[postLink]) {
-        delete unreadArticleUrls[postLink];
-      }
+      const { readArticleUrls = {}, unreadArticleUrls = {} } = await chrome.storage.local.get(['readArticleUrls', 'unreadArticleUrls']);
+      const updatedReads = { ...readArticleUrls, [postLink]: Date.now() };
+      const updatedUnreads = { ...unreadArticleUrls };
+      delete updatedUnreads[postLink];
 
       // Save changes
       await chrome.storage.local.set({ 
         readLinks: readLinks, 
+        readArticleUrls: updatedReads,
         unreadCounts: unreadCounts,
-        unreadArticleUrls: unreadArticleUrls 
+        unreadArticleUrls: updatedUnreads 
       });
       
       // Sync to PureTidings Desktop
@@ -890,21 +941,25 @@ function addFavoriteMarkerListener(element, post) {
     e.preventDefault();
     
     const isFavorited = starBtn.classList.contains('favorited');
-    const { favoritedLinks = [], unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'unfavoritedArticleUrls']);
+    const { favoritedLinks = [], favoritedArticleUrls = {}, unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedLinks', 'favoritedArticleUrls', 'unfavoritedArticleUrls']);
+    const newFavs = { ...favoritedArticleUrls };
     const newUnfavs = { ...unfavoritedArticleUrls };
+    const now = Date.now();
     
     if (isFavorited) {
       const newLinks = favoritedLinks.filter(link => link !== post.link);
-      newUnfavs[post.link] = Date.now();
-      await chrome.storage.local.set({ favoritedLinks: newLinks, unfavoritedArticleUrls: newUnfavs });
+      newUnfavs[post.link] = now;
+      delete newFavs[post.link];
+      await chrome.storage.local.set({ favoritedLinks: newLinks, favoritedArticleUrls: newFavs, unfavoritedArticleUrls: newUnfavs });
       starBtn.classList.remove('favorited');
       starBtn.innerHTML = '&#9734;'; 
       starBtn.title = 'Add to favorites';
       await SatelliteBridge.toggleFavorite(post.link, false);
     } else {
       const newLinks = [...favoritedLinks.filter(link => link !== post.link), post.link];
+      newFavs[post.link] = now;
       delete newUnfavs[post.link];
-      await chrome.storage.local.set({ favoritedLinks: newLinks, unfavoritedArticleUrls: newUnfavs });
+      await chrome.storage.local.set({ favoritedLinks: newLinks, favoritedArticleUrls: newFavs, unfavoritedArticleUrls: newUnfavs });
       starBtn.classList.add('favorited');
       starBtn.innerHTML = '&#9733;'; 
       starBtn.title = 'Remove from favorites';

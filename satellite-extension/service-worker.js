@@ -1044,7 +1044,14 @@ function scanPageForFeeds() {
       let title = link.title || link.href;
       // Improve title for YouTube RSS links
       if (link.href.includes('youtube.com/feeds/videos.xml')) {
-        title = "YouTube Video Feed";
+        let channelName = '';
+        if (document.title) {
+          channelName = document.title.replace(/\s*-\s*YouTube\s*$/i, '').trim();
+        }
+        if (!channelName && link.title && link.title.toLowerCase() !== 'rss') {
+          channelName = link.title.trim();
+        }
+        title = channelName || link.title || "YouTube Channel";
       }
       feeds.push({ title: title, url: link.href });
     }
@@ -1060,8 +1067,12 @@ function scanPageForFeeds() {
     
     // On YouTube, only show fallback if no RSS link was found in the head
     if (!(isYouTubePage && alreadyFoundYouTube)) {
+      let pageTitle = document.title || "Current Page URL";
+      if (isYouTubePage) {
+        pageTitle = pageTitle.replace(/\s*-\s*YouTube\s*$/i, '').trim() || pageTitle;
+      }
       feeds.push({ 
-        title: document.title || "Current Page URL", 
+        title: pageTitle, 
         url: currentUrl,
         isCurrentPage: true
       });

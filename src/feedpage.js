@@ -936,22 +936,37 @@ function showCopyStatus(message, type) {
 }
 
 async function handleClearSummary() {
+  const now = Date.now();
   if (currentViewMode === 'favorites') {
     if (!confirm("Are you sure you want to clear all your favorites?")) return;
+    const { unfavoritedArticleUrls = {} } = await chrome.storage.local.get('unfavoritedArticleUrls');
+    const newUnfavs = { ...unfavoritedArticleUrls };
+    for (const l of favoritedLinksSet) {
+      newUnfavs[l] = now;
+    }
     favoritedLinksSet.clear();
-    await chrome.runtime.sendMessage({ 
-      action: "safeStorageSet", 
-      key: "favoritedLinks", 
-      data: [] 
+    await chrome.storage.local.set({ 
+      favoritedLinks: [],
+      favoritedArticleUrls: {},
+      unfavoritedArticleUrls: newUnfavs
     });
+    if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+    if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
   } else if (currentViewMode === 'summary') {
     if (!confirm("Are you sure you want to clear your entire summary cart?")) return;
+    const { unsummaryArticleUrls = {} } = await chrome.storage.local.get('unsummaryArticleUrls');
+    const newUnsums = { ...unsummaryArticleUrls };
+    for (const l of summaryLinksSet) {
+      newUnsums[l] = now;
+    }
     summaryLinksSet.clear();
-    await chrome.runtime.sendMessage({ 
-      action: "safeStorageSet", 
-      key: "summaryLinks", 
-      data: [] 
+    await chrome.storage.local.set({ 
+      summaryLinks: [],
+      summaryArticleUrls: {},
+      unsummaryArticleUrls: newUnsums
     });
+    if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+    if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
   }
   switchView(currentViewMode, true);
 }
@@ -1043,17 +1058,21 @@ function addSummaryBtnListener(element, post) {
 
     summaryBtn.addEventListener('click', async (e) => {
         e.stopPropagation(); e.preventDefault();
-        const { unsummaryArticleUrls = {} } = await chrome.storage.local.get('unsummaryArticleUrls');
+        const { summaryArticleUrls = {}, unsummaryArticleUrls = {} } = await chrome.storage.local.get(['summaryArticleUrls', 'unsummaryArticleUrls']);
+        const newSums = { ...summaryArticleUrls };
         const newUnsum = { ...unsummaryArticleUrls };
+        const now = Date.now();
         if (summaryLinksSet.has(post.link)) {
             summaryLinksSet.delete(post.link);
-            newUnsum[post.link] = Date.now();
+            newUnsum[post.link] = now;
+            delete newSums[post.link];
             summaryBtn.classList.remove('active');
             summaryBtn.title = window.i18n ? window.i18n.t('tooltip_add_summary') : 'Add to summary cart';
             summaryBtn.setAttribute('data-i18n-title', 'tooltip_add_summary');
             if (currentViewMode === 'summary') element.style.display = 'none';
         } else {
             summaryLinksSet.add(post.link);
+            newSums[post.link] = now;
             delete newUnsum[post.link];
             summaryBtn.classList.add('active');
             summaryBtn.title = window.i18n ? window.i18n.t('tooltip_remove_summary') : 'Remove from summary cart';
@@ -1061,6 +1080,7 @@ function addSummaryBtnListener(element, post) {
         }
         await chrome.storage.local.set({
             summaryLinks: Array.from(summaryLinksSet),
+            summaryArticleUrls: newSums,
             unsummaryArticleUrls: newUnsum
         });
         if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
@@ -1156,16 +1176,23 @@ function addMarkAsUnreadListener(element, post) {
     e.stopPropagation(); e.preventDefault();
     element.classList.remove('read');
     readLinksSet.delete(post.link);
-    const { unreadArticleUrls = {} } = await chrome.storage.local.get('unreadArticleUrls');
-    unreadArticleUrls[post.link] = Date.now();
+    const { readArticleUrls = {}, unreadArticleUrls = {} } = await chrome.storage.local.get(['readArticleUrls', 'unreadArticleUrls']);
+    const newUnreads = { ...unreadArticleUrls };
+    const newReads = { ...readArticleUrls };
+    const now = Date.now();
+    newUnreads[post.link] = now;
+    delete newReads[post.link];
     await chrome.storage.local.set({ 
       readLinks: Array.from(readLinksSet),
-      unreadArticleUrls: unreadArticleUrls
+      readArticleUrls: newReads,
+      unreadArticleUrls: newUnreads
     });
     await updateCountsAfterLocalChange(1, post.feedId);
     if ((post.isEmail || (post.link && post.link.startsWith('imap:'))) && post.emailUid && post.accountId && typeof window.markEmailReadNative === 'function') {
       window.markEmailReadNative(post.accountId, post.emailUid, false).catch(() => {});
     }
+    if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+    if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
     if(currentViewMode === 'unread') {
         // Refresh view to show item correctly
         switchView('unread', true);
@@ -1188,15 +1215,20 @@ async function markPostAsRead(element, post) {
   if (element.classList.contains('read')) return;
   element.classList.add('read');
   readLinksSet.add(post.link);
-  const { unreadArticleUrls = {} } = await chrome.storage.local.get('unreadArticleUrls');
-  if (unreadArticleUrls[post.link]) {
-    delete unreadArticleUrls[post.link];
-  }
+  const { readArticleUrls = {}, unreadArticleUrls = {} } = await chrome.storage.local.get(['readArticleUrls', 'unreadArticleUrls']);
+  const newReads = { ...readArticleUrls };
+  const newUnreads = { ...unreadArticleUrls };
+  const now = Date.now();
+  newReads[post.link] = now;
+  delete newUnreads[post.link];
   await chrome.storage.local.set({ 
     readLinks: Array.from(readLinksSet),
-    unreadArticleUrls: unreadArticleUrls
+    readArticleUrls: newReads,
+    unreadArticleUrls: newUnreads
   });
   await updateCountsAfterLocalChange(-1, post.feedId);
+  if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
+  if (typeof scheduleWebdavDebouncedSync === 'function') scheduleWebdavDebouncedSync(3000);
   if(currentViewMode === 'unread') {
       element.style.display = 'none';
   }
@@ -1231,11 +1263,14 @@ function addFavoriteMarkerListener(element, post) {
   starBtn.addEventListener('click', async (e) => {
     e.stopPropagation(); e.preventDefault();
     const isFavorited = favoritedLinksSet.has(post.link);
-    const { unfavoritedArticleUrls = {} } = await chrome.storage.local.get('unfavoritedArticleUrls');
+    const { favoritedArticleUrls = {}, unfavoritedArticleUrls = {} } = await chrome.storage.local.get(['favoritedArticleUrls', 'unfavoritedArticleUrls']);
+    const newFavs = { ...favoritedArticleUrls };
     const newUnfavs = { ...unfavoritedArticleUrls };
+    const now = Date.now();
     if (isFavorited) {
       favoritedLinksSet.delete(post.link);
-      newUnfavs[post.link] = Date.now();
+      newUnfavs[post.link] = now;
+      delete newFavs[post.link];
       starBtn.classList.remove('favorited');
       starBtn.innerHTML = '&#9734;';
       starBtn.title = window.i18n ? window.i18n.t('tooltip_add_favorites') : 'Add to favorites';
@@ -1243,6 +1278,7 @@ function addFavoriteMarkerListener(element, post) {
       if (currentViewMode === 'favorites') element.style.display = 'none';
     } else {
       favoritedLinksSet.add(post.link);
+      newFavs[post.link] = now;
       delete newUnfavs[post.link];
       starBtn.classList.add('favorited');
       starBtn.innerHTML = '&#9733;';
@@ -1251,6 +1287,7 @@ function addFavoriteMarkerListener(element, post) {
     }
     await chrome.storage.local.set({
       favoritedLinks: Array.from(favoritedLinksSet),
+      favoritedArticleUrls: newFavs,
       unfavoritedArticleUrls: newUnfavs
     });
     if (typeof scheduleSatelliteStateSync === 'function') scheduleSatelliteStateSync();
