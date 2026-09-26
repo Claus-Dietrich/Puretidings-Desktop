@@ -17,6 +17,7 @@
 - **Fluid Responsive Reader Typography:** Dynamic font scaling (`clamp(1.15rem, 4.2vw, 1.45rem)`) and mobile portrait header stacking prevent oversized titles on small screens.
 - **External Browser Integration:** Seamless link opening in your system default browser on desktop and Android (`tauri-plugin-opener`).
 - **Nextcloud & WebDAV Cross-Device Sync:** Seamless, privacy-preserving cross-device synchronization between desktop and mobile via any Nextcloud, ownCloud, MagentaCloud, or WebDAV server with Set-Union article status merging and zero third-party cloud lock-in.
+- **Desktop Browser Satellite Extension (Companion):** Dedicated Chromium extension (`puretidings-extension/`) connecting via high-speed local HTTP loopback (`127.0.0.1:41789`) for 1-click web feed subscriptions and live bidirectional synchronization of read status, favorites, and AI summary cart.
 - **Automated Local Backups & OPML:** Full OPML 2.0 import/export, direct clipboard/text restoration, and automated daily JSON backups to a dedicated local directory.
 - **Multi-Platform Native Packages:** Automated CI/CD release builds for Windows (`.exe`, `.msi`), macOS (`.dmg` universal binary for Apple Silicon & Intel), Linux (`.AppImage`, `.deb`, `.rpm`), and Android (`.apk`).
 
@@ -58,6 +59,22 @@ PureTidings Desktop & Mobile features native, zero-middleman cloud synchronizati
 - **Mathematical LWW-Element-Set Reconciliation:** Employs formal Last-Write-Wins (LWW) dual timestamp maps (`favoritedArticleUrls` vs. `unfavoritedArticleUrls`, `summaryArticleUrls` vs. `unsummaryArticleUrls`, `readArticleUrls` vs. `unreadArticleUrls`). Every user interaction carries an exact timestamp (`Date.now()`), mathematically guaranteeing that recent actions on one device (such as favoriting on Android or reading on Windows) prevail mathematically over older cloud states without status reversion.
 - **Responsive Debounced Sync & Instant App Background Flush:** Changes synchronize automatically within ~2.5 seconds of user activity and execute an immediate flush without delay when the mobile app is minimized or backgrounded (`visibilitychange`).
 - **Set-Union Merging:** Merges article states and uses timestamp authority (`feedTreeUpdatedAt`) so changes from multiple devices merge seamlessly without data loss.
+
+---
+
+## 🛰️ Desktop Browser Satellite Extension (Companion)
+
+Located in [`puretidings-extension/`](../puretidings-extension/), the **PureTidings Satellite** is a dedicated Manifest V3 companion extension for desktop Chromium browsers (Google Chrome, Brave, Microsoft Edge, Vivaldi).
+
+### 🌟 How It Works
+- **Zero-Cloud Local Loopback Bridge (`127.0.0.1:41789`):** PureTidings Desktop launches a lightweight local HTTP server. The extension detects the running application instantly and pairs via localhost without requiring cloud accounts or internet routing.
+- **Instant Toolbar Overview:** Click the extension icon in your browser toolbar to view total unread counters and read latest headlines directly within a compact pop-up.
+- **1-Click Web Feed Subscriptions:** When browsing any website or YouTube channel, click the Satellite extension to discover RSS/Atom feeds and add them directly to your desktop feed tree with a single click.
+- **Live Bidirectional State Synchronization:** Marking articles as read, toggling starred favorites (⭐), or queuing articles into the AI Summary Cart reflects immediately in PureTidings Desktop.
+- **Desktop Architecture & Android Gating:**
+  - The Satellite extension is engineered specifically for desktop workstations.
+  - Mobile Chrome on Android does not support browser extensions, and the local loopback server is intentionally compiled out on Android (`#[cfg(not(target_os = "android"))]`) to prevent battery drain and comply with mobile OS sleep policies.
+  - On Android, PureTidings operates as a **complete standalone native app (`PureTidings_aarch64.apk`)**, synchronizing seamlessly with your desktop via Nextcloud/WebDAV.
 
 ---
 
