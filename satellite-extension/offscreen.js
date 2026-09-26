@@ -173,7 +173,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
             
             // 5. Last resort (conditional): Fetch page for og:image
-            if (!featuredImage && postLink && postLink !== '#' && fetchOgImage) {
+            if (!featuredImage && postLink && postLink !== '#' && fetchOgImage && typeof postLink === 'string' && (postLink.startsWith('http://') || postLink.startsWith('https://'))) {
               try {
                 console.log(`[Offscreen] Try fetch page for og:image: ${postLink}`);
                 const response = await fetch(postLink);

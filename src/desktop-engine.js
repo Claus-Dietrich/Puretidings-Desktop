@@ -24,6 +24,9 @@
             if (window.__TAURI__?.invoke) return window.__TAURI__.invoke(cmd, args);
         }
         if (cmd === 'fetch_url') {
+            if (!args?.url || typeof args.url !== 'string' || (!args.url.startsWith('http://') && !args.url.startsWith('https://'))) {
+                return '';
+            }
             const res = await fetch(args.url);
             return res.text();
         }

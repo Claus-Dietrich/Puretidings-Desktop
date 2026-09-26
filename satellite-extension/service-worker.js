@@ -762,6 +762,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     },
     "fetchArticle": async () => {
+      if (!request.url || typeof request.url !== 'string' || (!request.url.startsWith('http://') && !request.url.startsWith('https://'))) {
+        return { status: 'error', message: 'Unsupported URL scheme' };
+      }
       const response = await fetch(request.url, { cache: 'no-store' });
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
@@ -860,6 +863,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return { status: 'ok' };
     },
     "refetchOgImages": async () => {
+      if (!request.feedId || String(request.feedId).startsWith('email_')) {
+        return { status: 'ok' };
+      }
       console.log(`Starting OG image refetch for feed: ${request.feedId}`);
       const { allPosts = {} } = await chrome.storage.local.get('allPosts');
       const postsForFeed = allPosts[request.feedId];
@@ -871,7 +877,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       let updated = false;
       const promises = postsForFeed.map(async (post) => {
-        if (!post.featuredImage && post.link) {
+        if (!post.featuredImage && post.link && !post.isEmail && typeof post.link === 'string' && (post.link.startsWith('http://') || post.link.startsWith('https://'))) {
           const imageUrl = await findOgImage(post.link);
           if (imageUrl) {
             post.featuredImage = imageUrl;
@@ -1260,6 +1266,10 @@ async function fetchAllFeedsAndUpdate(isForce = false, targetFeedId = null) {
             }];
             feedTitle = feed.name;
         } else {
+            // Skip IMAP email accounts or non-HTTP feeds (fetched natively by Desktop)
+            if (feed.isEmail || !feed.url || typeof feed.url !== 'string' || feed.url.startsWith('imap:') || (!feed.url.startsWith('http://') && !feed.url.startsWith('https://'))) {
+                continue;
+            }
             // Standard feed logic
             const isYouTube = feed.url.includes('youtube.com');
             const response = await fetch(feed.url, { 
@@ -1731,6 +1741,9 @@ async function callOffscreenParser(xmlString, fetchOgImage = true) {
 }
 
 async function addYouTubeVideoDuration(post) {
+  if (!post || !post.link || post.isEmail || typeof post.link !== 'string' || (!post.link.startsWith('http://') && !post.link.startsWith('https://'))) {
+    return post;
+  }
   try {
     const response = await fetch(post.link, { cache: 'default' });
     if (!response.ok) return post;
@@ -1747,6 +1760,9 @@ async function addYouTubeVideoDuration(post) {
 }
 
 async function findOgImage(url) {
+  if (!url || typeof url !== 'string' || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+    return null;
+  }
   try {
     const response = await fetch(url, {
       headers: {
@@ -2025,6 +2041,10 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
           } else {
             throw new Error("Google-Konto nicht verbunden. Bitte verbinde dein Gmail-Konto in den Extension-Einstellungen.");
           }
+        }
+
+        if (!request.url || typeof request.url !== 'string' || (!request.url.startsWith('http://') && !request.url.startsWith('https://'))) {
+          throw new Error(`Unsupported URL scheme: ${request.url}`);
         }
 
         const fetchOptions = {

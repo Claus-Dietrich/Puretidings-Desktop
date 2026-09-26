@@ -1156,13 +1156,14 @@ function handleTreeToggle(event) {
         else {
             expandedFeeds.add(nodeId);
             // If this is an email feed and currently has no posts loaded, trigger single feed refresh
-            if (nodeId.startsWith('email_') && (!allPostsData[nodeId] || allPostsData[nodeId].length === 0)) {
-                if (window.refreshSingleFeedNative) {
+            if (nodeId.startsWith('email_')) {
+                if ((!allPostsData[nodeId] || allPostsData[nodeId].length === 0) && window.refreshSingleFeedNative) {
                     window.refreshSingleFeedNative(nodeId);
                 }
+            } else {
+                // Trigger background refetch of missing OG images when feed is expanded (RSS only)
+                chrome.runtime.sendMessage({ action: "refetchOgImages", feedId: nodeId }).catch(() => {});
             }
-            // Trigger background refetch of missing OG images when feed is expanded
-            chrome.runtime.sendMessage({ action: "refetchOgImages", feedId: nodeId }).catch(() => {});
         }
         try { localStorage.setItem('puretidings_expanded_feeds', JSON.stringify(Array.from(expandedFeeds))); } catch (_) {}
     }

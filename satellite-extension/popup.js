@@ -555,8 +555,8 @@ async function switchActiveFeed(newFeedId) {
     await loadPostsFromStorage();
     await populateFeedSelector(); // Ensure counts and buttons are in sync
     
-    // Background refetch of missing images for the selected feed
-    if (newFeedId) {
+    // Background refetch of missing images for the selected feed (RSS only, skip emails)
+    if (newFeedId && !String(newFeedId).startsWith('email_')) {
       chrome.runtime.sendMessage({ action: "refetchOgImages", feedId: newFeedId }).catch(() => {});
     }
   } catch (error) {
