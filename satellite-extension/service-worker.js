@@ -779,8 +779,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return { status: 'ok', html: htmlString };
     },
     "doMarkAllAsRead": async () => {
-      const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+      const { allPosts = {}, readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls']);
       let linksToMark = [];
+      const updatedUnread = { ...unreadArticleUrls };
 
       if (request.feedId) {
         // Mark only posts from a specific feed as read
@@ -789,13 +790,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         // Merge with existing read links
         const readSet = new Set(readLinks);
-        linksToMark.forEach(link => readSet.add(link));
-        await chrome.storage.local.set({ readLinks: Array.from(readSet) });
+        linksToMark.forEach(link => {
+          readSet.add(link);
+          delete updatedUnread[link];
+        });
+        await chrome.storage.local.set({ 
+          readLinks: Array.from(readSet),
+          unreadArticleUrls: updatedUnread
+        });
         SatelliteBridge.markFeedRead(request.feedId).catch(() => {});
       } else {
         // Global bulk action: Mark everything as read
         linksToMark = Object.values(allPosts).flat().map(post => post.link).filter(Boolean);
-        await chrome.storage.local.set({ readLinks: linksToMark });
+        await chrome.storage.local.set({ 
+          readLinks: linksToMark,
+          unreadArticleUrls: {}
+        });
         SatelliteBridge.markAllRead().catch(() => {});
       }
       
@@ -803,18 +813,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return { status: 'ok', message: request.feedId ? 'Feed marked as read.' : 'All posts marked as read.' };
     },
     "doMarkAllAsUnread": async () => {
+      const now = Date.now();
       if (request.feedId) {
         // Unmark only posts from a specific feed
-        const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls']);
         const feedPosts = allPosts[request.feedId] || [];
         const feedLinksSet = new Set(feedPosts.map(post => post.link).filter(Boolean));
+        const updatedUnread = { ...unreadArticleUrls };
+        feedLinksSet.forEach(link => { updatedUnread[link] = now; });
         
         const newReadLinks = readLinks.filter(link => !feedLinksSet.has(link));
-        await chrome.storage.local.set({ readLinks: newReadLinks });
+        await chrome.storage.local.set({ 
+          readLinks: newReadLinks,
+          unreadArticleUrls: updatedUnread
+        });
         SatelliteBridge.markFeedUnread(request.feedId).catch(() => {});
       } else {
         // Global bulk action: Clear all read links
-        await chrome.storage.local.set({ readLinks: [] });
+        const { allPosts = {} } = await chrome.storage.local.get('allPosts');
+        const allLinks = Object.values(allPosts).flat().map(post => post.link).filter(Boolean);
+        const updatedUnread = {};
+        allLinks.forEach(link => { updatedUnread[link] = now; });
+        await chrome.storage.local.set({ 
+          readLinks: [],
+          unreadArticleUrls: updatedUnread
+        });
         SatelliteBridge.markAllUnread().catch(() => {});
       }
       
@@ -822,10 +845,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return { status: 'ok', message: request.feedId ? 'Feed marked as unread.' : 'All posts marked as unread.' };
     },
     "markAsRead": async () => {
-      const { readLinks = [] } = await chrome.storage.local.get('readLinks');
+      const { readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'unreadArticleUrls']);
       if (!readLinks.includes(request.link)) {
         readLinks.push(request.link);
-        await chrome.storage.local.set({ readLinks });
+        const updatedUnread = { ...unreadArticleUrls };
+        delete updatedUnread[request.link];
+        await chrome.storage.local.set({ 
+          readLinks,
+          unreadArticleUrls: updatedUnread
+        });
         SatelliteBridge.markRead(request.link, true, request.feedId || null).catch(() => {});
         await recalculateUnreadCountsAndBadge();
       }

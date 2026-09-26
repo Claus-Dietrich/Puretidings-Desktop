@@ -355,6 +355,20 @@ mod desktop_impl {
                         let _ = request.respond(resp);
                     }
 
+                    (Method::Post, "/api/summarize-url") => {
+                        let mut body_str = String::new();
+                        let _ = request.as_reader().read_to_string(&mut body_str);
+
+                        focus_desktop_window(&app);
+                        let _ = app.emit("satellite_summarize_url", body_str);
+
+                        let mut resp = Response::from_string(serde_json::json!({ "success": true }).to_string());
+                        for h in build_cors_headers() {
+                            resp.add_header(h);
+                        }
+                        let _ = request.respond(resp);
+                    }
+
                     (Method::Post, "/api/open-feed") => {
                         let mut body_str = String::new();
                         let _ = request.as_reader().read_to_string(&mut body_str);

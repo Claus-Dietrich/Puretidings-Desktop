@@ -1146,8 +1146,16 @@ function addMarkAsUnreadListener(element, post) {
     e.stopPropagation(); e.preventDefault();
     element.classList.remove('read');
     readLinksSet.delete(post.link);
-    await chrome.storage.local.set({ readLinks: Array.from(readLinksSet) });
+    const { unreadArticleUrls = {} } = await chrome.storage.local.get('unreadArticleUrls');
+    unreadArticleUrls[post.link] = Date.now();
+    await chrome.storage.local.set({ 
+      readLinks: Array.from(readLinksSet),
+      unreadArticleUrls: unreadArticleUrls
+    });
     await updateCountsAfterLocalChange(1, post.feedId);
+    if ((post.isEmail || (post.link && post.link.startsWith('imap:'))) && post.emailUid && post.accountId && typeof window.markEmailReadNative === 'function') {
+      window.markEmailReadNative(post.accountId, post.emailUid, false).catch(() => {});
+    }
     if(currentViewMode === 'unread') {
         // Refresh view to show item correctly
         switchView('unread', true);
@@ -1170,7 +1178,14 @@ async function markPostAsRead(element, post) {
   if (element.classList.contains('read')) return;
   element.classList.add('read');
   readLinksSet.add(post.link);
-  await chrome.storage.local.set({ readLinks: Array.from(readLinksSet) });
+  const { unreadArticleUrls = {} } = await chrome.storage.local.get('unreadArticleUrls');
+  if (unreadArticleUrls[post.link]) {
+    delete unreadArticleUrls[post.link];
+  }
+  await chrome.storage.local.set({ 
+    readLinks: Array.from(readLinksSet),
+    unreadArticleUrls: unreadArticleUrls
+  });
   await updateCountsAfterLocalChange(-1, post.feedId);
   if(currentViewMode === 'unread') {
       element.style.display = 'none';

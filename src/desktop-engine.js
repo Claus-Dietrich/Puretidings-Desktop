@@ -234,6 +234,7 @@
         memLocal.readLinks = [];
         memLocal.favoritedLinks = [];
         memLocal.summaryLinks = [];
+        memLocal.unreadArticleUrls = {};
     }
     if (memSync.darkMode === undefined) memSync.darkMode = true;
     if (memSync.rules === undefined) memSync.rules = [];
@@ -642,7 +643,7 @@
                         });
 
                         // Trigger debounced WebDAV sync if any synced content changed
-                        const syncLocalKeys = ['readLinks', 'favoritedLinks', 'summaryLinks', 'feedTree'];
+                        const syncLocalKeys = ['readLinks', 'favoritedLinks', 'summaryLinks', 'feedTree', 'unreadArticleUrls'];
                         const hasSyncKey = Object.keys(items).some(k => syncLocalKeys.includes(k));
                         if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
                             scheduleWebdavDebouncedSync();
@@ -1677,13 +1678,24 @@
     window.refreshSingleFeedNative = refreshSingleFeedNative;
 
     async function markAllAsReadNative(feedId = null) {
-        const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls']);
         const readLinksSet = new Set(readLinks || []);
+        const unreadMap = { ...unreadArticleUrls };
         if (feedId) {
             const feedPosts = allPosts[feedId] || [];
-            feedPosts.forEach(p => { if (p.link) readLinksSet.add(p.link); });
+            feedPosts.forEach(p => { 
+                if (p.link) {
+                    readLinksSet.add(p.link);
+                    delete unreadMap[p.link];
+                }
+            });
         } else {
-            Object.values(allPosts).flat().forEach(p => { if (p.link) readLinksSet.add(p.link); });
+            Object.values(allPosts).flat().forEach(p => { 
+                if (p.link) {
+                    readLinksSet.add(p.link);
+                    delete unreadMap[p.link];
+                }
+            });
         }
 
         const newReadLinks = Array.from(readLinksSet);
@@ -1700,7 +1712,8 @@
 
         await chrome.storage.local.set({
             readLinks: newReadLinks,
-            unreadCounts: newUnreadCounts
+            unreadCounts: newUnreadCounts,
+            unreadArticleUrls: unreadMap
         });
         if (typeof window.recalculateCounters === 'function') {
             window.recalculateCounters();
@@ -1717,12 +1730,25 @@
     window.markAllAsReadNative = markAllAsReadNative;
 
     async function markAllAsUnreadNative(feedId = null) {
-        const { allPosts = {}, readLinks = [] } = await chrome.storage.local.get(['allPosts', 'readLinks']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls']);
         let readLinksSet = new Set(readLinks || []);
+        const unreadMap = { ...unreadArticleUrls };
+        const now = Date.now();
+
         if (feedId) {
             const feedPosts = allPosts[feedId] || [];
-            feedPosts.forEach(p => { if (p.link) readLinksSet.delete(p.link); });
+            feedPosts.forEach(p => { 
+                if (p.link) {
+                    readLinksSet.delete(p.link);
+                    unreadMap[p.link] = now;
+                }
+            });
         } else {
+            for (const fId in allPosts) {
+                (allPosts[fId] || []).forEach(p => {
+                    if (p.link) unreadMap[p.link] = now;
+                });
+            }
             readLinksSet.clear();
         }
 
@@ -1748,7 +1774,8 @@
 
         await chrome.storage.local.set({
             readLinks: newReadLinks,
-            unreadCounts: newUnreadCounts
+            unreadCounts: newUnreadCounts,
+            unreadArticleUrls: unreadMap
         });
         if (typeof window.recalculateCounters === 'function') {
             window.recalculateCounters();
@@ -2789,7 +2816,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     window.generateOpmlData = generateOpmlData;
 
     async function generateBackupJsonData() {
-        const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks']);
+        const local = await chrome.storage.local.get(['feedTree', 'readLinks', 'favoritedLinks', 'summaryLinks', 'unreadArticleUrls']);
         const sync = await chrome.storage.sync.get(null);
         const backup = {
             version: "1.0",
@@ -4620,6 +4647,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     // Reader Mode Controller
     async function openReaderModal(data) {
+        if (!data) return;
+        const articleUrl = data.url || data.link || '';
+        data.url = articleUrl;
+        data.link = articleUrl;
+        data.fullContentHtmlText = data.fullContentHtmlText || data.fullContentHtml || data.content || '';
+
         closeAllModals();
         const modal = document.getElementById('reader-modal');
         if (!modal) return;
@@ -7759,12 +7792,20 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
             mergedLocal.deletedFolderIds = localDeletedFolders;
 
-            // 2. Set-Union for readLinks, favoritedLinks, summaryLinks
+            // 1b. Unread articles tombstone merge
+            const localUnreadArticles = { ...(mergedLocal.unreadArticleUrls || {}) };
+            const remoteUnreadArticles = remote.unreadArticleUrls || {};
+            for (const u in remoteUnreadArticles) {
+                localUnreadArticles[u] = Math.max(localUnreadArticles[u] || 0, remoteUnreadArticles[u]);
+            }
+            mergedLocal.unreadArticleUrls = localUnreadArticles;
+
+            // 2. Read links merge (respecting unread tombstones)
             const localRead = new Set(Array.isArray(mergedLocal.readLinks) ? mergedLocal.readLinks : []);
             const remoteRead = Array.isArray(remote.readLinks) ? remote.readLinks : [];
             let readChanged = false;
             remoteRead.forEach(link => {
-                if (link && !localRead.has(link)) {
+                if (link && !localUnreadArticles[link] && !localRead.has(link)) {
                     localRead.add(link);
                     readChanged = true;
                 }
@@ -8074,7 +8115,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const localData = await chrome.storage.local.get([
                     'feedTree', 'feedTreeUpdatedAt', 'feedTreeLastEditedLocally',
                     'lastWebdavSyncTime', 'deletedFeedUrls', 'deletedFolderIds',
-                    'readLinks', 'favoritedLinks', 'summaryLinks'
+                    'unreadArticleUrls', 'readLinks', 'favoritedLinks', 'summaryLinks'
                 ]);
                 if (localData.lastWebdavSyncTime) {
                     lastWebdavSyncTime = Math.max(lastWebdavSyncTime, localData.lastWebdavSyncTime);
@@ -8136,6 +8177,16 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     for (const id in remoteDeletedFolders) {
                         if (!localDeletedFolders[id] || remoteDeletedFolders[id] > localDeletedFolders[id]) {
                             localDeletedFolders[id] = remoteDeletedFolders[id];
+                            localNeedsSave = true;
+                        }
+                    }
+
+                    // Merge tombstones (unread articles)
+                    let localUnreadArticles = { ...(localData.unreadArticleUrls || {}) };
+                    const remoteUnreadArticles = remoteObj.unreadArticleUrls || {};
+                    for (const u in remoteUnreadArticles) {
+                        if (!localUnreadArticles[u] || remoteUnreadArticles[u] > localUnreadArticles[u]) {
+                            localUnreadArticles[u] = remoteUnreadArticles[u];
                             localNeedsSave = true;
                         }
                     }
@@ -8207,21 +8258,38 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         remoteNeedsUpload = false;
                     }
 
-                    // --- ARTICLE STATUSES (Set-Union) ---
+                    // --- ARTICLE STATUSES (Set-Union with Unread Tombstones) ---
                     // Read Links
                     const localReadSet = new Set(finalReadLinks);
+                    // Purge any links that are currently marked unread in localUnreadArticles
+                    for (const u in localUnreadArticles) {
+                        if (localReadSet.has(u)) {
+                            localReadSet.delete(u);
+                            localNeedsSave = true;
+                        }
+                    }
                     const remoteRead = Array.isArray(remoteObj.readLinks) ? remoteObj.readLinks : [];
                     let readLocalAdded = false;
-                    remoteRead.forEach(l => {
-                        if (l && !localReadSet.has(l)) {
-                            localReadSet.add(l);
-                            readLocalAdded = true;
-                        }
-                    });
+                    // Only adopt remote read links if from another device and NOT explicitly tombstoned as unread locally!
+                    if (isFromAnotherDevice) {
+                        remoteRead.forEach(l => {
+                            if (l && !localUnreadArticles[l] && !localReadSet.has(l)) {
+                                localReadSet.add(l);
+                                readLocalAdded = true;
+                            }
+                        });
+                    }
                     if (readLocalAdded) localNeedsSave = true;
                     const remoteReadSet = new Set(remoteRead);
                     for (const l of localReadSet) {
                         if (!remoteReadSet.has(l)) {
+                            remoteNeedsUpload = true;
+                            break;
+                        }
+                    }
+                    // If remote still has links marked as read that are now tombstoned as unread, upload to purge them!
+                    for (const l of remoteRead) {
+                        if (localUnreadArticles[l]) {
                             remoteNeedsUpload = true;
                             break;
                         }
@@ -8353,6 +8421,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         feedTreeLastEditedLocally: remoteNeedsUpload ? localLastEdited : 0,
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
+                        unreadArticleUrls: localUnreadArticles,
                         readLinks: finalReadLinks,
                         favoritedLinks: finalFavLinks,
                         summaryLinks: finalSumLinks
@@ -8401,6 +8470,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         feedTreeUpdatedAt: finalTreeUpdatedAt,
                         deletedFeedUrls: localDeletedFeeds,
                         deletedFolderIds: localDeletedFolders,
+                        unreadArticleUrls: localUnreadArticles,
                         readLinks: finalReadLinks,
                         favoritedLinks: finalFavLinks,
                         summaryLinks: finalSumLinks,
@@ -8687,35 +8757,66 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
                         const { link, links, feedId, isRead, all } = payload || {};
 
-                        const { readLinks = [], allPosts = {}, unreadCounts = {} } = await chrome.storage.local.get(['readLinks', 'allPosts', 'unreadCounts']);
+                        const { readLinks = [], allPosts = {}, unreadCounts = {}, unreadArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'allPosts', 'unreadCounts', 'unreadArticleUrls']);
                         const readSet = new Set(readLinks || []);
+                        const unreadArticles = { ...unreadArticleUrls };
+                        const now = Date.now();
 
                         if (all) {
                             if (isRead) {
                                 for (const fId in allPosts) {
-                                    (allPosts[fId] || []).forEach(p => { if (p.link) readSet.add(p.link); });
+                                    (allPosts[fId] || []).forEach(p => { 
+                                        if (p.link) {
+                                            readSet.add(p.link);
+                                            delete unreadArticles[p.link];
+                                        }
+                                    });
                                 }
                             } else {
-                                readSet.clear();
+                                for (const fId in allPosts) {
+                                    (allPosts[fId] || []).forEach(p => {
+                                        if (p.link) {
+                                            readSet.delete(p.link);
+                                            unreadArticles[p.link] = now;
+                                        }
+                                    });
+                                }
                             }
                         } else if (feedId && !link && (!links || links.length === 0)) {
                             // Bulk mark/unmark feed
                             const feedPosts = allPosts[feedId] || [];
                             if (isRead) {
-                                feedPosts.forEach(p => { if (p.link) readSet.add(p.link); });
+                                feedPosts.forEach(p => { 
+                                    if (p.link) {
+                                        readSet.add(p.link); 
+                                        delete unreadArticles[p.link];
+                                    }
+                                });
                             } else {
-                                feedPosts.forEach(p => { if (p.link) readSet.delete(p.link); });
+                                feedPosts.forEach(p => { 
+                                    if (p.link) {
+                                        readSet.delete(p.link); 
+                                        unreadArticles[p.link] = now;
+                                    }
+                                });
                             }
                         } else if (Array.isArray(links) && links.length > 0) {
                             links.forEach(l => {
-                                if (isRead) readSet.add(l);
-                                else readSet.delete(l);
+                                if (isRead) {
+                                    readSet.add(l);
+                                    delete unreadArticles[l];
+                                } else {
+                                    readSet.delete(l);
+                                    unreadArticles[l] = now;
+                                }
                             });
                         } else if (link) {
                             if (isRead) {
                                 readSet.add(link);
+                                delete unreadArticles[link];
                             } else {
                                 readSet.delete(link);
+                                unreadArticles[link] = now;
                             }
                         }
 
@@ -8733,10 +8834,24 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             newUnreadCounts[fId] = unread;
                         }
 
+                        // Also handle IMAP email read/unread flag if applicable
+                        if (!isRead) {
+                            const targetLinks = link ? [link] : (Array.isArray(links) ? links : []);
+                            targetLinks.forEach(targetLink => {
+                                for (const fId in allPosts) {
+                                    const p = (allPosts[fId] || []).find(item => item.link === targetLink);
+                                    if (p && (p.isEmail || (p.link && p.link.startsWith('imap:'))) && p.accountId && p.emailUid && typeof markEmailReadNative === 'function') {
+                                        markEmailReadNative(p.accountId, p.emailUid, false);
+                                    }
+                                }
+                            });
+                        }
+
                         // Use storage.local.set so storageListeners and feedpage readLinksSet are triggered!
                         await chrome.storage.local.set({
                             readLinks: newReadLinks,
-                            unreadCounts: newUnreadCounts
+                            unreadCounts: newUnreadCounts,
+                            unreadArticleUrls: unreadArticles
                         });
 
                         // Refresh feedpage UI if available
@@ -8776,10 +8891,30 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             }
                         }
 
+                        let feedName = '';
+                        if (typeof findFeedById === 'function') {
+                            feedName = findFeedById(feedId || (foundPost && foundPost.feedId))?.name || '';
+                        }
+
                         if (foundPost && typeof window.openReaderModal === 'function') {
-                            window.openReaderModal(foundPost);
+                            const postToOpen = {
+                                ...foundPost,
+                                url: foundPost.link || link,
+                                link: foundPost.link || link,
+                                title: foundPost.title || title || link,
+                                source: foundPost.feedName || feedName || '',
+                                feedId: foundPost.feedId || feedId || ''
+                            };
+                            window.openReaderModal(postToOpen);
                         } else if (typeof window.openReaderModal === 'function') {
-                            window.openReaderModal({ link, title: title || link, feedId: feedId || '', content: '' });
+                            window.openReaderModal({ 
+                                url: link, 
+                                link: link, 
+                                title: title || link, 
+                                source: feedName || '',
+                                feedId: feedId || '', 
+                                content: '' 
+                            });
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_open_article:', e);
@@ -8880,6 +9015,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         }
                     } catch (e) {
                         console.error('[PureTidings Desktop] Error handling satellite_open_view:', e);
+                    }
+                });
+
+                // 8. Summarize Any URL (delegated from Satellite popup)
+                window.__TAURI__.event.listen('satellite_summarize_url', async (event) => {
+                    try {
+                        const payload = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+                        const { url } = payload || {};
+                        if (url) {
+                            if (typeof window.summarizeAnyUrl === 'function') {
+                                window.summarizeAnyUrl(url);
+                            } else if (typeof summarizeAnyUrl === 'function') {
+                                summarizeAnyUrl(url);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[PureTidings Desktop] Error handling satellite_summarize_url:', e);
                     }
                 });
             } catch (err) {

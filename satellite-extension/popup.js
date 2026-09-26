@@ -22,15 +22,8 @@ const searchBox = document.getElementById('search-box');
 const scanResultsContainer = document.getElementById('scan-results-container');
 const scanPageButton = document.getElementById('scan-page-button'); 
 const aiAnalyzePageButton = document.getElementById('ai-analyze-page-button');
-const aiReportContainer = document.getElementById('ai-report-container');
-const aiReportContent = document.getElementById('ai-report-content');
-const closeAiReportBtn = document.getElementById('close-ai-report-btn');
-const copyAiReportBtn = document.getElementById('copy-ai-report-btn');
-const downloadAiReportBtn = document.getElementById('download-ai-report-btn');
-const exportAiFormat = document.getElementById('export-ai-format');
 const footerStatus = document.getElementById('footer-status');
 
-let currentAiRawMarkdown = '';
 let isScanning = false; // Lock variable for the scanning process
 const BADGE_COLOR_DEFAULT = '#0066CC'; // Blue
 
@@ -349,57 +342,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (aiData.geminiApiKey && aiData.geminiApiKey.trim() !== '') {
         aiAnalyzePageButton.classList.remove('hidden');
     }
-
     aiAnalyzePageButton.addEventListener('click', handleAiAnalyzePage);
-    closeAiReportBtn.addEventListener('click', () => {
-        aiReportContainer.classList.add('hidden');
-        aiReportContent.innerHTML = '';
-        container.classList.remove('hidden');
-    });
-
-    copyAiReportBtn.addEventListener('click', async () => {
-        if (!currentAiRawMarkdown) return;
-        const format = exportAiFormat.value;
-        let textToCopy = "";
-        
-        if (format === 'markdown') {
-            textToCopy = currentAiRawMarkdown;
-        } else if (format === 'html') {
-            textToCopy = `<html><body style="font-family:sans-serif;line-height:1.6;padding:20px;">${formatMarkdownToHtml(currentAiRawMarkdown)}</body></html>`;
-        } else if (format === 'txt') {
-            textToCopy = currentAiRawMarkdown.replace(/[#*]/g, '').replace(/<br>/g, '\n');
-        }
-        
-        await navigator.clipboard.writeText(textToCopy);
-        const oldText = copyAiReportBtn.textContent;
-        copyAiReportBtn.textContent = 'Copied!';
-        setTimeout(() => copyAiReportBtn.textContent = oldText, 2000);
-    });
-
-    downloadAiReportBtn.addEventListener('click', () => {
-        if (!currentAiRawMarkdown) return;
-        const format = exportAiFormat.value;
-        let content = "";
-        let ext = "md";
-        
-        if (format === 'markdown') {
-            content = currentAiRawMarkdown;
-            ext = "md";
-        } else if (format === 'html') {
-            content = `<html><body style="font-family:sans-serif;line-height:1.6;padding:20px;">${formatMarkdownToHtml(currentAiRawMarkdown)}</body></html>`;
-            ext = "html";
-        } else if (format === 'txt') {
-            content = currentAiRawMarkdown.replace(/[#*]/g, '').replace(/<br>/g, '\n');
-            ext = "txt";
-        }
-        
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `ai-analysis.${ext}`;
-        a.click();
-    });
 
   } catch (error) {
     console.error("Error on initial popup load:", error);
@@ -792,9 +735,13 @@ function addMarkAsUnreadListener(element, post) {
     element.classList.remove('read'); // Visually mark as unread immediately
 
     try {
-      const { readLinks = [] } = await chrome.storage.local.get('readLinks');
+      const { readLinks = [], unreadArticleUrls = {} } = await chrome.storage.local.get(['readLinks', 'unreadArticleUrls']);
       const updatedReadLinks = readLinks.filter(link => link !== post.link);
-      await chrome.storage.local.set({ readLinks: updatedReadLinks });
+      const updatedUnread = { ...unreadArticleUrls, [post.link]: Date.now() };
+      await chrome.storage.local.set({ 
+        readLinks: updatedReadLinks,
+        unreadArticleUrls: updatedUnread
+      });
       
       // Sync to PureTidings Desktop
       await SatelliteBridge.markRead(post.link, false, post.feedId || null);
@@ -874,8 +821,17 @@ async function markPostAsRead(element, postLink) {
         unreadCounts[activeFeedId]--;
       }
 
-      // Save both changes
-      await chrome.storage.local.set({ readLinks: readLinks, unreadCounts: unreadCounts });
+      const { unreadArticleUrls = {} } = await chrome.storage.local.get('unreadArticleUrls');
+      if (unreadArticleUrls[postLink]) {
+        delete unreadArticleUrls[postLink];
+      }
+
+      // Save changes
+      await chrome.storage.local.set({ 
+        readLinks: readLinks, 
+        unreadCounts: unreadCounts,
+        unreadArticleUrls: unreadArticleUrls 
+      });
       
       // Sync to PureTidings Desktop
       SatelliteBridge.markRead(postLink, true, activeFeedId || null).catch(() => {});
@@ -1270,7 +1226,6 @@ async function displayScanResults(foundFeeds, errorMsg = null) {
 
 async function handleAiAnalyzePage(e) {
   e.preventDefault();
-  showFooterStatus('Analyzing page content...');
   aiAnalyzePageButton.disabled = true;
   aiAnalyzePageButton.style.opacity = '0.5';
 
@@ -1278,166 +1233,33 @@ async function handleAiAnalyzePage(e) {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab || !tab.url) throw new Error("No active tab found.");
 
-      const isYoutube = tab.url.includes('youtube.com/watch') || tab.url.includes('youtube.com/shorts/') || tab.url.includes('youtu.be/');
-      let contentToAnalyze = "";
-      let promptToUse = "";
-      let pageTitle = tab.title || "Unknown Title";
-
-      if (isYoutube) {
-          let videoId = "";
-          if (tab.url.includes('v=')) {
-              videoId = new URL(tab.url).searchParams.get('v');
-          } else if (tab.url.includes('shorts/')) {
-              videoId = tab.url.split('shorts/')[1].split('?')[0].split('/')[0];
-          } else if (tab.url.includes('youtu.be/')) {
-              videoId = tab.url.split('youtu.be/')[1].split('?')[0];
-          }
-
-          if (!videoId) throw new Error("Could not extract YouTube Video ID.");
-
-          const transcriptResponse = await chrome.runtime.sendMessage({ action: "fetchYoutubeTranscript", videoId });
-          if (transcriptResponse.status === 'ok') {
-              contentToAnalyze = extractTextFromTranscript(transcriptResponse.xml);
-          }
-
-          if (!contentToAnalyze || contentToAnalyze.length < 50) {
-              const [{ result }] = await chrome.scripting.executeScript({
-                  target: { tabId: tab.id },
-                  func: () => {
-                      const title = document.querySelector('h1.ytd-video-primary-info-renderer')?.textContent || document.title;
-                      const desc = document.querySelector('#description-inline-expander')?.textContent || "";
-                      return `${title}\n\n${desc}`;
-                  }
-              });
-              contentToAnalyze = result;
-          }
-
-          const { youtubeAiPrompt } = await chrome.storage.sync.get('youtubeAiPrompt');
-          promptToUse = youtubeAiPrompt || "Summarize this video briefly and concisely.";
-      } else {
-          // Web page: Extract clean text using Readability in the popup context
-          const [{ result }] = await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: () => document.documentElement.outerHTML
-          });
-          const doc = new DOMParser().parseFromString(result, 'text/html');
-          const reader = new Readability(doc);
-          const article = reader.parse();
-          if (article && article.textContent) {
-              contentToAnalyze = article.textContent;
-              pageTitle = article.title || pageTitle;
-          } else {
-              // Fallback to simple innerText if Readability fails
-              const [{ innerText }] = await chrome.scripting.executeScript({
-                  target: { tabId: tab.id },
-                  func: () => document.body.innerText
-              });
-              contentToAnalyze = innerText;
-          }
-          
-          const { customAiPrompt } = await chrome.storage.sync.get('customAiPrompt');
-          promptToUse = customAiPrompt || "Summarize this article briefly and concisely.";
-      }
-
-      if (!contentToAnalyze || contentToAnalyze.trim().length < 20) {
-          throw new Error("Could not extract enough content to analyze this page.");
-      }
-
-      const { geminiApiKey } = await chrome.storage.sync.get('geminiApiKey');
-      const models = await getAvailableGeminiModels(geminiApiKey);
+      showFooterStatus('Sending to PureTidings Desktop for AI summary...');
       
-      aiReportContent.innerHTML = '<div id="loading-spinner"></div><p style="text-align:center">AI is thinking...</p>';
-      aiReportContainer.classList.remove('hidden');
-      container.classList.add('hidden');
-      scanResultsContainer.classList.add('hidden');
-
-      let success = false;
-      // Reinforce structure and language in the prompt
-      const finalPrompt = `INSTRUCTION: ${promptToUse}\n\nFORMATTING RULE: Always use Markdown (Headers with #, Bold with **, Lists with *). Provide a well-structured summary.\n\nLANGUAGE: Respond ONLY in the language requested in the instruction (German if specified).\n\nTITLE: ${pageTitle}\n\nCONTENT:\n${contentToAnalyze.substring(0, 35000)}\n\nREMINDER: ${promptToUse} - Use Markdown formatting.`;
-
-      for (const model of models) {
-          try {
-              const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                      contents: [{ parts: [{ text: finalPrompt }] }]
-                  })
-              });
-              if (!response.ok) continue;
-              const data = await response.json();
-              const rawMarkdown = data.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (rawMarkdown) {
-                  currentAiRawMarkdown = rawMarkdown;
-                  aiReportContent.innerHTML = formatMarkdownToHtml(rawMarkdown);
-                  success = true;
-                  break;
-              }
-          } catch (err) { console.error(`Error with model ${model}:`, err); }
+      let st = await SatelliteBridge.checkStatus(400);
+      if (!st.connected) {
+        SatelliteBridge.launchDesktop();
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 250));
+          st = await SatelliteBridge.checkStatus(250);
+          if (st.connected) break;
+        }
       }
-      if (!success) throw new Error("AI analysis failed. Please check your API key and connection.");
-      hideFooterStatus();
+
+      const sent = await SatelliteBridge.summarizeUrl(tab.url);
+      if (sent) {
+          showFooterStatus('Opened in PureTidings Desktop!');
+          setTimeout(() => {
+              window.close();
+          }, 600);
+      } else {
+          showFooterStatus('PureTidings Desktop launched. Please retry in a moment.');
+      }
   } catch (error) {
       showFooterStatus(`Error: ${error.message}`, true);
-      aiReportContainer.classList.add('hidden');
-      container.classList.remove('hidden');
   } finally {
       aiAnalyzePageButton.disabled = false;
       aiAnalyzePageButton.style.opacity = '1';
   }
-}
-
-function extractTextFromTranscript(data) {
-    if (!data) return "";
-    try {
-        const json = JSON.parse(data);
-        if (json.events) {
-            return json.events
-                .filter(e => e.segs)
-                .map(e => e.segs.map(s => s.utf8).join(""))
-                .join(" ");
-        }
-    } catch (e) {}
-
-    try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(data, "text/xml");
-        let nodes = Array.from(xmlDoc.getElementsByTagName("p"));
-        if (nodes.length === 0) {
-            nodes = Array.from(xmlDoc.getElementsByTagName("text"));
-        }
-
-        if (nodes.length > 0) {
-            let fullText = "";
-            for (let i = 0; i < nodes.length; i++) {
-                fullText += decodeHTML(nodes[i].textContent) + " ";
-            }
-            return fullText.trim();
-        }
-    } catch (e) {
-        console.error("XML Parse error", e);
-    }
-    return "";
-}
-
-function formatMarkdownToHtml(md) {
-  if (!md) return "";
-  let html = md
-      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-      .replace(/^\s*[\*\-]\s+(.*$)/gim, '<li>$1</li>')
-      .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
-      .replace(/\*(.*)\*/gim, '<em>$1</em>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2" target="_blank">$1</a>');
-
-  // Group <li> tags into <ul>
-  html = html.replace(/(<li>.*<\/li>)/gim, '<ul>$1</ul>');
-  html = html.replace(/<\/ul>\n?<ul>/gim, '');
-  
-  // Add newlines as breaks last
-  html = html.replace(/\n/gim, '<br>');
-  return html;
 }
 
 /**

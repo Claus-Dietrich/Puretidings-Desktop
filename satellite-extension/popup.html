@@ -51,24 +51,6 @@
     <div id="posts-list"></div>
   </div>
 
-  <div id="ai-report-container" class="hidden">
-    <div class="ai-report-header">
-        <h3 style="margin: 0; font-size: 16px;">AI Analysis</h3>
-        <button id="close-ai-report-btn" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-color);">&times;</button>
-    </div>
-    <div id="ai-report-content"></div>
-    
-    <div class="ai-report-footer">
-        <select id="export-ai-format" style="padding: 4px; border-radius: 4px; background: var(--bg-color); color: var(--text-color); border: 1px solid var(--border-color);">
-            <option value="markdown">Markdown</option>
-            <option value="html">HTML</option>
-            <option value="txt">Text</option>
-        </select>
-        <button id="copy-ai-report-btn" style="padding: 5px 10px; border-radius: 4px; background: var(--link-color); color: white; border: none; cursor: pointer; font-size: 12px;">Copy</button>
-        <button id="download-ai-report-btn" style="padding: 5px 10px; border-radius: 4px; background: var(--header-bg); color: var(--text-color); border: 1px solid var(--border-color); cursor: pointer; font-size: 12px;">Save</button>
-    </div>
-  </div>
-
   <footer>
     <div id="footer-left">
       <a href="https://clausdietrich.com/#pure-tidings" target="_blank" id="logo-link" title="Visit PureTidings">
@@ -78,7 +60,7 @@
     </div>
     
     <div id="footer-buttons">
-      <a href="#" id="ai-analyze-page-button" class="footer-icon-btn hidden" title="AI Analyze current page"></a>
+      <a href="#" id="ai-analyze-page-button" class="footer-icon-btn hidden" title="AI Analyze current page in PureTidings Desktop"></a>
       <a href="#" id="scan-page-button" class="footer-icon-btn" title="Find feeds on this page"></a>
       <a href="#" id="open-keywords-page" class="footer-icon-btn" title="Show Keyword Matches"></a>
       <a href="#" id="open-favorites-page" class="footer-icon-btn" title="Show Favorites"></a>
@@ -90,7 +72,6 @@
 
   <p id="footer-status" class="hidden"></p>
   
-  <script src="Readability.js"></script>
   <script src="utils.js"></script>
   <script src="feed-tree-utils.js"></script>
   <script src="satellite-bridge.js"></script>

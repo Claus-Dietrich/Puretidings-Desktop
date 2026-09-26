@@ -200,6 +200,26 @@ const SatelliteBridge = (function () {
     }
 
     /**
+     * Focuses the Desktop App window and triggers AI summary for the specified URL in Reader Mode.
+     * @param {string} url
+     * @returns {Promise<boolean>}
+     */
+    async function summarizeUrl(url) {
+        if (!url) return false;
+        try {
+            const res = await fetch(`${DESKTOP_BASE_URL}/api/summarize-url`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+            return res.ok;
+        } catch (e) {
+            console.warn('[SatelliteBridge] summarizeUrl failed:', e);
+            return false;
+        }
+    }
+
+    /**
      * Focuses the Desktop App window and navigates to the specified feed.
      * @param {string} feedId
      * @returns {Promise<boolean>}
@@ -308,6 +328,7 @@ const SatelliteBridge = (function () {
         markAllUnread,
         addFeed,
         openArticle,
+        summarizeUrl,
         openFeed,
         openView,
         refresh,
