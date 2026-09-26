@@ -55,6 +55,8 @@ PureTidings Desktop & Mobile features native, zero-middleman cloud synchronizati
 - **Zero Brute-Force Triggers (`ENDPOINT_CACHE`):** Working WebDAV endpoints are cached in memory to eliminate repeated probing and avoid triggering Nextcloud's built-in Brute Force Protection (`OCA\DAV\Connector\Sabre\Exception\TooManyRequests` / HTTP 429).
 - **Automatic Folder Creation (`MKCOL`):** PureTidings proactively checks and creates any missing parent directories on your server before uploading, automatically recovering from HTTP 404/409 errors.
 - **Safe Desktop User-Agent:** Communicates via a standard desktop identifier (`PureTidings/1.0`), preventing antivirus heuristic false positives.
+- **Mathematical LWW-Element-Set Reconciliation:** Employs formal Last-Write-Wins (LWW) dual timestamp maps (`favoritedArticleUrls` vs. `unfavoritedArticleUrls`, `summaryArticleUrls` vs. `unsummaryArticleUrls`, `readArticleUrls` vs. `unreadArticleUrls`). Every user interaction carries an exact timestamp (`Date.now()`), mathematically guaranteeing that recent actions on one device (such as favoriting on Android or reading on Windows) prevail mathematically over older cloud states without status reversion.
+- **Responsive Debounced Sync & Instant App Background Flush:** Changes synchronize automatically within ~2.5 seconds of user activity and execute an immediate flush without delay when the mobile app is minimized or backgrounded (`visibilitychange`).
 - **Set-Union Merging:** Merges article states and uses timestamp authority (`feedTreeUpdatedAt`) so changes from multiple devices merge seamlessly without data loss.
 
 ---
