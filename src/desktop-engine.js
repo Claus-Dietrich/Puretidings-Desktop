@@ -3595,6 +3595,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
         }
 
+        // Browser Satellite setting (Desktop only - not supported on Android)
+        const satelliteSection = document.getElementById('settings-satellite-section');
+        if (satelliteSection) {
+            satelliteSection.style.display = isAndroid ? 'none' : 'block';
+        }
+
         // Screen Wake Lock setting
         const keepScreenAwakeCheckbox = document.getElementById('settings-keep-screen-awake-checkbox');
         if (keepScreenAwakeCheckbox) {
@@ -6408,6 +6414,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const isDark = getSyncItem('darkMode', true);
         applyDesktopTheme(isDark);
 
+        // Hide desktop-only Satellite settings on Android
+        const isAndroidPlatform = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+        if (isAndroidPlatform) {
+            const satelliteSection = document.getElementById('settings-satellite-section');
+            if (satelliteSection) satelliteSection.style.display = 'none';
+        }
+
         // Synchronize any configured email accounts to the feed tree
         syncEmailAccountsToFeedTree();
 
@@ -9051,7 +9064,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // calculateTotalUnreadCount is defined above with exact active feed & post counting
 
         function syncSatelliteStateToRust() {
-            if (typeof tauriInvoke !== 'function') return;
+            const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+            if (isAndroid || typeof tauriInvoke !== 'function') return;
             try {
                 const totalUnread = calculateTotalUnreadCount();
                 const snapshot = {
@@ -9088,11 +9102,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
         window.scheduleSatelliteStateSync = scheduleSatelliteStateSync;
 
-        // Perform initial state sync to Rust
-        setTimeout(syncSatelliteStateToRust, 1200);
+        // Perform initial state sync to Rust (desktop only)
+        const isAndroidPlatformSatellite = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+        if (!isAndroidPlatformSatellite) {
+            setTimeout(syncSatelliteStateToRust, 1200);
+        }
 
-        // Listen for Satellite Events dispatched from Tauri Rust
-        if (window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
+        // Listen for Satellite Events dispatched from Tauri Rust (desktop only)
+        if (!isAndroidPlatformSatellite && window.__TAURI__ && window.__TAURI__.event && typeof window.__TAURI__.event.listen === 'function') {
             try {
                 // 1. Mark Read / Unread
                 window.__TAURI__.event.listen('satellite_mark_read', async (event) => {
@@ -9524,6 +9541,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
         // Setup Settings Satellite UI handlers
         function initSatelliteSettingsUI() {
+            const isAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+            const satelliteSection = document.getElementById('settings-satellite-section');
+            if (isAndroid) {
+                if (satelliteSection) satelliteSection.style.display = 'none';
+                return;
+            }
+
             const installBtn = document.getElementById('btn-install-satellite');
             const testBtn = document.getElementById('btn-test-satellite');
             const statusBadge = document.getElementById('satellite-status-badge');

@@ -970,3 +970,10 @@ main {
     gap: 6px !important;
   }
 }
+
+/* =========================================================
+   Hide Desktop-Only Browser Satellite on Android
+   ========================================================= */
+html.is-android #settings-satellite-section {
+  display: none !important;
+}
