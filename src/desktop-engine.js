@@ -4828,15 +4828,174 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (!videoEl) return;
         if (videoId) {
             videoEl.classList.remove('hidden');
+            const embedSrc = (window.isDesktop && !window.isAndroid)
+                ? `http://127.0.0.1:41789/youtube-embed?v=${encodeURIComponent(videoId)}`
+                : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?enablejsapi=1`;
             videoEl.innerHTML = `
                 <div class="reader-video-wrapper">
-                    <iframe src="https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+                    <iframe src="${embedSrc}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
                 </div>
             `;
         } else {
             videoEl.classList.add('hidden');
             videoEl.innerHTML = '';
         }
+    }
+
+    function preprocessDOM(doc, baseUrl) {
+        if (!doc) return;
+        const images = doc.querySelectorAll('img');
+        images.forEach(img => {
+            const realSrc = img.getAttribute('data-src') || 
+                            img.getAttribute('data-original') || 
+                            img.getAttribute('data-lazy-src') ||
+                            img.getAttribute('data-actualsrc') ||
+                            img.getAttribute('data-full-url');
+            if (realSrc) {
+                const currentSrc = img.getAttribute('src');
+                if (!currentSrc || currentSrc.startsWith('data:') || currentSrc.includes('spacer') || currentSrc.includes('placeholder')) {
+                    img.setAttribute('src', realSrc);
+                }
+            }
+            if (baseUrl) {
+                const s = img.getAttribute('src');
+                if (s && !s.startsWith('http') && !s.startsWith('data:')) {
+                    try {
+                        img.setAttribute('src', new URL(s, baseUrl).href);
+                    } catch (_) {}
+                }
+                const srcset = img.getAttribute('srcset');
+                if (srcset) {
+                    try {
+                        const resolved = srcset.split(',').map(entry => {
+                            const trimmed = entry.trim();
+                            const parts = trimmed.split(/\s+/);
+                            if (parts[0] && !parts[0].startsWith('http') && !parts[0].startsWith('data:')) {
+                                try { parts[0] = new URL(parts[0], baseUrl).href; } catch (_) {}
+                            }
+                            return parts.join(' ');
+                        }).join(', ');
+                        img.setAttribute('srcset', resolved);
+                    } catch (_) {}
+                }
+            }
+        });
+    }
+
+    async function handleReaderImageError(imgEl, articleUrl) {
+        if (!imgEl || imgEl.dataset.fallbackDone === 'true') return;
+
+        // Tier 1: Try next candidate from srcset if available
+        if (imgEl.dataset.candidates) {
+            try {
+                const candidates = JSON.parse(imgEl.dataset.candidates);
+                let idx = parseInt(imgEl.dataset.candidateIndex || '0', 10);
+                idx++;
+                if (idx < candidates.length) {
+                    imgEl.dataset.candidateIndex = idx.toString();
+                    const nextUrl = candidates[idx];
+                    if (nextUrl && nextUrl !== imgEl.src) {
+                        imgEl.removeAttribute('srcset');
+                        imgEl.src = nextUrl;
+                        return;
+                    }
+                }
+            } catch (_) {}
+        }
+
+        // Tier 2: Fetch image natively via Rust IPC (fetch_image_base64)
+        // Bypasses WebKitGTK referer anti-hotlinking blocks and CORS restrictions
+        if (window.isDesktop && typeof tauriInvoke === 'function' && imgEl.dataset.rustFetchAttempted !== 'true') {
+            imgEl.dataset.rustFetchAttempted = 'true';
+            const rawSrc = imgEl.dataset.originalSrc || imgEl.getAttribute('src') || imgEl.src;
+            if (rawSrc && (rawSrc.startsWith('http://') || rawSrc.startsWith('https://'))) {
+                try {
+                    const b64DataUri = await tauriInvoke('fetch_image_base64', {
+                        url: rawSrc,
+                        referer: articleUrl || null
+                    });
+                    if (b64DataUri && b64DataUri.startsWith('data:image/')) {
+                        imgEl.removeAttribute('srcset');
+                        imgEl.src = b64DataUri;
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('[Reader] Rust native image fetch fallback failed:', err);
+                }
+            }
+        }
+
+        // Tier 3: If all fallbacks failed or format unsupported (e.g. broken question mark on WebKitGTK), hide cleanly
+        imgEl.dataset.fallbackDone = 'true';
+        imgEl.style.display = 'none';
+        if (imgEl.id === 'reader-thumbnail') {
+            imgEl.classList.add('hidden');
+        }
+    }
+
+    function prepareReaderMedia(containerEl, articleUrl) {
+        if (!containerEl) return;
+        const images = containerEl.querySelectorAll('img');
+        images.forEach(img => {
+            // Force eager loading & async decoding to fix WebKitGTK modal scroll intersection bug
+            img.removeAttribute('loading');
+            img.setAttribute('loading', 'eager');
+            img.setAttribute('decoding', 'async');
+
+            // Strip referrer to eliminate CDN anti-hotlinking 403 blocks against tauri://
+            img.setAttribute('referrerpolicy', 'no-referrer');
+
+            // Store original source if not stored
+            if (!img.dataset.originalSrc && img.getAttribute('src')) {
+                img.dataset.originalSrc = img.getAttribute('src');
+            }
+
+            // Restore lazy-loaded URLs if src is placeholder or missing
+            const lazySrc = img.getAttribute('data-src') || 
+                            img.getAttribute('data-original') || 
+                            img.getAttribute('data-lazy-src') ||
+                            img.getAttribute('data-actualsrc');
+            if (lazySrc && (!img.getAttribute('src') || img.getAttribute('src').startsWith('data:') || img.getAttribute('src').includes('placeholder'))) {
+                img.src = lazySrc;
+            }
+
+            // Resolve relative URLs to absolute
+            if (articleUrl && img.getAttribute('src') && !img.getAttribute('src').startsWith('http') && !img.getAttribute('src').startsWith('data:')) {
+                try {
+                    img.src = new URL(img.getAttribute('src'), articleUrl).href;
+                } catch (_) {}
+            }
+
+            // Extract and resolve srcset candidates for multi-tier fallback
+            if (img.getAttribute('srcset') && !img.dataset.candidates) {
+                try {
+                    const rawCandidates = img.getAttribute('srcset').split(',');
+                    const candidateUrls = [];
+                    for (const candidate of rawCandidates) {
+                        const parts = candidate.trim().split(/\s+/);
+                        if (parts[0]) {
+                            let u = parts[0];
+                            if (articleUrl && !u.startsWith('http') && !u.startsWith('data:')) {
+                                try { u = new URL(u, articleUrl).href; } catch (_) {}
+                            }
+                            candidateUrls.push(u);
+                        }
+                    }
+                    if (candidateUrls.length > 0) {
+                        img.dataset.candidates = JSON.stringify(candidateUrls);
+                        img.dataset.candidateIndex = '0';
+                    }
+                } catch (_) {}
+            }
+
+            // Attach multi-tier error handler
+            if (!img.dataset.hasReaderErrorHandler) {
+                img.dataset.hasReaderErrorHandler = 'true';
+                img.addEventListener('error', function onImgError() {
+                    handleReaderImageError(this, articleUrl);
+                });
+            }
+        });
     }
 
     function formatContentIfPlain(content, videoId = '') {
@@ -5197,9 +5356,23 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
 
         if (thumbEl) {
+            thumbEl.dataset.fallbackDone = 'false';
+            thumbEl.dataset.rustFetchAttempted = 'false';
+            thumbEl.style.display = '';
             if (data.featuredImage) {
+                thumbEl.setAttribute('referrerpolicy', 'no-referrer');
+                thumbEl.removeAttribute('loading');
+                thumbEl.setAttribute('loading', 'eager');
+                thumbEl.setAttribute('decoding', 'async');
+                thumbEl.dataset.originalSrc = data.featuredImage;
                 thumbEl.src = data.featuredImage;
                 thumbEl.classList.remove('hidden');
+                if (!thumbEl.dataset.hasReaderErrorHandler) {
+                    thumbEl.dataset.hasReaderErrorHandler = 'true';
+                    thumbEl.addEventListener('error', function onThumbError() {
+                        handleReaderImageError(thumbEl, data.url);
+                    });
+                }
             } else {
                 thumbEl.src = '';
                 thumbEl.classList.add('hidden');
@@ -5304,10 +5477,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 if (data.fullContentHtmlText) {
                     bodyEl.innerHTML = data.fullContentHtmlText;
+                    prepareReaderMedia(bodyEl, data.url);
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 } else if (data.description && (data.description.includes('🤖') || data.description.includes('<h3>'))) {
                     bodyEl.innerHTML = formatContentIfPlain(data.description, currentReaderVideoId);
+                    prepareReaderMedia(bodyEl, data.url);
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 } else if (data.url && !data.url.includes('youtube.com') && !data.url.startsWith('imap:')) {
@@ -5326,20 +5501,21 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                             if (ytAiBtn) ytAiBtn.style.display = 'inline-block';
                         }
 
-                        if (typeof preprocessDOM === 'function') {
-                            preprocessDOM(doc, data.url);
-                        }
+                        preprocessDOM(doc, data.url);
                         const reader = new Readability(doc);
                         const article = reader.parse();
                         bodyEl.innerHTML = article ? article.content : (formatContentIfPlain(data.description, currentReaderVideoId) || '<p>Could not extract full text.</p>');
+                        prepareReaderMedia(bodyEl, data.url);
                     } catch (e) {
                         bodyEl.innerHTML = formatContentIfPlain(data.description, currentReaderVideoId) || '<p>Failed to load full article content.</p>';
+                        prepareReaderMedia(bodyEl, data.url);
                     } finally {
                         if (loadingEl) loadingEl.classList.add('hidden');
                         if (contentEl) contentEl.classList.remove('hidden');
                     }
                 } else {
                     bodyEl.innerHTML = formatContentIfPlain(data.description, currentReaderVideoId) || '';
+                    prepareReaderMedia(bodyEl, data.url);
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 }

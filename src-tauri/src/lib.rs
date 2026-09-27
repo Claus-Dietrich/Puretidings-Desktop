@@ -1,5 +1,5 @@
 // PureTidings Desktop & Mobile Application Library
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CACHE_CONTROL, ACCEPT, ACCEPT_LANGUAGE};
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, CACHE_CONTROL, ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, REFERER};
 use std::time::Duration;
 
 #[cfg(target_os = "windows")]
@@ -379,6 +379,54 @@ fn to_base64(data: &[u8]) -> String {
         }
     }
     result
+}
+
+#[tauri::command]
+async fn fetch_image_base64(url: String, referer: Option<String>) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 PureTidingsDesktop/1.0"),
+    );
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"),
+    );
+    if let Some(ref_str) = referer {
+        if let Ok(ref_val) = HeaderValue::from_str(&ref_str) {
+            headers.insert(REFERER, ref_val);
+        }
+    }
+
+    let res = client
+        .get(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| format!("Network request failed: {}", e))?;
+
+    let status = res.status();
+    if !status.is_success() {
+        return Err(format!("HTTP Error {}", status));
+    }
+
+    let mime = res
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|val| val.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+
+    let bytes = res.bytes().await.map_err(|e| format!("Failed to read image bytes: {}", e))?;
+    let b64 = to_base64(&bytes);
+
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 #[tauri::command]
@@ -1292,6 +1340,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             fetch_url,
             post_url,
+            fetch_image_base64,
             open_browser,
             read_file_text,
             write_file_text,

@@ -368,6 +368,67 @@ mod desktop_impl {
                 let path = url_path.split('?').next().unwrap_or(&url_path);
 
                 match (method, path) {
+                    (Method::Get, "/youtube-embed") => {
+                        let video_id = url_path
+                            .split('?')
+                            .nth(1)
+                            .and_then(|query| {
+                                query.split('&').find_map(|param| {
+                                    let mut parts = param.splitn(2, '=');
+                                    if parts.next() == Some("v") {
+                                        parts.next()
+                                    } else {
+                                        None
+                                    }
+                                })
+                            })
+                            .unwrap_or("")
+                            .chars()
+                            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+                            .collect::<String>();
+
+                        let html = format!(
+                            r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>YouTube Player</title>
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    html, body {{ width: 100%; height: 100%; background: #000; overflow: hidden; }}
+    iframe {{ width: 100%; height: 100%; border: none; display: block; }}
+  </style>
+</head>
+<body>
+  <iframe id="yt-player"
+    src="https://www.youtube-nocookie.com/embed/{video_id}?enablejsapi=1&autoplay=1&rel=0&modestbranding=1"
+    title="YouTube video player"
+    frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowfullscreen>
+  </iframe>
+  <script>
+    window.addEventListener('message', function(event) {{
+      var iframe = document.getElementById('yt-player');
+      if (iframe && iframe.contentWindow && event.data) {{
+        iframe.contentWindow.postMessage(event.data, '*');
+      }}
+    }});
+  </script>
+</body>
+</html>"#,
+                            video_id = video_id
+                        );
+
+                        let mut resp = Response::from_string(html);
+                        resp.add_header(Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap());
+                        resp.add_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+                        resp.add_header(Header::from_bytes(&b"X-Frame-Options"[..], &b"ALLOWALL"[..]).unwrap());
+                        let _ = request.respond(resp);
+                    }
+
                     (Method::Get, "/api/status") => {
                         let unread = SATELLITE_TOTAL_UNREAD.load(Ordering::Relaxed);
                         let body = serde_json::json!({
