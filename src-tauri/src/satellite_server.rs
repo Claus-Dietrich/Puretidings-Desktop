@@ -49,6 +49,96 @@ mod desktop_impl {
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
         }
+
+        #[cfg(target_os = "linux")]
+        {
+            // 1. Resolve permanent executable path (AppImage or system install)
+            let exe_path: std::path::PathBuf = if let Ok(appimage) = std::env::var("APPIMAGE") {
+                let p = std::path::PathBuf::from(&appimage);
+                if p.exists() {
+                    p
+                } else if let Ok(current) = std::env::current_exe() {
+                    current
+                } else {
+                    std::path::PathBuf::from(&appimage)
+                }
+            } else if let Ok(current) = std::env::current_exe() {
+                let s = current.to_string_lossy();
+                if s.starts_with("/tmp/.mount_") {
+                    if std::path::Path::new("/usr/bin/puretidings").exists() {
+                        std::path::PathBuf::from("/usr/bin/puretidings")
+                    } else {
+                        current
+                    }
+                } else {
+                    current
+                }
+            } else {
+                std::path::PathBuf::from("puretidings")
+            };
+
+            if let Ok(home) = std::env::var("HOME") {
+                let apps_dir = std::path::PathBuf::from(&home).join(".local/share/applications");
+                let _ = std::fs::create_dir_all(&apps_dir);
+                let desktop_file = apps_dir.join("puretidings.desktop");
+
+                // Write FreeDesktop .desktop entry
+                let desktop_entry = format!(
+                    "[Desktop Entry]\n\
+                    Type=Application\n\
+                    Name=PureTidings\n\
+                    Comment=PureTidings Desktop RSS Reader & Knowledge Base\n\
+                    Exec=\"{}\" %u\n\
+                    Icon=puretidings\n\
+                    Terminal=false\n\
+                    Categories=Network;News;\n\
+                    MimeType=x-scheme-handler/puretidings;\n\
+                    StartupWMClass=puretidings\n",
+                    exe_path.to_string_lossy()
+                );
+
+                let _ = std::fs::write(&desktop_file, desktop_entry);
+
+                // Update ~/.config/mimeapps.list
+                let config_dir = std::path::PathBuf::from(&home).join(".config");
+                let _ = std::fs::create_dir_all(&config_dir);
+                let mimeapps_path = config_dir.join("mimeapps.list");
+
+                let mut content = std::fs::read_to_string(&mimeapps_path).unwrap_or_default();
+                let scheme_entry = "x-scheme-handler/puretidings=puretidings.desktop;";
+
+                let mut modified = false;
+                for section in &["[Default Applications]", "[Added Associations]"] {
+                    if !content.contains(section) {
+                        content.push_str(&format!("\n{}\n", section));
+                        modified = true;
+                    }
+                    if let Some(pos) = content.find(section) {
+                        let after_section = &content[pos + section.len()..];
+                        let next_section = after_section.find('[').unwrap_or(after_section.len());
+                        let section_body = &after_section[..next_section];
+                        if !section_body.contains("x-scheme-handler/puretidings") {
+                            let insert_pos = pos + section.len();
+                            content.insert_str(insert_pos, &format!("\n{}", scheme_entry));
+                            modified = true;
+                        }
+                    }
+                }
+                if modified {
+                    let _ = std::fs::write(&mimeapps_path, content);
+                }
+
+                // Register with system tools
+                let _ = std::process::Command::new("xdg-mime")
+                    .args(["default", "puretidings.desktop", "x-scheme-handler/puretidings"])
+                    .output();
+
+                let _ = std::process::Command::new("update-desktop-database")
+                    .arg(&apps_dir)
+                    .output();
+            }
+        }
+
         Ok(())
     }
 

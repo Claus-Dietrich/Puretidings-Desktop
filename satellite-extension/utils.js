@@ -333,50 +333,136 @@ async function getYouTubeChannelName(channelId) {
 }
 
 /**
- * Formats the description text, handling YouTube-style timelines.
+ * Parses timestamp string (e.g. "01:23" or "01:12:45") into total seconds.
+ * @param {string} ts - The timestamp string.
+ * @returns {number} Seconds.
+ */
+function parseTimestampToSeconds(ts) {
+    if (!ts || typeof ts !== 'string') return 0;
+    const parts = ts.trim().split(':').map(Number);
+    if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+    if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    return 0;
+}
+
+/**
+ * Safely converts plain text URLs into clickable HTML anchors.
+ * @param {string} text - HTML-escaped string.
+ * @returns {string} String with <a> tags.
+ */
+function linkifyUrls(text) {
+    if (!text || typeof text !== 'string') return '';
+    const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
+    return text.replace(urlRegex, url => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+}
+
+/**
+ * Formats description text, cleanly separating YouTube-style timeline chapters
+ * from normal text so subsequent description paragraphs are not swallowed.
  * @param {string} descriptionContent The raw description text.
+ * @param {string} [videoId] Optional YouTube video ID for direct timestamp links.
  * @returns {string} The formatted HTML string.
  */
-function formatDescription(descriptionContent) {
+function formatDescription(descriptionContent, videoId = '') {
     if (!descriptionContent) return '';
-    const timelineStartRegex = /^(?:\s*\d{1,2}:\d{2}(?::\d{2})?)/m;
-    const match = descriptionContent.match(timelineStartRegex);
 
-    let formattedDescription;
+    const rawText = String(descriptionContent).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = rawText.split('\n');
 
-    if (match) {
-        const timelineStartsAt = match.index;
-        const beforeTimeline = descriptionContent.substring(0, timelineStartsAt);
-        const timelineBlock = descriptionContent.substring(timelineStartsAt);
+    const timestampRegex = /^\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:[-–—:]\s*)?(.*)$/;
+    const headerRegex = /^\s*(?:chapters?|timestamps?|kapitel|timeline|inhaltsverzeichnis)\s*:?\s*$/i;
 
-        const formattedBefore = beforeTimeline
-            .trim()
-            .split(/\n{2,}/)
-            .map(p => `<p>${p.trim().replace(/\n/g, '<br>')}</p>`)
-            .join('');
+    let beforeLines = [];
+    let timelineLines = [];
+    let afterLines = [];
+    let inTimeline = false;
+    let timelineEnded = false;
 
-        const formattedTimeline = '<div class="timeline-block">' + timelineBlock
-            .split(/\r?\n/)
-            .map(line => line.trim())
-            .filter(line => {
-                const cleanedLine = line.replace(/&nbsp;|\s/g, '');
-                return cleanedLine.length > 0;
-            })
-            .join('<br>') + '</div>';
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
 
-        if (formattedBefore.trim() !== '') {
-            formattedDescription = formattedBefore + formattedTimeline;
+        if (!inTimeline && !timelineEnded) {
+            if (timestampRegex.test(trimmed)) {
+                if (beforeLines.length > 0 && headerRegex.test(beforeLines[beforeLines.length - 1].trim())) {
+                    const headerLine = beforeLines.pop();
+                    timelineLines.push({ isHeader: true, text: headerLine.trim() });
+                }
+                inTimeline = true;
+                timelineLines.push({ isTimestamp: true, line: trimmed });
+            } else {
+                beforeLines.push(line);
+            }
+        } else if (inTimeline) {
+            if (timestampRegex.test(trimmed)) {
+                timelineLines.push({ isTimestamp: true, line: trimmed });
+            } else if (trimmed === '') {
+                // Peek ahead: check if next non-empty line is still a timestamp
+                let nextHasTimestamp = false;
+                for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+                    if (lines[j].trim() !== '') {
+                        if (timestampRegex.test(lines[j].trim())) nextHasTimestamp = true;
+                        break;
+                    }
+                }
+                if (nextHasTimestamp) {
+                    continue;
+                } else {
+                    inTimeline = false;
+                    timelineEnded = true;
+                }
+            } else {
+                inTimeline = false;
+                timelineEnded = true;
+                afterLines.push(line);
+            }
         } else {
-            formattedDescription = formattedTimeline;
+            afterLines.push(line);
         }
-    } else {
-        formattedDescription = descriptionContent
-            .trim()
+    }
+
+    function formatTextSection(arr) {
+        const text = arr.join('\n').trim();
+        if (!text) return '';
+        return text
             .split(/\n{2,}/)
-            .map(p => `<p>${p.trim().replace(/\n/g, '<br>')}</p>`)
+            .map(para => {
+                const escaped = escapeHTML(para.trim());
+                const withLinks = linkifyUrls(escaped);
+                return `<p>${withLinks.replace(/\n/g, '<br>')}</p>`;
+            })
             .join('');
     }
-    return formattedDescription;
+
+    let result = '';
+
+    const formattedBefore = formatTextSection(beforeLines);
+    if (formattedBefore) result += formattedBefore;
+
+    if (timelineLines.length > 0) {
+        let timelineHtml = '<div class="timeline-block">';
+        for (const item of timelineLines) {
+            if (item.isHeader) {
+                timelineHtml += `<div class="timeline-header"><strong>${escapeHTML(item.text)}</strong></div>`;
+            } else if (item.isTimestamp) {
+                const m = item.line.match(timestampRegex);
+                if (m) {
+                    const ts = m[1];
+                    const label = m[2] ? linkifyUrls(escapeHTML(m[2])) : '';
+                    const secs = parseTimestampToSeconds(ts);
+                    const ytLink = videoId ? `https://www.youtube.com/watch?v=${videoId}&t=${secs}s` : '#';
+                    timelineHtml += `<div class="timeline-item"><a href="${ytLink}" class="timeline-time" data-seconds="${secs}" target="_blank" rel="noopener noreferrer" title="Jump to ${ts}">${ts}</a><span class="timeline-text">${label}</span></div>`;
+                }
+            }
+        }
+        timelineHtml += '</div>';
+        result += timelineHtml;
+    }
+
+    const formattedAfter = formatTextSection(afterLines);
+    if (formattedAfter) result += formattedAfter;
+
+    return result;
 }
 
 /**

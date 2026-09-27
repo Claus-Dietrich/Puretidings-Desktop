@@ -4830,7 +4830,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             videoEl.classList.remove('hidden');
             videoEl.innerHTML = `
                 <div class="reader-video-wrapper">
-                    <iframe src="https://www.youtube-nocookie.com/embed/${videoId}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+                    <iframe src="https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
                 </div>
             `;
         } else {
@@ -4839,17 +4839,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
     }
 
-    function formatContentIfPlain(content) {
+    function formatContentIfPlain(content, videoId = '') {
         if (!content) return '';
-        // If it already contains HTML block tags, keep it
-        if (/<(?:p|div|article|section|table|ul|ol|h[1-6]|br)\b/i.test(content)) {
+        // If it already contains structured HTML block tags, keep it
+        if (/<(?:p|div|article|section|table|ul|ol|h[1-6]|br)\b/i.test(content) && !content.includes('class="timeline-block"')) {
             return content;
         }
         if (content.includes('🤖') && typeof formatMarkdownToHtml === 'function') {
             return formatMarkdownToHtml(content);
         }
         if (typeof formatDescription === 'function') {
-            return formatDescription(content);
+            return formatDescription(content, videoId);
         }
         return content.trim().split(/\n{2,}/).map(p => `<p>${p.trim().replace(/\n/g, '<br>')}</p>`).join('');
     }
@@ -5238,10 +5238,37 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (aiBtn) aiBtn.style.display = isPureYt ? 'none' : 'inline-block';
         if (ytAiBtn) ytAiBtn.style.display = currentReaderVideoId ? 'inline-block' : 'none';
 
-        // Intercept link clicks inside article body
+        // Intercept link and timeline timestamp clicks inside article body
         if (bodyEl && !bodyEl.dataset.linkDelegated) {
             bodyEl.dataset.linkDelegated = 'true';
             bodyEl.addEventListener('click', (e) => {
+                const timeLink = e.target.closest('.timeline-time');
+                if (timeLink && timeLink.dataset.seconds !== undefined) {
+                    const secs = parseFloat(timeLink.dataset.seconds) || 0;
+                    const videoIframe = document.querySelector('#reader-video-info iframe');
+                    if (videoIframe && videoIframe.contentWindow) {
+                        e.preventDefault();
+                        try {
+                            videoIframe.contentWindow.postMessage(JSON.stringify({
+                                event: 'command',
+                                func: 'seekTo',
+                                args: [secs, true]
+                            }), '*');
+                            videoIframe.contentWindow.postMessage(JSON.stringify({
+                                event: 'command',
+                                func: 'playVideo',
+                                args: []
+                            }), '*');
+                            const scrollContainer = document.getElementById('reader-scroll-container');
+                            const videoEl = document.getElementById('reader-video-info');
+                            if (scrollContainer && videoEl) {
+                                scrollContainer.scrollTo({ top: videoEl.offsetTop - 20, behavior: 'smooth' });
+                            }
+                        } catch (_) {}
+                        return;
+                    }
+                }
+
                 const anchor = e.target.closest('a');
                 if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
                     e.preventDefault();
@@ -5280,7 +5307,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 } else if (data.description && (data.description.includes('🤖') || data.description.includes('<h3>'))) {
-                    bodyEl.innerHTML = formatContentIfPlain(data.description);
+                    bodyEl.innerHTML = formatContentIfPlain(data.description, currentReaderVideoId);
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 } else if (data.url && !data.url.includes('youtube.com') && !data.url.startsWith('imap:')) {
@@ -5304,15 +5331,15 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         }
                         const reader = new Readability(doc);
                         const article = reader.parse();
-                        bodyEl.innerHTML = article ? article.content : (formatContentIfPlain(data.description) || '<p>Could not extract full text.</p>');
+                        bodyEl.innerHTML = article ? article.content : (formatContentIfPlain(data.description, currentReaderVideoId) || '<p>Could not extract full text.</p>');
                     } catch (e) {
-                        bodyEl.innerHTML = formatContentIfPlain(data.description) || '<p>Failed to load full article content.</p>';
+                        bodyEl.innerHTML = formatContentIfPlain(data.description, currentReaderVideoId) || '<p>Failed to load full article content.</p>';
                     } finally {
                         if (loadingEl) loadingEl.classList.add('hidden');
                         if (contentEl) contentEl.classList.remove('hidden');
                     }
                 } else {
-                    bodyEl.innerHTML = formatContentIfPlain(data.description) || '';
+                    bodyEl.innerHTML = formatContentIfPlain(data.description, currentReaderVideoId) || '';
                     if (loadingEl) loadingEl.classList.add('hidden');
                     if (contentEl) contentEl.classList.remove('hidden');
                 }
@@ -5600,14 +5627,43 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
       line-height: 1.5;
       background-color: #f8f9fa;
       padding: 12px 16px;
-      border-radius: 6px;
-      margin: 1rem 0;
-      font-family: SFMono-Regular, Consolas, monospace;
+      border-radius: 8px;
+      margin: 1.25rem 0;
+      border-left: 3px solid #0366d6;
+    }
+    .timeline-header {
+      font-weight: 600;
       font-size: 0.95rem;
+      margin-bottom: 8px;
+      color: #24292e;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .timeline-item {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 4px 0;
+    }
+    .timeline-time {
+      font-family: SFMono-Regular, Consolas, monospace;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #0366d6;
+      background: #eef2f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .timeline-text {
+      flex: 1;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .article-body {
       word-wrap: break-word;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
     @media (prefers-color-scheme: dark) {
       body {
@@ -5636,7 +5692,15 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
       }
       .timeline-block {
         background-color: #21262d;
+        border-left-color: #58a6ff;
         color: #e6edf3;
+      }
+      .timeline-header {
+        color: #e6edf3;
+      }
+      .timeline-time {
+        color: #58a6ff;
+        background: #161b22;
       }
     }
   </style>
@@ -6419,6 +6483,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (isAndroidPlatform) {
             const satelliteSection = document.getElementById('settings-satellite-section');
             if (satelliteSection) satelliteSection.style.display = 'none';
+        } else {
+            // Ensure puretidings:// deep link protocol is registered with the OS on startup
+            tauriInvoke('register_deep_link_protocol').catch(() => {});
         }
 
         // Synchronize any configured email accounts to the feed tree

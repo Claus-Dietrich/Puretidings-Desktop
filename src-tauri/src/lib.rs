@@ -1285,6 +1285,7 @@ pub fn run() {
             #[cfg(not(target_os = "android"))]
             {
                 satellite_server::start_satellite_server(app.handle().clone());
+                let _ = satellite_server::register_deep_link_protocol();
             }
             Ok(())
         })

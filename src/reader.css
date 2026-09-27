@@ -169,16 +169,17 @@ hr {
 #reader-description {
   font-size: 1.1em;
   line-height: 1.7;
-  overflow-wrap: break-word; /* Standard property */
+  overflow-wrap: anywhere;
   word-wrap: break-word; 
-  word-break: normal; /* Less aggressive than break-all, better for most text */
+  word-break: break-word;
 }
 
 /* Ensure children stay within container for standard RSS articles */
 #reader-article-body:not(.email-mode) *,
 #reader-description:not(.email-mode) * {
   max-width: 100%;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   box-sizing: border-box;
 }
 
@@ -216,6 +217,8 @@ hr {
 
 #reader-article-body a {
   color: #0066cc;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 @media (prefers-color-scheme: dark) {
   #reader-article-body a {
@@ -240,18 +243,78 @@ hr {
   margin-bottom: 1em;
 }
 
-#reader-article-body .timeline-block {
+#reader-article-body .timeline-block,
+#reader-description .timeline-block {
   line-height: 1.5;
-  margin: 14px 0;
-  padding: 10px 14px;
+  margin: 16px 0 20px 0;
+  padding: 12px 16px;
   background: rgba(0, 0, 0, 0.03);
-  border-radius: 6px;
+  border-radius: 8px;
   border-left: 3px solid var(--accent-color, #1a73e8);
+  box-sizing: border-box;
+  max-width: 100%;
 }
 @media (prefers-color-scheme: dark) {
-  #reader-article-body .timeline-block {
+  #reader-article-body .timeline-block,
+  #reader-description .timeline-block {
     background: rgba(255, 255, 255, 0.05);
   }
+}
+
+.timeline-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 10px;
+  color: var(--text-color, #24292e);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.08);
+}
+.timeline-item:last-child {
+  border-bottom: none;
+}
+
+.timeline-time {
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-color, #1a73e8);
+  background: rgba(26, 115, 232, 0.1);
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.1s ease;
+  user-select: none;
+}
+.timeline-time:hover {
+  background: rgba(26, 115, 232, 0.2);
+  transform: translateY(-1px);
+}
+@media (prefers-color-scheme: dark) {
+  .timeline-time {
+    color: #58a6ff;
+    background: rgba(56, 139, 253, 0.15);
+  }
+  .timeline-time:hover {
+    background: rgba(56, 139, 253, 0.25);
+  }
+}
+
+.timeline-text {
+  flex: 1;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* AI Summary Card & Structured Content */
