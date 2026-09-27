@@ -455,6 +455,15 @@ async function setupNetworkRules() {
   }
 }
 
+// Clean up any legacy alarms from previous extension architectures
+async function cleanupLegacyAlarms() {
+  try {
+    await chrome.alarms.clear(FETCH_ALARM_NAME);
+    await chrome.alarms.clear(SUMMARY_ALARM_NAME);
+    await chrome.alarms.clear(AUTO_BACKUP_ALARM_NAME);
+  } catch (_) {}
+}
+
 chrome.runtime.onInstalled.addListener(async (details) => {
   await setupNetworkRules();
   
@@ -490,14 +499,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await performInitialSyncMigration();
   }
   
-async function cleanupLegacyAlarms() {
-  try {
-    await chrome.alarms.clear(FETCH_ALARM_NAME);
-    await chrome.alarms.clear(SUMMARY_ALARM_NAME);
-    await chrome.alarms.clear(AUTO_BACKUP_ALARM_NAME);
-  } catch (_) {}
-}
-
   await cleanupLegacyAlarms();
   await generateAnimationFrames();
   await syncBadgeFromDesktop();
