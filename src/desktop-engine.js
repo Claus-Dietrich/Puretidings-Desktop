@@ -67,8 +67,20 @@
         }
     }).catch(() => {});
 
+    let lastBrowserOpenUrl = '';
+    let lastBrowserOpenTime = 0;
+
     async function tauriOpenBrowser(url) {
         if (!url || typeof url !== 'string') return;
+        const now = Date.now();
+        // Debounce identical URL requests within 1000ms to eliminate duplicate window/tab spawns across OS platforms
+        if (url === lastBrowserOpenUrl && (now - lastBrowserOpenTime) < 1000) {
+            console.log("[PureTidings Desktop] Suppressed duplicate browser open for URL:", url);
+            return;
+        }
+        lastBrowserOpenUrl = url;
+        lastBrowserOpenTime = now;
+
         try {
             await tauriInvoke('open_browser', { url });
         } catch (e) {
@@ -4899,6 +4911,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     }
                     link.addEventListener('click', (e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         tauriOpenBrowser(ytUrl);
                     });
                 }
@@ -5424,6 +5437,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 if (origLink) {
                     origLink.addEventListener('click', (e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         tauriOpenBrowser(data.url);
                     });
                 }
@@ -5498,6 +5512,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     const videoIframe = document.querySelector('#reader-video-info iframe');
                     if (videoIframe && videoIframe.contentWindow) {
                         e.preventDefault();
+                        e.stopPropagation();
                         try {
                             videoIframe.contentWindow.postMessage(JSON.stringify({
                                 event: 'command',
@@ -5518,6 +5533,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         return;
                     } else if (currentReaderVideoId) {
                         e.preventDefault();
+                        e.stopPropagation();
                         tauriOpenBrowser(`https://www.youtube.com/watch?v=${encodeURIComponent(currentReaderVideoId)}&t=${Math.floor(secs)}s`);
                         return;
                     }
@@ -5526,6 +5542,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const anchor = e.target.closest('a');
                 if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
                     e.preventDefault();
+                    e.stopPropagation();
                     tauriOpenBrowser(anchor.href);
                 }
             });
@@ -5700,6 +5717,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const anchor = e.target.closest('a');
                 if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
                     e.preventDefault();
+                    e.stopPropagation();
                     tauriOpenBrowser(anchor.href);
                 }
             });
@@ -6881,8 +6899,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             // Only handle real external web links (http / https)
             if (!href.startsWith('http://') && !href.startsWith('https://')) return;
 
-            // Allow post-title in feedpage.js and reader-original-link to handle their own behaviors
-            if (anchor.classList.contains('post-title') || anchor.id === 'reader-original-link') return;
+            // Allow post-title in feedpage.js, reader elements, and specific buttons to handle their own behaviors
+            if (anchor.classList.contains('post-title') || 
+                anchor.id === 'reader-original-link' ||
+                anchor.classList.contains('reader-yt-thumbnail-link') ||
+                anchor.closest('#reader-article-body') ||
+                anchor.closest('#reader-video-info') ||
+                anchor.id === 'link-google-ai-studio') return;
 
             e.preventDefault();
             tauriOpenBrowser(href);
@@ -6892,6 +6915,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (aiStudioLink) {
             aiStudioLink.addEventListener('click', (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 tauriOpenBrowser('https://aistudio.google.com/app/apikey');
             });
         }

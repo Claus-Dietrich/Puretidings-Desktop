@@ -96,8 +96,20 @@ fn get_platform() -> &'static str {
     { "unknown" }
 }
 
+static LAST_OPENED_BROWSER_URL: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+
 #[tauri::command]
 fn open_browser(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    if let Ok(mut last_guard) = LAST_OPENED_BROWSER_URL.lock() {
+        let now = std::time::Instant::now();
+        if let Some((ref last_url, ref last_time)) = *last_guard {
+            if last_url == &url && now.duration_since(*last_time).as_millis() < 1000 {
+                return Ok(());
+            }
+        }
+        *last_guard = Some((url.clone(), now));
+    }
+
     use tauri_plugin_opener::OpenerExt;
     if let Err(err) = app.opener().open_url(&url, None::<&str>) {
         #[cfg(target_os = "windows")]
