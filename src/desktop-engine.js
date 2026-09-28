@@ -3,9 +3,29 @@
     console.log("[PureTidings Desktop] Initializing Desktop Native Engine...");
 
     const isAndroid = /Android/i.test(navigator.userAgent);
+    let isLinuxDesktop = !isAndroid && (/Linux/i.test(navigator.userAgent) || (typeof navigator.platform === 'string' && /Linux/i.test(navigator.platform)));
+
+    window.isAndroid = isAndroid;
+    window.isDesktop = !isAndroid;
+
     if (isAndroid) {
         document.documentElement.classList.add('is-android');
     }
+    if (isLinuxDesktop) {
+        document.documentElement.classList.add('is-linux');
+    }
+
+    function isLinuxSystem() {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+                if (localStorage.getItem('puretidings_force_linux') === 'true' || localStorage.getItem('puretidings_force_video_placeholder') === 'true') {
+                    return true;
+                }
+            } catch (_) {}
+        }
+        return document.documentElement.classList.contains('is-linux') || isLinuxDesktop;
+    }
+    window.isLinux = isLinuxSystem;
 
     // ==========================================
     // 1. Unified Tauri IPC Helper
@@ -33,6 +53,19 @@
         throw new Error("Tauri IPC invoke not found for " + cmd);
     }
     window.tauriInvoke = tauriInvoke;
+
+    // Confirm OS platform from native Rust runtime
+    tauriInvoke('get_platform').then(plat => {
+        if (plat === 'linux') {
+            isLinuxDesktop = true;
+            document.documentElement.classList.add('is-linux');
+        } else if (plat) {
+            isLinuxDesktop = (plat === 'linux');
+            if (!isLinuxDesktop) {
+                document.documentElement.classList.remove('is-linux');
+            }
+        }
+    }).catch(() => {});
 
     async function tauriOpenBrowser(url) {
         if (!url || typeof url !== 'string') return;
@@ -4828,6 +4861,50 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         if (!videoEl) return;
         if (videoId) {
             videoEl.classList.remove('hidden');
+
+            if (isLinuxSystem()) {
+                const watchYtText = (window.i18n && typeof window.i18n.t === 'function') ? window.i18n.t('reader_watch_on_youtube') : '▶ Auf YouTube ansehen';
+                const playHint = (window.i18n && typeof window.i18n.t === 'function') ? window.i18n.t('reader_video_open_browser_hint') : 'Klicken, um das Video im externen Browser abzuspielen';
+                const ytUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+                const thumbUrl = `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
+
+                videoEl.innerHTML = `
+                    <div class="reader-video-wrapper reader-video-placeholder">
+                        <a href="${ytUrl}" target="_blank" rel="noopener noreferrer" class="reader-yt-thumbnail-link" title="${playHint}">
+                            <img src="${thumbUrl}" alt="YouTube Thumbnail" referrerpolicy="no-referrer">
+                            <div class="reader-yt-gradient-overlay"></div>
+                            <div class="reader-yt-play-icon">
+                                <svg height="60" viewBox="0 0 68 48" width="85">
+                                    <path d="M66.52,7.74c-0.78-2.93-2.49-5.41-5.42-6.19C55.79,.13,34,0,34,0S12.21,.13,6.9,1.55 C3.97,2.33,2.27,4.81,1.48,7.74C0.06,13.05,0,24,0,24s0.06,10.95,1.48,16.26c0.78,2.93,2.49,5.41,5.42,6.19 C12.21,47.87,34,48,34,48s21.79-0.13,27.1-1.55c2.93-0.78,4.64-3.26,5.42-6.19C67.94,34.95,68,24,68,24S67.94,13.05,66.52,7.74z" fill="#FF0000"></path>
+                                    <path d="M 45,24 27,14 27,34" fill="#fff"></path>
+                                </svg>
+                            </div>
+                            <div class="reader-yt-badge">
+                                <span>${watchYtText}</span>
+                            </div>
+                        </a>
+                    </div>
+                `;
+
+                const link = videoEl.querySelector('.reader-yt-thumbnail-link');
+                if (link) {
+                    const img = link.querySelector('img');
+                    if (img) {
+                        img.onerror = function() {
+                            if (!this.dataset.retried) {
+                                this.dataset.retried = 'true';
+                                this.src = `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/mqdefault.jpg`;
+                            }
+                        };
+                    }
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        tauriOpenBrowser(ytUrl);
+                    });
+                }
+                return;
+            }
+
             const embedSrc = (window.isDesktop && !window.isAndroid)
                 ? `http://127.0.0.1:41789/youtube-embed?v=${encodeURIComponent(videoId)}`
                 : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?enablejsapi=1`;
@@ -5438,6 +5515,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                 scrollContainer.scrollTo({ top: videoEl.offsetTop - 20, behavior: 'smooth' });
                             }
                         } catch (_) {}
+                        return;
+                    } else if (currentReaderVideoId) {
+                        e.preventDefault();
+                        tauriOpenBrowser(`https://www.youtube.com/watch?v=${encodeURIComponent(currentReaderVideoId)}&t=${Math.floor(secs)}s`);
                         return;
                     }
                 }

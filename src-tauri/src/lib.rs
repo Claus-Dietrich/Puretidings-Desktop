@@ -83,6 +83,20 @@ async fn post_url(url: String, body: String, user_agent: Option<String>) -> Resu
 }
 
 #[tauri::command]
+fn get_platform() -> &'static str {
+    #[cfg(target_os = "windows")]
+    { "windows" }
+    #[cfg(target_os = "linux")]
+    { "linux" }
+    #[cfg(target_os = "macos")]
+    { "macos" }
+    #[cfg(target_os = "android")]
+    { "android" }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos", target_os = "android")))]
+    { "unknown" }
+}
+
+#[tauri::command]
 fn open_browser(app: tauri::AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     if let Err(err) = app.opener().open_url(&url, None::<&str>) {
@@ -1340,6 +1354,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             fetch_url,
             post_url,
+            get_platform,
             fetch_image_base64,
             open_browser,
             read_file_text,

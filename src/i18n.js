@@ -58,6 +58,8 @@
             reader_close: "Close",
             reader_ai_summary: "🤖 AI Summary",
             reader_ai_video_summary: "🎥 AI Video Summary",
+            reader_watch_on_youtube: "▶ Watch on YouTube",
+            reader_video_open_browser_hint: "Play video in external browser",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -253,6 +255,8 @@
             feedback_saved: "Saved! ✓",
             reader_ai_summary: "🤖 AI Summary",
             reader_ai_video_summary: "🎥 AI Video Summary",
+            reader_watch_on_youtube: "▶ Watch on YouTube",
+            reader_video_open_browser_hint: "Play video in external browser",
             reader_close: "Close",
             reader_original_article: "Original Article",
 
@@ -331,6 +335,8 @@
             reader_close: "Schließen",
             reader_ai_summary: "🤖 KI-Zusammenfassung",
             reader_ai_video_summary: "🎥 KI-Video-Zusammenfassung",
+            reader_watch_on_youtube: "▶ Auf YouTube ansehen",
+            reader_video_open_browser_hint: "Video im externen Browser abspielen",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -526,6 +532,8 @@
             feedback_saved: "Gespeichert! ✓",
             reader_ai_summary: "🤖 KI-Zusammenfassung",
             reader_ai_video_summary: "🎥 KI-Videozusammenfassung",
+            reader_watch_on_youtube: "▶ Auf YouTube ansehen",
+            reader_video_open_browser_hint: "Video im externen Browser abspielen",
             reader_close: "Schließen",
             reader_original_article: "Originalartikel",
 
@@ -604,6 +612,8 @@
             reader_close: "Cerrar",
             reader_ai_summary: "🤖 Resumen IA",
             reader_ai_video_summary: "🎥 Resumen de vídeo IA",
+            reader_watch_on_youtube: "▶ Ver en YouTube",
+            reader_video_open_browser_hint: "Reproducir vídeo en navegador externo",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -799,6 +809,8 @@
             feedback_saved: "¡Guardado! ✓",
             reader_ai_summary: "🤖 Resumen con IA",
             reader_ai_video_summary: "🎥 Resumen de vídeo con IA",
+            reader_watch_on_youtube: "▶ Ver en YouTube",
+            reader_video_open_browser_hint: "Reproducir vídeo en navegador externo",
             reader_close: "Cerrar",
             reader_original_article: "Artículo original",
 
@@ -877,6 +889,8 @@
             reader_close: "Fermer",
             reader_ai_summary: "🤖 Résumé IA",
             reader_ai_video_summary: "🎥 Résumé vidéo IA",
+            reader_watch_on_youtube: "▶ Regarder sur YouTube",
+            reader_video_open_browser_hint: "Lire la vidéo dans le navigateur externe",
 
             // Mobile app bar
             mobile_title: "PureTidings",
@@ -1072,6 +1086,8 @@
             feedback_saved: "Enregistré ! ✓",
             reader_ai_summary: "🤖 Résumé IA",
             reader_ai_video_summary: "🎥 Résumé vidéo IA",
+            reader_watch_on_youtube: "▶ Regarder sur YouTube",
+            reader_video_open_browser_hint: "Lire la vidéo dans le navigateur externe",
             reader_close: "Fermer",
             reader_original_article: "Article d'origine",
 
