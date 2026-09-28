@@ -84,17 +84,26 @@ document.addEventListener('DOMContentLoaded', async () => {
           summaryLinks: desktopData.summaryLinks || [],
           unreadCounts: desktopData.unreadCounts || {}
         });
-        if (desktopData.rules) {
-          await chrome.storage.sync.set({ rules: desktopData.rules });
-        }
-        if (desktopData.geminiApiKey) {
-          await chrome.storage.sync.set({ geminiApiKey: desktopData.geminiApiKey });
-        }
-        if (desktopData.customAiPrompt) {
-          await chrome.storage.sync.set({ customAiPrompt: desktopData.customAiPrompt });
-        }
-        if (desktopData.youtubeAiPrompt) {
-          await chrome.storage.sync.set({ youtubeAiPrompt: desktopData.youtubeAiPrompt });
+        const syncUpdates = {};
+        try {
+          const curSync = await chrome.storage.sync.get(['rules', 'geminiApiKey', 'customAiPrompt', 'youtubeAiPrompt']).catch(() => ({}));
+          if (desktopData.rules && JSON.stringify(curSync?.rules) !== JSON.stringify(desktopData.rules)) {
+            syncUpdates.rules = desktopData.rules;
+          }
+          if (desktopData.geminiApiKey && curSync?.geminiApiKey !== desktopData.geminiApiKey) {
+            syncUpdates.geminiApiKey = desktopData.geminiApiKey;
+          }
+          if (desktopData.customAiPrompt && curSync?.customAiPrompt !== desktopData.customAiPrompt) {
+            syncUpdates.customAiPrompt = desktopData.customAiPrompt;
+          }
+          if (desktopData.youtubeAiPrompt && curSync?.youtubeAiPrompt !== desktopData.youtubeAiPrompt) {
+            syncUpdates.youtubeAiPrompt = desktopData.youtubeAiPrompt;
+          }
+          if (Object.keys(syncUpdates).length > 0) {
+            await chrome.storage.sync.set(syncUpdates);
+          }
+        } catch (syncErr) {
+          console.warn('[Satellite] Non-critical sync settings warning:', syncErr);
         }
       }
     }
@@ -136,11 +145,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentFeedTree = localData.feedTree || [];
     }
 
-    let { activeFeedId } = await chrome.storage.sync.get('activeFeedId');
+    let curActiveFeedId = null;
+    try {
+      const syncData = await chrome.storage.sync.get('activeFeedId');
+      curActiveFeedId = syncData?.activeFeedId;
+    } catch (_) {}
+    if (!curActiveFeedId) {
+      const localData = await chrome.storage.local.get('activeFeedId');
+      curActiveFeedId = localData?.activeFeedId;
+    }
+
+    let activeFeedId = curActiveFeedId;
     if (!activeFeedId || !findNodeById(currentFeedTree, activeFeedId)) {
       activeFeedId = getFirstFeedNodeId(currentFeedTree);
       if (activeFeedId) {
-        await chrome.storage.sync.set({ activeFeedId });
+        await chrome.storage.local.set({ activeFeedId });
+        try {
+          await chrome.storage.sync.set({ activeFeedId });
+        } catch (_) {}
       }
     }
 
@@ -178,10 +200,22 @@ document.addEventListener('DOMContentLoaded', async () => {
           await populateFeedSelector();
         }
 
-        const { activeFeedId: curFeedId } = await chrome.storage.sync.get('activeFeedId');
-        if (curFeedId) {
+        let targetFeedId = selectTriggerText.dataset?.feedId;
+        if (!targetFeedId) {
+          try {
+            const syncData = await chrome.storage.sync.get('activeFeedId');
+            targetFeedId = syncData?.activeFeedId;
+          } catch (_) {}
+        }
+        if (!targetFeedId) {
+          const localData = await chrome.storage.local.get('activeFeedId');
+          targetFeedId = localData?.activeFeedId;
+        }
+
+        if (targetFeedId) {
           const { posts: oldPosts = [] } = await chrome.storage.local.get('posts');
-          const syncedPosts = await syncActiveFeedPosts(curFeedId);
+          const syncedPosts = extractFeedPosts(targetFeedId, fresh.allPosts || {}, currentFeedTree);
+          await chrome.storage.local.set({ posts: syncedPosts });
           if (treeChanged || JSON.stringify(syncedPosts.map(p => p.link || p.id)) !== JSON.stringify(oldPosts.map(p => p.link || p.id))) {
             await loadPostsFromStorage();
           }
@@ -347,7 +381,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (error) {
     console.error("Error on initial popup load:", error);
     loadingSpinner.classList.add('hidden');
-    emptyMessage.innerText = "Error loading. Please refresh.";
+    let isEmail = false;
+    try {
+      const curFeed = (await chrome.storage.local.get('activeFeedId'))?.activeFeedId;
+      const node = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, curFeed) : null;
+      isEmail = isEmailFeed(node, curFeed);
+    } catch (_) {}
+    emptyMessage.innerText = isEmail ? "Inbox is empty." : "No posts found.";
     emptyMessage.classList.remove('hidden');
   }
 });
@@ -427,6 +467,7 @@ async function populateFeedSelector() {
             const currentCount = unreadCounts[node.id] || 0;
             const countText = (currentCount > 0) ? ` (${currentCount})` : '';
             selectTriggerText.textContent = decodeHTML(node.name) + countText; 
+            selectTriggerText.dataset.feedId = newFeedId;
             
             selectTriggerIcon.src = faviconUrl;
             selectTriggerIcon.onerror = () => { selectTriggerIcon.src = '128.png'; };
@@ -450,6 +491,7 @@ async function populateFeedSelector() {
     
     if (activeFeedIsSet) {
       selectTriggerText.textContent = activeFeedName;
+      selectTriggerText.dataset.feedId = activeFeedId;
       selectTriggerIcon.src = activeFeedIcon;
       selectiveRefreshButton.classList.remove('hidden'); // Show selective refresh
     } else {
@@ -457,6 +499,7 @@ async function populateFeedSelector() {
       // we don't want to show "Select Feed" if we can help it.
       // But for now, we reset to default.
       selectTriggerText.textContent = "Select Feed";
+      delete selectTriggerText.dataset.feedId;
       selectTriggerIcon.src = "128.png";
       selectiveRefreshButton.classList.add('hidden'); // Hide selective refresh
     }
@@ -466,74 +509,98 @@ async function populateFeedSelector() {
   }
 }
 
+// Checks if a feed node or feedId represents an email inbox
+function isEmailFeed(node, feedId) {
+  if (node && (node.isEmail || (node.url && node.url.startsWith('imap:')) || (node.id && String(node.id).startsWith('email_')))) {
+    return true;
+  }
+  if (feedId && (String(feedId).startsWith('email_') || String(feedId).startsWith('imap:'))) {
+    return true;
+  }
+  return false;
+}
+
+// Synchronously extracts posts for a given feedId from allPosts mapping
+function extractFeedPosts(feedId, allPosts = {}, feedTree = []) {
+  if (!feedId || !allPosts) return [];
+  const strFeedId = String(feedId);
+
+  // 1. Direct match by ID
+  if (Array.isArray(allPosts[strFeedId])) return allPosts[strFeedId];
+  if (Array.isArray(allPosts[feedId])) return allPosts[feedId];
+
+  // 2. Case-insensitive / string key match
+  for (const k in allPosts) {
+    if (String(k) === strFeedId && Array.isArray(allPosts[k])) {
+      return allPosts[k];
+    }
+  }
+
+  // 3. Match by node URL or email account
+  const node = (typeof findNodeById === 'function') ? findNodeById(feedTree, feedId) : null;
+  if (node) {
+    if (node.url && Array.isArray(allPosts[node.url])) {
+      return allPosts[node.url];
+    }
+    if (node.url) {
+      const normUrl = node.url.trim().replace(/\/+$/, '');
+      for (const k in allPosts) {
+        if (k.trim().replace(/\/+$/, '') === normUrl && Array.isArray(allPosts[k])) {
+          return allPosts[k];
+        }
+      }
+    }
+    // Match by email account ID or feedId on post items
+    const emailAccId = String(node.emailAccountId || strFeedId.replace(/^email_/, ''));
+    for (const k in allPosts) {
+      const pList = allPosts[k];
+      if (Array.isArray(pList) && pList.length > 0) {
+        if (String(pList[0].feedId) === strFeedId || (node.isEmail && String(pList[0].accountId) === emailAccId)) {
+          return pList;
+        }
+      }
+    }
+  }
+
+  return [];
+}
+
 // Ensures posts for the active feed are retrieved (from allPosts or directly refreshed from Desktop)
 async function syncActiveFeedPosts(feedId) {
   if (!feedId) return [];
   const strFeedId = String(feedId);
   const { allPosts = {} } = await chrome.storage.local.get('allPosts');
-  let posts = allPosts[strFeedId] || allPosts[feedId] || [];
+  let posts = extractFeedPosts(feedId, allPosts, currentFeedTree);
 
-  // If not found by direct ID, check all keys with string conversion or by node URL or email account matching
-  if (!posts || posts.length === 0) {
-    for (const k in allPosts) {
-      if (String(k) === strFeedId) {
-        posts = allPosts[k];
-        break;
-      }
-    }
+  // Check if target is an email inbox or already present in allPosts
+  const node = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, feedId) : null;
+  const isEmail = isEmailFeed(node, feedId);
+  const isKnownInAllPosts = (strFeedId in allPosts) || (feedId in allPosts) || (node?.url && node.url in allPosts);
+
+  // If already found, known in snapshot, or is an email inbox (which is legitimately empty when posts is empty), return immediately without polling
+  if (posts.length > 0 || isKnownInAllPosts || isEmail) {
+    await chrome.storage.local.set({ posts: posts || [] });
+    return posts || [];
   }
 
-  if (!posts || posts.length === 0) {
-    const node = findNodeById(currentFeedTree, feedId);
-    if (node && node.url) {
-      if (allPosts[node.url]) {
-        posts = allPosts[node.url];
-      } else {
-        const normUrl = node.url.trim().replace(/\/+$/, '');
-        for (const k in allPosts) {
-          if (k.trim().replace(/\/+$/, '') === normUrl) {
-            posts = allPosts[k];
-            break;
-          }
-        }
-      }
-    }
-    if ((!posts || posts.length === 0) && node) {
-      for (const k in allPosts) {
-        const pList = allPosts[k];
-        if (Array.isArray(pList) && pList.length > 0) {
-          if (String(pList[0].feedId) === strFeedId || (node.isEmail && String(pList[0].accountId) === String(node.emailAccountId || strFeedId.replace('email_', '')))) {
-            posts = pList;
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  // If still empty and Desktop is reachable, trigger on-demand refresh and poll
-  if (!posts || posts.length === 0) {
+  // Only if feed is completely unknown in allPosts, not an email inbox, and desktop is reachable: perform a single quick check
+  try {
     const st = await SatelliteBridge.checkStatus(300);
     if (st.connected) {
       SatelliteBridge.refresh(feedId).catch(() => {});
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 450));
-        const fresh = await SatelliteBridge.fetchData();
-        if (fresh && fresh.allPosts) {
-          const freshPosts = fresh.allPosts[strFeedId] || fresh.allPosts[feedId];
-          if (freshPosts && freshPosts.length > 0) {
-            posts = freshPosts;
-            await chrome.storage.local.set({
-              allPosts: fresh.allPosts,
-              unreadCounts: fresh.unreadCounts || {},
-              posts: posts
-            });
-            return posts;
-          }
-        }
+      await new Promise(r => setTimeout(r, 600));
+      const fresh = await SatelliteBridge.fetchData();
+      if (fresh && fresh.allPosts) {
+        posts = extractFeedPosts(feedId, fresh.allPosts, currentFeedTree);
+        await chrome.storage.local.set({
+          allPosts: fresh.allPosts,
+          unreadCounts: fresh.unreadCounts || {},
+          posts: posts
+        });
+        return posts;
       }
     }
-  }
+  } catch (_) {}
 
   await chrome.storage.local.set({ posts: posts || [] });
   return posts || [];
@@ -550,7 +617,17 @@ async function switchActiveFeed(newFeedId) {
   scanResultsContainer.innerHTML = '';
 
   try {
-    await chrome.storage.sync.set({ activeFeedId: newFeedId });
+    // Persist active feed safely in local and try sync without quota crash
+    await chrome.storage.local.set({ activeFeedId: newFeedId });
+    try {
+      const curSync = await chrome.storage.sync.get('activeFeedId').catch(() => ({}));
+      if (curSync?.activeFeedId !== newFeedId) {
+        await chrome.storage.sync.set({ activeFeedId: newFeedId });
+      }
+    } catch (syncErr) {
+      console.warn('[Satellite] Non-critical sync activeFeedId warning:', syncErr);
+    }
+
     await syncActiveFeedPosts(newFeedId);
     await loadPostsFromStorage();
     await populateFeedSelector(); // Ensure counts and buttons are in sync
@@ -561,7 +638,10 @@ async function switchActiveFeed(newFeedId) {
     }
   } catch (error) {
     console.error("Error changing feed:", error);
-    emptyMessage.innerText = "Error loading posts.";
+    loadingSpinner.classList.add('hidden');
+    const node = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, newFeedId) : null;
+    const isEmail = isEmailFeed(node, newFeedId);
+    emptyMessage.innerText = isEmail ? "Inbox is empty." : "No posts found.";
     emptyMessage.classList.remove('hidden');
   } finally {
     loadingSpinner.classList.add('hidden');
@@ -656,7 +736,10 @@ async function triggerRefresh(isSelective = false) {
     await loadPostsFromStorage();
   } catch (error) {
     console.error("Refresh failed:", error);
-    emptyMessage.innerText = "Error loading.";
+    let curActiveFeed = selectTriggerText.dataset?.feedId;
+    const activeFeedNode = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, curActiveFeed) : null;
+    const isEmail = isEmailFeed(activeFeedNode, curActiveFeed);
+    emptyMessage.innerText = isEmail ? "Inbox is empty." : "No posts found.";
     emptyMessage.classList.remove('hidden');
     showFooterStatus("Error during refresh.", true);
   } finally {
@@ -693,7 +776,20 @@ async function loadPostsFromStorage() {
   if (visiblePosts.length === 0) {
     loadingSpinner.classList.add('hidden');
     if (selectTriggerText.textContent !== "No feeds") {
-      emptyMessage.innerText = "No posts found.";
+      let curFeedId = selectTriggerText.dataset?.feedId;
+      if (!curFeedId) {
+        try {
+          const syncData = await chrome.storage.sync.get('activeFeedId');
+          curFeedId = syncData?.activeFeedId;
+        } catch (_) {}
+      }
+      if (!curFeedId) {
+        const localData = await chrome.storage.local.get('activeFeedId');
+        curFeedId = localData?.activeFeedId;
+      }
+      const activeNode = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, curFeedId) : null;
+      const isEmail = isEmailFeed(activeNode, curFeedId);
+      emptyMessage.innerText = isEmail ? "Inbox is empty." : "No posts found.";
       emptyMessage.classList.remove('hidden');
     }
     return;
@@ -1060,9 +1156,16 @@ function handleSearch() {
     if (isVisible) visibleCount++;
   });
 
-  const originalMessage = "No posts found.";
+  let isEmail = false;
+  try {
+    const curFeedId = selectTriggerText.dataset?.feedId;
+    const activeNode = (typeof findNodeById === 'function') ? findNodeById(currentFeedTree, curFeedId) : null;
+    isEmail = isEmailFeed(activeNode, curFeedId);
+  } catch (_) {}
+
+  const originalMessage = isEmail ? "Inbox is empty." : "No posts found.";
   if (posts.length > 0 && visibleCount === 0) {
-    emptyMessage.textContent = "No posts match your search.";
+    emptyMessage.textContent = isEmail ? "No emails match your search." : "No posts match your search.";
     emptyMessage.classList.remove('hidden');
   } else if (posts.length > 0 && visibleCount > 0) {
     emptyMessage.classList.add('hidden');

@@ -46,10 +46,21 @@ const SatelliteBridge = (function () {
             });
             if (res.ok) {
                 const data = await res.json();
-                // Cache snapshot in chrome.storage.local for fast startup
-                chrome.storage.local.set({ satellite_snapshot: data }).catch(() => {});
+                // Cache snapshot and API key in chrome.storage.local for fast startup
+                chrome.storage.local.set({ 
+                    satellite_snapshot: data,
+                    ...(data.geminiApiKey ? { geminiApiKey: data.geminiApiKey } : {})
+                }).catch(() => {});
+
+                // Only write to chrome.storage.sync if the key genuinely changed to avoid exceeding MAX_WRITE_OPERATIONS_PER_MINUTE quota
                 if (data.geminiApiKey) {
-                    chrome.storage.sync.set({ geminiApiKey: data.geminiApiKey }).catch(() => {});
+                    try {
+                        chrome.storage.sync.get('geminiApiKey', (syncRes) => {
+                            if (!chrome.runtime.lastError && syncRes?.geminiApiKey !== data.geminiApiKey) {
+                                chrome.storage.sync.set({ geminiApiKey: data.geminiApiKey }).catch(() => {});
+                            }
+                        });
+                    } catch (_) {}
                 }
                 return data;
             }
