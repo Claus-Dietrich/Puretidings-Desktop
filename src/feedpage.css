@@ -624,6 +624,28 @@ main {
   to { transform: rotate(360deg); }
 }
 
+.feed-mark-read-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  margin-left: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s, background-color 0.2s, transform 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-color);
+}
+.tree-node-content:hover .feed-mark-read-btn,
+.feed-mark-read-btn:hover {
+  opacity: 1;
+  background: var(--hover-bg, rgba(255, 255, 255, 0.1));
+  color: var(--primary-accent, #3b82f6);
+}
+
 .move-btn,
 #settings-feed-list .move-btn {
     min-width: 20px;

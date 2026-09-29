@@ -785,6 +785,37 @@ async fn list_imap_folders(
     .map_err(|e| format!("Task execution error: {}", e))?
 }
 
+fn format_sequence_set(seqs: &std::collections::BTreeSet<u32>) -> String {
+    if seqs.is_empty() {
+        return String::new();
+    }
+    let mut ranges = Vec::new();
+    let mut iter = seqs.iter().cloned();
+    if let Some(first) = iter.next() {
+        let mut start = first;
+        let mut end = first;
+        for s in iter {
+            if s == end + 1 {
+                end = s;
+            } else {
+                if start == end {
+                    ranges.push(format!("{}", start));
+                } else {
+                    ranges.push(format!("{}:{}", start, end));
+                }
+                start = s;
+                end = s;
+            }
+        }
+        if start == end {
+            ranges.push(format!("{}", start));
+        } else {
+            ranges.push(format!("{}:{}", start, end));
+        }
+    }
+    ranges.join(",")
+}
+
 #[tauri::command]
 async fn fetch_imap_emails(
     server: String,
@@ -816,13 +847,37 @@ async fn fetch_imap_emails(
             return Ok(Vec::new());
         }
 
-        let max_fetch = if limit == 0 { 30 } else { limit };
+        // Search for all unseen messages so no unread email is ever missed
+        let unseen_seqs: std::collections::HashSet<u32> = session.search("UNSEEN").unwrap_or_default();
+
+        let max_fetch = if limit == 0 { 30 } else { limit.max(30) };
+        let mut target_seqs: std::collections::BTreeSet<u32> = unseen_seqs.into_iter().collect();
+
+        // Also include the most recent messages (up to max_fetch) so recent read messages are available
         let start_seq = if total_messages > max_fetch {
             total_messages - max_fetch + 1
         } else {
             1
         };
-        let range = format!("{}:{}", start_seq, total_messages);
+        for s in start_seq..=total_messages {
+            target_seqs.insert(s);
+        }
+
+        // Enforce valid message range
+        target_seqs.retain(|&s| s >= 1 && s <= total_messages);
+
+        // Cap to latest 120 messages in case of thousands of unread emails
+        let max_total_cap = 120usize;
+        if target_seqs.len() > max_total_cap {
+            let to_skip = target_seqs.len() - max_total_cap;
+            target_seqs = target_seqs.into_iter().skip(to_skip).collect();
+        }
+
+        let range = format_sequence_set(&target_seqs);
+        if range.is_empty() {
+            let _ = session.logout();
+            return Ok(Vec::new());
+        }
 
         let mut messages = session.fetch(&range, "(UID FLAGS BODY.PEEK[])");
         if messages.is_err() {
@@ -952,6 +1007,80 @@ async fn mark_imap_email_read(
         session
             .uid_store(format!("{}", uid), flag_action)
             .map_err(|e| format!("Failed to update flags: {}", e))?;
+
+        let _ = session.logout();
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
+#[tauri::command]
+async fn mark_all_imap_emails_read(
+    server: String,
+    port: u16,
+    username: String,
+    password: String,
+    folder: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let domain = server.trim();
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS Error: {}", e))?;
+        let client = imap::connect((domain, port), domain, &tls)
+            .map_err(|e| format!("IMAP Connection error: {}", e))?;
+        let mut session = client
+            .login(&username, &password)
+            .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
+
+        let target_folder = if folder.trim().is_empty() { "INBOX" } else { folder.trim() };
+        let mailbox = session
+            .select(target_folder)
+            .map_err(|e| format!("Failed to select folder '{}': {}", target_folder, e))?;
+
+        if mailbox.exists > 0 {
+            session
+                .store(format!("1:{}", mailbox.exists), "+FLAGS (\\Seen)")
+                .map_err(|e| format!("Failed to mark all as seen: {}", e))?;
+        }
+
+        let _ = session.logout();
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task execution error: {}", e))?
+}
+
+#[tauri::command]
+async fn mark_all_imap_emails_unread(
+    server: String,
+    port: u16,
+    username: String,
+    password: String,
+    folder: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let domain = server.trim();
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| format!("TLS Error: {}", e))?;
+        let client = imap::connect((domain, port), domain, &tls)
+            .map_err(|e| format!("IMAP Connection error: {}", e))?;
+        let mut session = client
+            .login(&username, &password)
+            .map_err(|e| format!("IMAP Login failed: {}", e.0))?;
+
+        let target_folder = if folder.trim().is_empty() { "INBOX" } else { folder.trim() };
+        let mailbox = session
+            .select(target_folder)
+            .map_err(|e| format!("Failed to select folder '{}': {}", target_folder, e))?;
+
+        if mailbox.exists > 0 {
+            session
+                .store(format!("1:{}", mailbox.exists), "-FLAGS (\\Seen)")
+                .map_err(|e| format!("Failed to mark all as unread: {}", e))?;
+        }
 
         let _ = session.logout();
         Ok(())
@@ -1391,6 +1520,8 @@ pub fn run() {
             list_imap_folders,
             fetch_imap_emails,
             mark_imap_email_read,
+            mark_all_imap_emails_read,
+            mark_all_imap_emails_unread,
             webdav_test_connection,
             webdav_get_sync_file,
             webdav_put_sync_file,

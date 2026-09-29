@@ -1605,8 +1605,16 @@
                 featuredImage: null
             };
 
-            if (!item.is_unread && readLinksSet) {
-                readLinksSet.add(link);
+            if (readLinksSet) {
+                if (!item.is_unread) {
+                    readLinksSet.add(link);
+                } else {
+                    const localReadArticles = (typeof memLocal !== 'undefined' && memLocal && memLocal.readArticleUrls) ? memLocal.readArticleUrls : {};
+                    const lastReadTime = localReadArticles[link] || 0;
+                    if (Date.now() - lastReadTime > 60000) {
+                        readLinksSet.delete(link);
+                    }
+                }
             }
 
             if (typeof applyRulesToPost === 'function' && rules) {
@@ -2030,12 +2038,77 @@
     }
     window.refreshSingleFeedNative = refreshSingleFeedNative;
 
+    async function recalculateUnreadCounts() {
+        try {
+            const { allPosts = {}, readLinks = [], unreadCounts = {}, feedTree = [] } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadCounts', 'feedTree']);
+            const readLinksSet = new Set(readLinks || []);
+            const newUnreadCounts = {};
+
+            const allFeedIds = new Set();
+            function collectFeedIds(nodes) {
+                for (const n of (nodes || [])) {
+                    if (n.type === 'feed' && n.id) {
+                        allFeedIds.add(String(n.id));
+                    } else if (n.type === 'folder' && n.children) {
+                        collectFeedIds(n.children);
+                    }
+                }
+            }
+            collectFeedIds(feedTree);
+            Object.keys(allPosts).forEach(id => allFeedIds.add(String(id)));
+            Object.keys(unreadCounts).forEach(id => allFeedIds.add(String(id)));
+
+            for (const feedId of allFeedIds) {
+                const posts = allPosts[feedId];
+                if (Array.isArray(posts) && posts.length > 0) {
+                    let unread = 0;
+                    for (const p of posts) {
+                        if (p && !p.isHidden && !readLinksSet.has(p.link)) {
+                            unread++;
+                        }
+                    }
+                    newUnreadCounts[feedId] = unread;
+                } else {
+                    newUnreadCounts[feedId] = unreadCounts[feedId] || 0;
+                }
+            }
+
+            await chrome.storage.local.set({ unreadCounts: newUnreadCounts });
+            if (typeof memLocal !== 'undefined' && memLocal) {
+                memLocal.unreadCounts = newUnreadCounts;
+            }
+
+            const totalUnread = Object.values(newUnreadCounts).reduce((sum, c) => sum + (c || 0), 0);
+            if (chrome.action && chrome.action.setBadgeText) {
+                await chrome.action.setBadgeText({ text: totalUnread > 0 ? String(totalUnread) : '' });
+            }
+
+            if (typeof window.switchView === 'function') {
+                window.switchView(window.currentViewMode || 'all', true);
+            }
+
+            return newUnreadCounts;
+        } catch (e) {
+            console.warn('[PureTidings Desktop] Error in recalculateUnreadCounts:', e);
+        }
+    }
+    window.recalculateUnreadCounts = recalculateUnreadCounts;
+    window.recalculateCounters = recalculateUnreadCounts;
+    window.updateUnreadCounters = recalculateUnreadCounts;
+
     async function markAllAsReadNative(feedId = null) {
-        const { allPosts = {}, readLinks = [], unreadArticleUrls = {}, readArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls', 'readArticleUrls']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {}, readArticleUrls = {}, feedTree = [] } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls', 'readArticleUrls', 'feedTree']);
         const readLinksSet = new Set(readLinks || []);
         const unreadMap = { ...unreadArticleUrls };
         const readMap = { ...readArticleUrls };
         const now = Date.now();
+
+        const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+        const activeEmailAccounts = (Array.isArray(emailAccounts) ? emailAccounts : []).filter(a => a && a.enabled !== false);
+
+        const { unreadCounts = {} } = await chrome.storage.local.get('unreadCounts');
+        const newUnreadCounts = { ...unreadCounts };
+
         if (feedId) {
             const feedPosts = allPosts[feedId] || [];
             feedPosts.forEach(p => { 
@@ -2045,6 +2118,21 @@
                     delete unreadMap[p.link];
                 }
             });
+            newUnreadCounts[feedId] = 0;
+
+            if (feedId.startsWith('email_')) {
+                const accId = feedId.replace('email_', '');
+                const targetAcc = activeEmailAccounts.find(a => String(a.id) === String(accId));
+                if (targetAcc) {
+                    tauriInvoke('mark_all_imap_emails_read', {
+                        server: targetAcc.server,
+                        port: parseInt(targetAcc.port, 10) || 993,
+                        username: targetAcc.username,
+                        password: targetAcc.password,
+                        folder: targetAcc.folder || 'INBOX'
+                    }).catch(e => console.warn('[PureTidings Desktop] Error marking IMAP emails read on server:', e));
+                }
+            }
         } else {
             Object.values(allPosts).flat().forEach(p => { 
                 if (p.link) {
@@ -2053,20 +2141,39 @@
                     delete unreadMap[p.link];
                 }
             });
-        }
 
-        const newReadLinks = Array.from(readLinksSet);
-        const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
-        const newUnreadCounts = { ...unreadCounts };
-
-        if (feedId) {
-            newUnreadCounts[feedId] = 0;
-        } else {
+            // Zero out every feed in unreadCounts, allPosts, and feedTree
+            for (const k in newUnreadCounts) {
+                newUnreadCounts[k] = 0;
+            }
             for (const fId in allPosts) {
                 newUnreadCounts[fId] = 0;
             }
+            function zeroTree(nodes) {
+                for (const n of (nodes || [])) {
+                    if (n.type === 'feed' && n.id) {
+                        newUnreadCounts[n.id] = 0;
+                    } else if (n.type === 'folder' && n.children) {
+                        zeroTree(n.children);
+                    }
+                }
+            }
+            zeroTree(feedTree);
+
+            // Sync all active IMAP accounts to read on server
+            for (const acc of activeEmailAccounts) {
+                newUnreadCounts['email_' + acc.id] = 0;
+                tauriInvoke('mark_all_imap_emails_read', {
+                    server: acc.server,
+                    port: parseInt(acc.port, 10) || 993,
+                    username: acc.username,
+                    password: acc.password,
+                    folder: acc.folder || 'INBOX'
+                }).catch(e => console.warn(`[PureTidings Desktop] Error marking IMAP account ${acc.name || acc.username} read:`, e));
+            }
         }
 
+        const newReadLinks = Array.from(readLinksSet);
         await chrome.storage.local.set({
             readLinks: newReadLinks,
             unreadCounts: newUnreadCounts,
@@ -2077,14 +2184,16 @@
             memLocal.readLinks = newReadLinks;
             memLocal.readArticleUrls = readMap;
             memLocal.unreadArticleUrls = unreadMap;
+            memLocal.unreadCounts = newUnreadCounts;
         }
-        if (typeof window.recalculateCounters === 'function') {
-            window.recalculateCounters();
-        } else if (typeof window.filterSidebarFeeds === 'function') {
-            window.filterSidebarFeeds();
+
+        if (chrome.action && chrome.action.setBadgeText) {
+            const totalUnread = Object.values(newUnreadCounts).reduce((sum, c) => sum + (c || 0), 0);
+            await chrome.action.setBadgeText({ text: totalUnread > 0 ? String(totalUnread) : '' });
         }
-        if (typeof window.renderPosts === 'function') {
-            window.renderPosts();
+
+        if (typeof window.switchView === 'function') {
+            window.switchView(window.currentViewMode || 'all', true);
         }
         if (typeof syncSatelliteStateToRust === 'function') {
             syncSatelliteStateToRust();
@@ -2096,21 +2205,44 @@
     window.markAllAsReadNative = markAllAsReadNative;
 
     async function markAllAsUnreadNative(feedId = null) {
-        const { allPosts = {}, readLinks = [], unreadArticleUrls = {}, readArticleUrls = {} } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls', 'readArticleUrls']);
+        const { allPosts = {}, readLinks = [], unreadArticleUrls = {}, readArticleUrls = {}, feedTree = [] } = await chrome.storage.local.get(['allPosts', 'readLinks', 'unreadArticleUrls', 'readArticleUrls', 'feedTree']);
         let readLinksSet = new Set(readLinks || []);
         const unreadMap = { ...unreadArticleUrls };
         const readMap = { ...readArticleUrls };
         const now = Date.now();
 
+        const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+        const activeEmailAccounts = (Array.isArray(emailAccounts) ? emailAccounts : []).filter(a => a && a.enabled !== false);
+
+        const { unreadCounts = {} } = await chrome.storage.local.get('unreadCounts');
+        const newUnreadCounts = { ...unreadCounts };
+
         if (feedId) {
             const feedPosts = allPosts[feedId] || [];
+            let count = 0;
             feedPosts.forEach(p => { 
                 if (p.link) {
                     readLinksSet.delete(p.link);
                     unreadMap[p.link] = now;
                     delete readMap[p.link];
+                    if (!p.isHidden) count++;
                 }
             });
+            newUnreadCounts[feedId] = count;
+
+            if (feedId.startsWith('email_')) {
+                const accId = feedId.replace('email_', '');
+                const targetAcc = activeEmailAccounts.find(a => String(a.id) === String(accId));
+                if (targetAcc) {
+                    tauriInvoke('mark_all_imap_emails_unread', {
+                        server: targetAcc.server,
+                        port: parseInt(targetAcc.port, 10) || 993,
+                        username: targetAcc.username,
+                        password: targetAcc.password,
+                        folder: targetAcc.folder || 'INBOX'
+                    }).catch(e => console.warn('[PureTidings Desktop] Error marking IMAP emails unread on server:', e));
+                }
+            }
         } else {
             for (const fId in allPosts) {
                 (allPosts[fId] || []).forEach(p => {
@@ -2121,28 +2253,27 @@
                 });
             }
             readLinksSet.clear();
-        }
 
-        const newReadLinks = Array.from(readLinksSet);
-        const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
-        const newUnreadCounts = { ...unreadCounts };
-
-        if (feedId) {
-            let count = 0;
-            (allPosts[feedId] || []).forEach(p => {
-                if (!p.isHidden && !readLinksSet.has(p.link)) count++;
-            });
-            newUnreadCounts[feedId] = count;
-        } else {
             for (const fId in allPosts) {
                 let count = 0;
                 (allPosts[fId] || []).forEach(p => {
-                    if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                    if (!p.isHidden) count++;
                 });
                 newUnreadCounts[fId] = count;
             }
+
+            for (const acc of activeEmailAccounts) {
+                tauriInvoke('mark_all_imap_emails_unread', {
+                    server: acc.server,
+                    port: parseInt(acc.port, 10) || 993,
+                    username: acc.username,
+                    password: acc.password,
+                    folder: acc.folder || 'INBOX'
+                }).catch(e => console.warn(`[PureTidings Desktop] Error marking IMAP account ${acc.name || acc.username} unread:`, e));
+            }
         }
 
+        const newReadLinks = Array.from(readLinksSet);
         await chrome.storage.local.set({
             readLinks: newReadLinks,
             unreadCounts: newUnreadCounts,
@@ -2153,14 +2284,16 @@
             memLocal.readLinks = newReadLinks;
             memLocal.readArticleUrls = readMap;
             memLocal.unreadArticleUrls = unreadMap;
+            memLocal.unreadCounts = newUnreadCounts;
         }
-        if (typeof window.recalculateCounters === 'function') {
-            window.recalculateCounters();
-        } else if (typeof window.filterSidebarFeeds === 'function') {
-            window.filterSidebarFeeds();
+
+        if (chrome.action && chrome.action.setBadgeText) {
+            const totalUnread = Object.values(newUnreadCounts).reduce((sum, c) => sum + (c || 0), 0);
+            await chrome.action.setBadgeText({ text: totalUnread > 0 ? String(totalUnread) : '' });
         }
-        if (typeof window.renderPosts === 'function') {
-            window.renderPosts();
+
+        if (typeof window.switchView === 'function') {
+            window.switchView(window.currentViewMode || 'all', true);
         }
         if (typeof syncSatelliteStateToRust === 'function') {
             syncSatelliteStateToRust();
@@ -2878,14 +3011,62 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
     window.applyWakeLock = applyWakeLock;
 
+    let lastResumeSyncTime = 0;
+    async function handleAppResumeSync() {
+        const now = Date.now();
+        // Throttle to at most once every 15 seconds to avoid repeated calls
+        if (now - lastResumeSyncTime < 15000) return;
+        lastResumeSyncTime = now;
+
+        console.log('[PureTidings Desktop] App foregrounded/resumed. Synchronizing state...');
+        try {
+            // 1. If WebDAV is enabled and auto-sync is on, pull any updates from other devices
+            const { syncWebdavEnabled, syncWebdavAuto } = await chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']);
+            if (syncWebdavEnabled && syncWebdavAuto !== false && typeof window.executeWebdavSync === 'function') {
+                await window.executeWebdavSync({ manual: false, forcePull: true });
+            }
+
+            // 2. Refresh active IMAP email inboxes so emails read or received in other apps sync immediately
+            const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
+            const activeEmailAccounts = (Array.isArray(emailAccounts) ? emailAccounts : []).filter(a => a && a.enabled !== false);
+            if (activeEmailAccounts.length > 0 && typeof refreshSingleFeedNative === 'function') {
+                for (const acc of activeEmailAccounts) {
+                    await refreshSingleFeedNative('email_' + acc.id);
+                }
+            }
+
+            // 3. Recalculate unread counts & refresh view
+            if (typeof recalculateUnreadCounts === 'function') {
+                await recalculateUnreadCounts();
+            }
+        } catch (err) {
+            console.warn('[PureTidings Desktop] Error during app resume sync:', err);
+        }
+    }
+    window.handleAppResumeSync = handleAppResumeSync;
+
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'visible') {
             try {
                 const { keepScreenAwake } = await chrome.storage.sync.get(['keepScreenAwake']);
                 if (keepScreenAwake) applyWakeLock(true);
             } catch (_) {}
+            handleAppResumeSync();
         }
     });
+
+    window.addEventListener('focus', () => {
+        handleAppResumeSync();
+    });
+
+    if (window.__TAURI__?.event?.listen) {
+        window.__TAURI__.event.listen('tauri://focus', () => {
+            handleAppResumeSync();
+        });
+        window.__TAURI__.event.listen('tauri://resume', () => {
+            handleAppResumeSync();
+        });
+    }
 
     async function showDesktopNotification(title, message) {
         try {
@@ -9370,7 +9551,8 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     });
 
                     if (typeof renderSettingsFeeds === 'function') renderSettingsFeeds();
-                    if (typeof updateUnreadCounters === 'function') updateUnreadCounters();
+                    if (typeof recalculateUnreadCounts === 'function') await recalculateUnreadCounts();
+                    else if (typeof updateUnreadCounters === 'function') await updateUnreadCounters();
                     if (typeof syncEmailAccountsToFeedTree === 'function') await syncEmailAccountsToFeedTree();
                     if (typeof switchView === 'function') switchView(currentViewMode, true);
 

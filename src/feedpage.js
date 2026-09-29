@@ -84,6 +84,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     summaryLinksSet = new Set(storageData.summaryLinks || []);
     unreadCounts = storageData.unreadCounts || {};
 
+    // Reconcile unread counts on load so badges are always accurate
+    for (const feedId in allPostsData) {
+        if (Array.isArray(allPostsData[feedId])) {
+            let uCount = 0;
+            for (const p of allPostsData[feedId]) {
+                if (p && !p.isHidden && !readLinksSet.has(p.link)) uCount++;
+            }
+            unreadCounts[feedId] = uCount;
+        }
+    }
+
     // NEW: Re-apply rules to existing posts so new rules work immediately
     const rules = syncData.rules || [];
     if (rules.length > 0) {
@@ -128,6 +139,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         favoritedLinksSet = new Set(storageData.favoritedLinks || []);
         summaryLinksSet = new Set(storageData.summaryLinks || []);
         unreadCounts = storageData.unreadCounts || {};
+
+        // If readLinks changed, reconcile in-memory unreadCounts for feeds with posts
+        if (changes.readLinks) {
+            for (const feedId in allPostsData) {
+                if (Array.isArray(allPostsData[feedId])) {
+                    let uCount = 0;
+                    for (const p of allPostsData[feedId]) {
+                        if (p && !p.isHidden && !readLinksSet.has(p.link)) uCount++;
+                    }
+                    unreadCounts[feedId] = uCount;
+                }
+            }
+        }
 
         if (syncData.geminiApiKey && syncData.geminiApiKey.trim() !== '') {
             generateAiReportBtn.classList.remove('hidden');
@@ -516,8 +540,9 @@ function renderTreeView(postsByFeed) {
         const isCollapsed = collapsedFolders.has(node.id);
         const toggleText = isCollapsed ? '[+]' : '[-]';
         const refreshFolderTitle = window.i18n ? window.i18n.t('tooltip_refresh_folder') : 'Refresh all feeds in this folder';
+        const markFolderReadTitle = window.i18n ? window.i18n.t('tooltip_mark_folder_read') : 'Mark all feeds in this folder as read';
 
-        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${folderCountSpan}</span><button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="${refreshFolderTitle}" data-i18n-title="tooltip_refresh_folder">🔄</button></div>`;
+        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${folderCountSpan}</span><button type="button" class="folder-refresh-btn feed-single-refresh-btn" data-id="${node.id}" title="${refreshFolderTitle}" data-i18n-title="tooltip_refresh_folder">🔄</button><button type="button" class="folder-mark-read-btn feed-mark-read-btn" data-id="${node.id}" title="${markFolderReadTitle}" data-i18n-title="tooltip_mark_folder_read">✓</button></div>`;
         
         const ul = document.createElement('ul');
         ul.className = 'folder-children' + (isCollapsed ? ' hidden' : '');
@@ -546,8 +571,9 @@ function renderTreeView(postsByFeed) {
         const isExpanded = expandedFeeds.has(node.id);
         const toggleText = isExpanded ? '[-]' : '[+]';
         const refreshFeedTitle = window.i18n ? window.i18n.t('tooltip_refresh_feed') : 'Refresh this feed';
+        const markFeedReadTitle = window.i18n ? window.i18n.t('tooltip_mark_feed_read') : 'Mark this feed as read';
 
-        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><img src="${faviconUrl}" class="feed-favicon" alt="icon" onerror="this.src='128.png'"><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${feedCountSpan}</span><button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="${refreshFeedTitle}" data-i18n-title="tooltip_refresh_feed">🔄</button></div>`;
+        li.innerHTML = `<div class="tree-node-content"><span class="tree-toggle">${toggleText}</span><img src="${faviconUrl}" class="feed-favicon" alt="icon" onerror="this.src='128.png'"><span class="tree-node-title">${escapeHTML(decodeHTML(node.name))}${feedCountSpan}</span><button type="button" class="feed-single-refresh-btn" data-id="${node.id}" title="${refreshFeedTitle}" data-i18n-title="tooltip_refresh_feed">🔄</button><button type="button" class="feed-mark-read-btn" data-id="${node.id}" title="${markFeedReadTitle}" data-i18n-title="tooltip_mark_feed_read">✓</button></div>`;
 
         const postUl = document.createElement('ul');
         if (!isExpanded) postUl.classList.add('hidden');
@@ -1133,6 +1159,48 @@ function handleTreeToggle(event) {
     return;
   }
 
+  const markReadBtn = event.target.closest('.feed-mark-read-btn');
+  if (markReadBtn) {
+    event.stopPropagation();
+    event.preventDefault();
+    const nodeId = markReadBtn.dataset.id;
+    if (!nodeId) return;
+
+    (async () => {
+      try {
+        if (markReadBtn.classList.contains('folder-mark-read-btn')) {
+          const feedIds = [];
+          function findFolderFeeds(nodes) {
+            for (const n of nodes) {
+              if (n.id === nodeId && n.type === 'folder') {
+                function collect(item) {
+                  if (item.type === 'feed') feedIds.push(item.id);
+                  else if (item.children) item.children.forEach(collect);
+                }
+                collect(n);
+                return;
+              }
+              if (n.children) findFolderFeeds(n.children);
+            }
+          }
+          findFolderFeeds(currentFeedTree);
+          if (window.markAllAsReadNative) {
+            for (const fId of feedIds) {
+              await window.markAllAsReadNative(fId);
+            }
+          }
+        } else {
+          if (window.markAllAsReadNative) {
+            await window.markAllAsReadNative(nodeId);
+          }
+        }
+      } catch (err) {
+        console.warn('Error marking feed/folder as read:', err);
+      }
+    })();
+    return;
+  }
+
   const toggle = event.target.closest('.tree-toggle');
   const title = event.target.closest('.tree-node-title');
   if (!toggle && !title) return;
@@ -1206,8 +1274,79 @@ async function updateCountsAfterLocalChange(countChange, feedId) {
     unreadCounts[feedId] = Math.max(0, countChange);
   }
   await chrome.storage.local.set({ unreadCounts });
-  const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
-  await chrome.action.setBadgeText({ text: totalUnread > 0 ? totalUnread.toString() : '' });
+  const totalUnread = Object.values(unreadCounts).reduce((sum, count) => sum + (count || 0), 0);
+  if (chrome.action && chrome.action.setBadgeText) {
+    await chrome.action.setBadgeText({ text: totalUnread > 0 ? totalUnread.toString() : '' });
+  }
+
+  // Instantly update feed badge in DOM
+  if (feedId) {
+    const feedLi = document.querySelector(`li.feed-item-row[data-id="${feedId}"]`);
+    if (feedLi) {
+      const titleSpan = feedLi.querySelector('.tree-node-title');
+      if (titleSpan) {
+        let countSpan = titleSpan.querySelector('.unread-count');
+        const count = unreadCounts[feedId] || 0;
+        if (count > 0) {
+          if (!countSpan) {
+            countSpan = document.createElement('span');
+            countSpan.className = 'unread-count';
+            titleSpan.appendChild(countSpan);
+          }
+          countSpan.textContent = String(count);
+          countSpan.style.display = '';
+        } else if (countSpan) {
+          countSpan.remove();
+        }
+      }
+    }
+  }
+
+  // Instantly update parent folder badges in DOM
+  document.querySelectorAll('li.folder-item').forEach(folderLi => {
+    const folderId = folderLi.dataset.id;
+    let folderNode = null;
+    function findFolder(nodes) {
+      for (const n of (nodes || [])) {
+        if (n.type === 'folder' && String(n.id) === String(folderId)) {
+          folderNode = n;
+          return;
+        }
+        if (n.children) findFolder(n.children);
+      }
+    }
+    findFolder(currentFeedTree);
+
+    if (folderNode) {
+      function calcFolderCount(fn) {
+        let cnt = 0;
+        (fn.children || []).forEach(child => {
+          if (child.type === 'feed') {
+            cnt += (unreadCounts[child.id] || 0);
+          } else if (child.type === 'folder') {
+            cnt += calcFolderCount(child);
+          }
+        });
+        return cnt;
+      }
+      const fCount = calcFolderCount(folderNode);
+      const titleSpan = folderLi.querySelector('.tree-node-title');
+      if (titleSpan) {
+        let countSpan = titleSpan.querySelector('.unread-count');
+        if (fCount > 0) {
+          if (!countSpan) {
+            countSpan = document.createElement('span');
+            countSpan.className = 'unread-count';
+            titleSpan.appendChild(countSpan);
+          }
+          countSpan.textContent = String(fCount);
+          countSpan.style.display = '';
+        } else if (countSpan) {
+          countSpan.remove();
+        }
+      }
+    }
+  });
 }
 
 async function markPostAsRead(element, post) {
