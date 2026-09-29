@@ -1655,6 +1655,8 @@
         if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
         const refreshBtn = document.getElementById('sidebar-refresh-btn');
         if (refreshBtn) refreshBtn.classList.add('spinning');
+        const mobileRefresh = document.getElementById('mobile-refresh-btn');
+        if (mobileRefresh) mobileRefresh.classList.add('spinning');
 
         const loading = document.getElementById('loading-spinner');
         if (loading) loading.classList.remove('hidden');
@@ -1862,6 +1864,7 @@
             if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
             if (loading) loading.classList.add('hidden');
             if (refreshBtn) refreshBtn.classList.remove('spinning');
+            if (mobileRefresh) mobileRefresh.classList.remove('spinning');
         }
     }
     window.refreshAllFeedsNative = refreshAllFeedsNative;
@@ -1905,10 +1908,6 @@
                     unreadCounts: newUnreadCounts,
                     readLinks: Array.from(readLinksSet)
                 });
-
-                if (typeof showInAppToast === 'function') {
-                    showInAppToast('Inbox Updated', `${account.name || account.username}: ${posts.length} emails (${count} unread)`);
-                }
                 return;
             }
 
@@ -2021,16 +2020,9 @@
                         }
                     })();
                 }
-
-                if (typeof showInAppToast === 'function') {
-                    showInAppToast('Feed Updated', `${targetFeed.name}: ${posts.length} articles`);
-                }
             }
         } catch (err) {
-            console.error(`[PureTidings Desktop] Error refreshing single feed ${targetFeedId}:`, err);
-            if (typeof showInAppToast === 'function') {
-                showInAppToast('Feed Refresh Failed', `${err.message || err}`);
-            }
+            console.warn(`[PureTidings Desktop] Error refreshing single feed ${targetFeedId}:`, err);
         } finally {
             window.isRefreshingFeedId = null;
             if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
@@ -2961,6 +2953,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const container = document.getElementById('desktop-toast-container');
         if (!container) return;
 
+        // Limit concurrent toasts so notifications never flood or stack up on screen
+        while (container.children.length >= 3) {
+            container.firstElementChild.remove();
+        }
+
         const toast = document.createElement('div');
         toast.className = 'desktop-toast' + (isSummary ? ' toast-summary' : '');
         toast.innerHTML = `
@@ -3044,6 +3041,62 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
     }
     window.handleAppResumeSync = handleAppResumeSync;
+
+    async function triggerFullSyncNative(isManual = true) {
+        console.log('[PureTidings Desktop] Full synchronization triggered.');
+        const syncBtns = [
+            document.getElementById('sidebar-sync-btn'),
+            document.getElementById('mobile-sync-btn')
+        ].filter(Boolean);
+        syncBtns.forEach(btn => btn.classList.add('spinning'));
+
+        try {
+            // 1. WebDAV cloud sync if configured
+            const { syncWebdavEnabled, syncWebdavUrl, syncWebdavUser, emailAccounts = [] } = await chrome.storage.sync.get([
+                'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser', 'emailAccounts'
+            ]);
+
+            let webdavRan = false;
+            if (syncWebdavEnabled && syncWebdavUrl && syncWebdavUser && typeof window.executeWebdavSync === 'function') {
+                webdavRan = true;
+                await window.executeWebdavSync({ manual: isManual });
+            }
+
+            // 2. Active IMAP email inboxes (fetch updates & sync read statuses)
+            const activeEmailAccounts = (Array.isArray(emailAccounts) ? emailAccounts : []).filter(a => a && a.enabled !== false);
+            if (activeEmailAccounts.length > 0 && typeof refreshSingleFeedNative === 'function') {
+                for (const acc of activeEmailAccounts) {
+                    await refreshSingleFeedNative('email_' + acc.id);
+                }
+            }
+
+            // 3. Recalculate unread counts & refresh view
+            if (typeof recalculateUnreadCounts === 'function') {
+                await recalculateUnreadCounts();
+            } else if (typeof updateUnreadCounters === 'function') {
+                await updateUnreadCounters();
+            }
+
+            // 4. Clean user feedback if WebDAV is not enabled
+            if (isManual) {
+                if (!webdavRan && activeEmailAccounts.length === 0) {
+                    if (typeof showInAppToast === 'function') {
+                        const hint = (window.i18n && window.i18n.t('toast_configure_sync_hint')) || 'WebDAV Cloud Sync is not configured. Configure it in Settings > Backup & Cloud to sync across devices.';
+                        showInAppToast('Cloud Sync', hint, false, 5000);
+                    }
+                } else if (!webdavRan && activeEmailAccounts.length > 0) {
+                    if (typeof showInAppToast === 'function') {
+                        showInAppToast('Inboxes Synced', 'Email inboxes synchronized successfully.');
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[PureTidings Desktop] Error during synchronization:', err);
+        } finally {
+            syncBtns.forEach(btn => btn.classList.remove('spinning'));
+        }
+    }
+    window.triggerFullSyncNative = triggerFullSyncNative;
 
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'visible') {
@@ -7044,6 +7097,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const menuBtn = document.getElementById('mobile-menu-btn');
         const closeBtn = document.getElementById('sidebar-close-btn');
         const mobileRefresh = document.getElementById('mobile-refresh-btn');
+        const mobileSync = document.getElementById('mobile-sync-btn');
         const mobileTheme = document.getElementById('mobile-theme-btn');
         const mobileSettings = document.getElementById('mobile-settings-btn');
         const mobileTitle = document.getElementById('mobile-page-title');
@@ -7098,6 +7152,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             mobileRefresh.addEventListener('click', () => {
                 const desktopRefresh = document.getElementById('sidebar-refresh-btn');
                 if (desktopRefresh) desktopRefresh.click();
+                else refreshAllFeedsNative();
+            });
+        }
+
+        if (mobileSync) {
+            mobileSync.addEventListener('click', () => {
+                if (typeof triggerFullSyncNative === 'function') triggerFullSyncNative();
             });
         }
 
@@ -7270,6 +7331,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             refreshBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 refreshAllFeedsNative();
+            });
+        }
+
+        const syncBtn = document.getElementById('sidebar-sync-btn');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (typeof triggerFullSyncNative === 'function') triggerFullSyncNative();
             });
         }
 
@@ -9177,6 +9246,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 }
 
                 isWebdavSyncing = true;
+                window.isWebdavSyncing = true;
+                const syncBtns = [
+                    document.getElementById('sidebar-sync-btn'),
+                    document.getElementById('mobile-sync-btn')
+                ].filter(Boolean);
+                syncBtns.forEach(btn => btn.classList.add('spinning'));
+
                 if (statusBox && (options.manual || statusBox.style.display === 'block')) {
                     statusBox.style.display = 'block';
                     statusBox.style.background = 'rgba(0, 123, 255, 0.15)';
@@ -9666,6 +9742,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             } finally {
                 isWebdavSyncing = false;
                 window.isWebdavSyncing = false;
+                const syncBtns = [
+                    document.getElementById('sidebar-sync-btn'),
+                    document.getElementById('mobile-sync-btn')
+                ].filter(Boolean);
+                syncBtns.forEach(btn => btn.classList.remove('spinning'));
             }
         }
 

@@ -19,6 +19,7 @@
             tooltip_quick_summarize: "Summarize any web page or video with AI",
             tooltip_settings: "Settings",
             tooltip_refresh: "Refresh Feeds (F5)",
+            tooltip_sync: "Sync Cloud & Inboxes",
             tooltip_refresh_feed: "Refresh this feed",
             tooltip_refresh_folder: "Refresh all feeds in this folder",
             tooltip_mark_feed_read: "Mark this feed as read",
@@ -272,6 +273,7 @@
             // Miscellaneous & Toasts
             toast_saved: "Settings Saved",
             toast_backup_created: "Backup created successfully",
+            toast_configure_sync_hint: "WebDAV Cloud Sync is not configured. Configure it in Settings > Backup & Cloud to sync across devices.",
             toast_feed_updated: "Feed Updated",
             toast_feed_refresh_failed: "Feed Refresh Failed",
             no_articles_found: "No articles found.",
@@ -298,6 +300,7 @@
             tooltip_quick_summarize: "Beliebige Webseite oder Video mit KI zusammenfassen",
             tooltip_settings: "Einstellungen",
             tooltip_refresh: "Feeds aktualisieren (F5)",
+            tooltip_sync: "Cloud & Postfächer synchronisieren",
             tooltip_refresh_feed: "Diesen Feed aktualisieren",
             tooltip_refresh_folder: "Alle Feeds in diesem Ordner aktualisieren",
             tooltip_mark_feed_read: "Diesen Feed als gelesen markieren",
@@ -551,6 +554,7 @@
             // Miscellaneous & Toasts
             toast_saved: "Einstellungen gespeichert",
             toast_backup_created: "Backup erfolgreich erstellt",
+            toast_configure_sync_hint: "WebDAV Cloud-Sync ist noch nicht eingerichtet. Richten Sie ihn unter Einstellungen > Backup & Cloud ein.",
             toast_feed_updated: "Feed aktualisiert",
             toast_feed_refresh_failed: "Feed-Aktualisierung fehlgeschlagen",
             no_articles_found: "Keine Artikel gefunden.",
@@ -577,6 +581,7 @@
             tooltip_quick_summarize: "Resumir cualquier página web o vídeo con IA",
             tooltip_settings: "Configuración",
             tooltip_refresh: "Actualizar feeds (F5)",
+            tooltip_sync: "Sincronizar nube y buzones",
             tooltip_refresh_feed: "Actualizar este feed",
             tooltip_refresh_folder: "Actualizar todos los feeds de esta carpeta",
             tooltip_mark_feed_read: "Marcar este feed como leído",
@@ -830,6 +835,7 @@
             // Miscellaneous & Toasts
             toast_saved: "Configuración guardada",
             toast_backup_created: "Copia de seguridad creada con éxito",
+            toast_configure_sync_hint: "WebDAV Cloud Sync no está configurado. Configúrelo en Configuración > Copia de seguridad y nube.",
             toast_feed_updated: "Feed actualizado",
             toast_feed_refresh_failed: "Error al actualizar el feed",
             no_articles_found: "No se encontraron artículos.",
@@ -856,6 +862,7 @@
             tooltip_quick_summarize: "Résumer n'importe quelle page web ou vidéo avec l'IA",
             tooltip_settings: "Paramètres",
             tooltip_refresh: "Actualiser les flux (F5)",
+            tooltip_sync: "Synchroniser le cloud et boîtes de réception",
             tooltip_refresh_feed: "Actualiser ce flux",
             tooltip_refresh_folder: "Actualiser tous les flux de ce dossier",
             tooltip_mark_feed_read: "Marquer ce flux comme lu",
@@ -1109,6 +1116,7 @@
             // Miscellaneous & Toasts
             toast_saved: "Paramètres enregistrés",
             toast_backup_created: "Sauvegarde créée avec succès",
+            toast_configure_sync_hint: "La synchronisation WebDAV n'est pas configurée. Configurez-la dans Paramètres > Sauvegarde & Cloud.",
             toast_feed_updated: "Flux mis à jour",
             toast_feed_refresh_failed: "Échec de mise à jour du flux",
             no_articles_found: "Aucun article trouvé.",
