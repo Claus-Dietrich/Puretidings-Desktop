@@ -3088,6 +3088,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     showInAppToast(title, msg);
                 }
             }
+            if (typeof scheduleNextAutoBackup === 'function') {
+                scheduleNextAutoBackup();
+            }
         } catch (err) {
             console.warn("[PureTidings Desktop] Error during background fetch cycle:", err);
         }
@@ -3302,10 +3305,22 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
     window.saveBackupFile = saveBackupFile;
 
+    let isAutoBackingUp = false;
     async function executeDailyAutoBackup() {
+        if (isAutoBackingUp) return;
+        isAutoBackingUp = true;
         try {
             const { autoBackupEnabled = false, backupFolderPath = '' } = await chrome.storage.sync.get(['autoBackupEnabled', 'backupFolderPath']);
             if (!autoBackupEnabled) return;
+
+            const pad = (n) => String(n).padStart(2, '0');
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+            const { lastAutoBackupDate = '' } = await chrome.storage.local.get('lastAutoBackupDate');
+            if (lastAutoBackupDate === todayStr) {
+                console.log(`[PureTidings Desktop] Backup for today (${todayStr}) has already been completed. Skipping duplicate execution.`);
+                return;
+            }
 
             const cleanFolder = sanitizeFolderPath(backupFolderPath);
             console.log("[PureTidings Desktop] Running scheduled daily backup...");
@@ -3321,7 +3336,6 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             const jsonFilename = `puretidings-backup-${timestamp}.json`;
             const jsonRes = await saveBackupFile(jsonFilename, json, 'application/json', cleanFolder);
 
-            const todayStr = new Date().toISOString().split('T')[0];
             await chrome.storage.local.set({ lastAutoBackupDate: todayStr });
 
             const destMsg = (opmlRes.directWrite && opmlRes.path)
@@ -3335,13 +3349,18 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             console.log("[PureTidings Desktop] Scheduled backup complete:", msg);
         } catch (err) {
             console.error("[PureTidings Desktop] Error executing scheduled daily backup:", err);
+        } finally {
+            isAutoBackingUp = false;
         }
     }
     window.executeDailyAutoBackup = executeDailyAutoBackup;
 
     let bgAutoBackupTimeout = null;
     async function scheduleNextAutoBackup() {
-        if (bgAutoBackupTimeout) clearTimeout(bgAutoBackupTimeout);
+        if (bgAutoBackupTimeout) {
+            clearTimeout(bgAutoBackupTimeout);
+            bgAutoBackupTimeout = null;
+        }
 
         const { autoBackupEnabled = false, autoBackupTime = '20:00' } = await chrome.storage.sync.get(['autoBackupEnabled', 'autoBackupTime']);
         if (!autoBackupEnabled) {
@@ -3354,33 +3373,36 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         const minutes = parseInt(timeParts[1], 10) || 0;
 
         const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
         const target = new Date();
         target.setHours(hours, minutes, 0, 0);
 
         const { lastAutoBackupDate = '' } = await chrome.storage.local.get('lastAutoBackupDate');
-        const todayStr = now.toISOString().split('T')[0];
 
+        // Check if scheduled time for today has already passed
         if (target.getTime() <= now.getTime()) {
             if (lastAutoBackupDate === todayStr) {
+                // Already backed up today (auto or manual) -> schedule for tomorrow at the same time
                 target.setDate(target.getDate() + 1);
             } else {
-                const diffMs = now.getTime() - target.getTime();
-                if (diffMs < 30 * 60 * 1000) {
-                    console.log("[PureTidings Desktop] Daily backup time was missed recently today. Scheduling in 5 seconds...");
-                    bgAutoBackupTimeout = setTimeout(async () => {
-                        await executeDailyAutoBackup();
-                        scheduleNextAutoBackup();
-                    }, 5000);
-                    return;
-                } else {
-                    target.setDate(target.getDate() + 1);
-                }
+                // Backup time has passed today AND no backup was created yet today -> trigger catch-up backup!
+                console.log(`[PureTidings Desktop] Daily backup time (${autoBackupTime}) has passed today and no backup was created yet (${lastAutoBackupDate || 'none'} vs ${todayStr}). Triggering catch-up backup in 5 seconds...`);
+                bgAutoBackupTimeout = setTimeout(async () => {
+                    await executeDailyAutoBackup();
+                    scheduleNextAutoBackup();
+                }, 5000);
+                return;
             }
+        } else if (lastAutoBackupDate === todayStr) {
+            // Target time is later today, but a backup was already created earlier today (e.g. manual backup) -> advance to tomorrow
+            target.setDate(target.getDate() + 1);
         }
 
         const delayMs = Math.max(1000, target.getTime() - now.getTime());
         const delayMins = Math.round(delayMs / 60000);
-        console.log(`[PureTidings Desktop] Next automated backup scheduled for ${target.toLocaleTimeString()} (${delayMins} min(s) from now).`);
+        console.log(`[PureTidings Desktop] Next automated backup scheduled for ${target.toLocaleDateString()} ${target.toLocaleTimeString()} (${delayMins} min(s) from now).`);
 
         bgAutoBackupTimeout = setTimeout(async () => {
             await executeDailyAutoBackup();
@@ -7889,6 +7911,12 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         ? `Saved to: ${folderPath}`
                         : "Files downloaded";
 
+                    const pad = (n) => String(n).padStart(2, '0');
+                    const now = new Date();
+                    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+                    await chrome.storage.local.set({ lastAutoBackupDate: todayStr });
+                    if (typeof scheduleNextAutoBackup === 'function') scheduleNextAutoBackup();
+
                     if (runBackupStatus) {
                         runBackupStatus.textContent = `✓ Created successfully (${opmlCount} feeds)! ${destMsg}`;
                         runBackupStatus.style.color = "#28a745";
@@ -9481,6 +9509,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         executeWebdavSync({ manual: false });
                     }
                 }).catch(() => {});
+            }
+            if (typeof scheduleNextAutoBackup === 'function') {
+                scheduleNextAutoBackup();
             }
         });
 
