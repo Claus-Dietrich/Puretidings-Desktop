@@ -22,7 +22,7 @@ async fn fetch_url(url: String) -> Result<String, String> {
     let mut headers = HeaderMap::new();
     headers.insert(
         USER_AGENT,
-        HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 PureTidingsDesktop/1.0"),
+        HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
     );
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
@@ -36,13 +36,23 @@ async fn fetch_url(url: String) -> Result<String, String> {
 
     let res = client
         .get(&url)
-        .headers(headers)
+        .headers(headers.clone())
         .send()
         .await
         .map_err(|e| format!("Network request failed: {}", e))?;
 
     let status = res.status();
     if !status.is_success() {
+        if status.as_u16() == 404 && url.contains("youtube.com/feeds/videos.xml?channel_id=UC") {
+            let alt_url = url.replace("channel_id=UC", "playlist_id=UU");
+            if let Ok(alt_res) = client.get(&alt_url).headers(headers).send().await {
+                if alt_res.status().is_success() {
+                    if let Ok(alt_body) = alt_res.text().await {
+                        return Ok(alt_body);
+                    }
+                }
+            }
+        }
         return Err(format!("HTTP Error {}", status));
     }
 

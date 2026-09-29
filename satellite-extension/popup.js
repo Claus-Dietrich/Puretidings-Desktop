@@ -577,8 +577,8 @@ async function syncActiveFeedPosts(feedId) {
   const isEmail = isEmailFeed(node, feedId);
   const isKnownInAllPosts = (strFeedId in allPosts) || (feedId in allPosts) || (node?.url && node.url in allPosts);
 
-  // If already found, known in snapshot, or is an email inbox (which is legitimately empty when posts is empty), return immediately without polling
-  if (posts.length > 0 || isKnownInAllPosts || isEmail) {
+  // If already found with posts, or is an email inbox (which is legitimately empty when posts is empty), return immediately without polling
+  if (posts.length > 0 || isEmail) {
     await chrome.storage.local.set({ posts: posts || [] });
     return posts || [];
   }

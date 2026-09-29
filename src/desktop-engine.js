@@ -1037,6 +1037,119 @@
     // ==========================================
     // 5. Native Feed Fetcher & Parser
     // ==========================================
+    function parseYoutubeChannelHtml(htmlString, feed) {
+        if (!htmlString || typeof htmlString !== 'string') return [];
+        const posts = [];
+        let channelTitle = feed?.name || 'YouTube Channel';
+
+        try {
+            const m = htmlString.match(/ytInitialData\s*=\s*({.+?});\s*<\/script>/s) || htmlString.match(/var ytInitialData = ({.*?});<\/script>/);
+            if (m) {
+                const data = JSON.parse(m[1]);
+                const metaTitle = data?.metadata?.channelMetadataRenderer?.title;
+                if (metaTitle) channelTitle = metaTitle;
+
+                const tabs = data?.contents?.twoColumnBrowseResultsRenderer?.tabs;
+                const videosTab = tabs?.find(t => t?.tabRenderer?.content?.richGridRenderer);
+                const contents = videosTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
+
+                for (const c of contents) {
+                    const lockup = c?.richItemRenderer?.content?.lockupViewModel;
+                    const vRenderer = c?.richItemRenderer?.content?.videoRenderer;
+
+                    let videoId = '';
+                    let title = '';
+                    let thumbnail = '';
+                    let relativeTime = '';
+
+                    if (lockup && lockup.contentId) {
+                        videoId = lockup.contentId;
+                        title = lockup.metadata?.lockupMetadataViewModel?.title?.content || 'Untitled Video';
+                        const sources = lockup.contentImage?.thumbnailViewModel?.image?.sources;
+                        if (sources && sources.length > 0) {
+                            thumbnail = sources[sources.length - 1].url || sources[0].url;
+                        }
+                        const metaRows = lockup.metadata?.lockupMetadataViewModel?.metadata?.contentMetadataViewModel?.metadataRows;
+                        if (Array.isArray(metaRows)) {
+                            for (const row of metaRows) {
+                                for (const part of (row.metadataParts || [])) {
+                                    const text = part?.text?.content || '';
+                                    if (text.includes('ago')) relativeTime = text;
+                                }
+                            }
+                        }
+                    } else if (vRenderer && vRenderer.videoId) {
+                        videoId = vRenderer.videoId;
+                        title = (vRenderer.title?.runs && vRenderer.title.runs[0]?.text) || vRenderer.title?.simpleText || 'Untitled Video';
+                        const thumbs = vRenderer.thumbnail?.thumbnails;
+                        if (thumbs && thumbs.length > 0) {
+                            thumbnail = thumbs[thumbs.length - 1].url || thumbs[0].url;
+                        }
+                        relativeTime = vRenderer.publishedTimeText?.simpleText || '';
+                    }
+
+                    if (videoId) {
+                        if (!thumbnail) {
+                            thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+                        }
+
+                        let date = new Date().toISOString();
+                        if (relativeTime) {
+                            const numMatch = relativeTime.match(/(\d+)\s*(minute|hour|day|week|month|year)s?\s*ago/i);
+                            if (numMatch) {
+                                const val = parseInt(numMatch[1], 10);
+                                const unit = numMatch[2].toLowerCase();
+                                const d = new Date();
+                                if (unit === 'minute') d.setMinutes(d.getMinutes() - val);
+                                else if (unit === 'hour') d.setHours(d.getHours() - val);
+                                else if (unit === 'day') d.setDate(d.getDate() - val);
+                                else if (unit === 'week') d.setDate(d.getDate() - (val * 7));
+                                else if (unit === 'month') d.setMonth(d.getMonth() - val);
+                                else if (unit === 'year') d.setFullYear(d.getFullYear() - val);
+                                date = d.toISOString();
+                            }
+                        }
+
+                        posts.push({
+                            feedId: feed.id,
+                            feedName: feed.name || channelTitle,
+                            title: title.replace(/<[^>]+>/g, '').trim(),
+                            link: `https://www.youtube.com/watch?v=${videoId}`,
+                            date,
+                            description: `<p><a href="https://www.youtube.com/watch?v=${videoId}"><img src="${thumbnail}" alt="${title}"></a></p><p>${title}</p>`,
+                            author: channelTitle,
+                            featuredImage: thumbnail
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[PureTidings Desktop] Error parsing YouTube channel HTML:', e);
+        }
+
+        if (posts.length === 0 && htmlString.includes('videoId')) {
+            const videoIdMatches = [...htmlString.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)];
+            const uniqueIds = [...new Set(videoIdMatches.map(x => x[1]))].slice(0, 30);
+            for (const vid of uniqueIds) {
+                posts.push({
+                    feedId: feed.id,
+                    feedName: feed.name || channelTitle,
+                    title: 'YouTube Video',
+                    link: `https://www.youtube.com/watch?v=${vid}`,
+                    date: new Date().toISOString(),
+                    description: `<p><a href="https://www.youtube.com/watch?v=${vid}"><img src="https://i.ytimg.com/vi/${vid}/hqdefault.jpg" alt="Video"></a></p>`,
+                    author: channelTitle,
+                    featuredImage: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
+                });
+            }
+        }
+
+        if (posts.length > 0) {
+            posts.feedTitle = channelTitle;
+        }
+        return posts;
+    }
+
     function parseFeedXml(xmlString, feed) {
         if (!xmlString || typeof xmlString !== 'string') return [];
         const parser = new DOMParser();
@@ -1057,6 +1170,11 @@
         let items = doc.getElementsByTagName("item");
         if (items.length === 0) {
             items = doc.getElementsByTagName("entry");
+        }
+
+        if (items.length === 0 && (xmlString.includes('ytInitialData') || (feed && feed.url && feed.url.includes('youtube.com')))) {
+            const ytPosts = parseYoutubeChannelHtml(xmlString, feed);
+            if (ytPosts && ytPosts.length > 0) return ytPosts;
         }
 
         const posts = [];
@@ -1203,6 +1321,50 @@
         }
         posts.feedTitle = feedTitle;
         return posts;
+    }
+
+    async function fetchFeedWithFallback(feed) {
+        if (!feed || !feed.url) return [];
+        let posts = [];
+        const isYouTube = feed.url.includes('youtube.com') || feed.url.includes('youtu.be');
+
+        // Tier 1: Primary feed URL
+        try {
+            const xml = await tauriInvoke('fetch_url', { url: feed.url });
+            posts = parseFeedXml(xml, feed);
+        } catch (err) {
+            console.warn(`[PureTidings Desktop] Tier 1 fetch failed for ${feed.name || feed.url}:`, err);
+        }
+
+        // Tier 2 (YouTube only): Uploads playlist UU fallback
+        if (isYouTube && (!posts || posts.length === 0)) {
+            const chanMatch = feed.url.match(/channel_id=(UC[a-zA-Z0-9_-]+)/);
+            if (chanMatch) {
+                const channelId = chanMatch[1];
+                const playlistUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${channelId.slice(2)}`;
+                try {
+                    console.log(`[PureTidings Desktop] Tier 2: Trying YouTube uploads playlist fallback for ${feed.name || channelId}...`);
+                    const xml = await tauriInvoke('fetch_url', { url: playlistUrl });
+                    posts = parseFeedXml(xml, feed);
+                } catch (err) {
+                    console.warn(`[PureTidings Desktop] Tier 2 playlist fallback failed for ${feed.name || channelId}:`, err);
+                }
+
+                // Tier 3 (YouTube only): Direct channel /videos HTML scrape
+                if (!posts || posts.length === 0) {
+                    const channelVideosUrl = `https://www.youtube.com/channel/${channelId}/videos`;
+                    try {
+                        console.log(`[PureTidings Desktop] Tier 3: Trying YouTube channel /videos HTML fallback for ${feed.name || channelId}...`);
+                        const html = await tauriInvoke('fetch_url', { url: channelVideosUrl });
+                        posts = parseYoutubeChannelHtml(html, feed);
+                    } catch (err) {
+                        console.warn(`[PureTidings Desktop] Tier 3 channel HTML fallback failed for ${feed.name || channelId}:`, err);
+                    }
+                }
+            }
+        }
+
+        return posts || [];
     }
 
     // ==========================================
@@ -1490,10 +1652,11 @@
         if (loading) loading.classList.remove('hidden');
 
         try {
-            const rawTree = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks']);
+            const rawTree = await chrome.storage.local.get(['feedTree', 'allPosts', 'readLinks', 'unreadCounts']);
             const feedTree = Array.isArray(rawTree?.feedTree) ? rawTree.feedTree : [];
             const allPosts = (rawTree?.allPosts && typeof rawTree.allPosts === 'object') ? rawTree.allPosts : {};
             const readLinks = Array.isArray(rawTree?.readLinks) ? rawTree.readLinks : [];
+            const existingUnreadCounts = (rawTree?.unreadCounts && typeof rawTree.unreadCounts === 'object') ? rawTree.unreadCounts : {};
 
             const rawSync = await chrome.storage.sync.get(['rules', 'emailAccounts']);
             const rules = Array.isArray(rawSync?.rules) ? rawSync.rules : [];
@@ -1524,7 +1687,7 @@
             }
 
             const newAllPosts = { ...allPosts };
-            const unreadCounts = {};
+            const unreadCounts = { ...existingUnreadCounts };
 
             // Cache previously fetched images to prevent flickering or losing thumbnails
             const existingImageMap = new Map();
@@ -1538,12 +1701,21 @@
                 }
             }
 
+            // Stagger YouTube feeds (200ms jitter) to prevent hitting YouTube anti-bot rate limits
+            let ytIndex = 0;
+
             // Fetch RSS feeds and Email inboxes in parallel
             await Promise.all([
                 ...feeds.map(async (feed) => {
                     try {
-                        const xml = await tauriInvoke('fetch_url', { url: feed.url });
-                        const posts = parseFeedXml(xml, feed);
+                        const isYouTube = feed.url && (feed.url.includes('youtube.com') || feed.url.includes('youtu.be'));
+                        if (isYouTube) {
+                            const delay = (ytIndex++) * 200;
+                            if (delay > 0) {
+                                await new Promise(r => setTimeout(r, delay));
+                            }
+                        }
+                        const posts = await fetchFeedWithFallback(feed);
                         if (posts && posts.feedTitle) {
                             const nameLower = (feed.name || '').toLowerCase();
                             const isGeneric = !feed.name ||
@@ -1634,16 +1806,32 @@
                 })
             ]);
 
-            // Final sync
+            // Final sync: Non-destructive preservation of unread counts
             for (const feed of feeds) {
                 if (unreadCounts[feed.id] === undefined) {
-                    unreadCounts[feed.id] = 0;
+                    if (newAllPosts[feed.id] && newAllPosts[feed.id].length > 0) {
+                        let count = 0;
+                        newAllPosts[feed.id].forEach(p => {
+                            if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                        });
+                        unreadCounts[feed.id] = count;
+                    } else {
+                        unreadCounts[feed.id] = existingUnreadCounts[feed.id] || 0;
+                    }
                 }
             }
             for (const acc of activeEmailAccounts) {
                 const fId = 'email_' + acc.id;
                 if (unreadCounts[fId] === undefined) {
-                    unreadCounts[fId] = 0;
+                    if (newAllPosts[fId] && newAllPosts[fId].length > 0) {
+                        let count = 0;
+                        newAllPosts[fId].forEach(p => {
+                            if (!p.isHidden && !readLinksSet.has(p.link)) count++;
+                        });
+                        unreadCounts[fId] = count;
+                    } else {
+                        unreadCounts[fId] = existingUnreadCounts[fId] || 0;
+                    }
                 }
             }
             await chrome.storage.local.set({
@@ -1744,8 +1932,7 @@
                 });
             }
 
-            const xml = await tauriInvoke('fetch_url', { url: targetFeed.url });
-            const posts = parseFeedXml(xml, targetFeed);
+            const posts = await fetchFeedWithFallback(targetFeed);
             if (posts && posts.feedTitle) {
                 const targetNameLower = (targetFeed.name || '').toLowerCase();
                 const isGenericName = !targetFeed.name || 
@@ -6816,10 +7003,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
         })();
 
-        // Auto-recover any email inboxes that have unread counts but missing articles due to previous storage quota errors
+        // Auto-recover any feeds (email, RSS, YouTube) that have missing articles
         setTimeout(async () => {
             try {
-                const { allPosts = {}, unreadCounts = {} } = await chrome.storage.local.get(['allPosts', 'unreadCounts']);
+                const { allPosts = {}, unreadCounts = {}, feedTree = [] } = await chrome.storage.local.get(['allPosts', 'unreadCounts', 'feedTree']);
                 const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
                 const activeEmailAccounts = emailAccounts.filter(a => a && a.enabled !== false);
                 for (const account of activeEmailAccounts) {
@@ -6830,6 +7017,30 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         console.log(`[PureTidings Desktop] Auto-recovering missing articles for email account: ${account.name || account.username} (${feedId})`);
                         refreshSingleFeedNative(feedId);
                     }
+                }
+
+                // Auto-recover empty RSS/YouTube feeds
+                const emptyFeeds = [];
+                function findEmptyFeeds(nodes) {
+                    for (const n of (nodes || [])) {
+                        if (n.type === 'feed' && n.id && !n.id.startsWith('email_') && !n.isEmail) {
+                            const posts = allPosts[n.id];
+                            if (!posts || posts.length === 0) {
+                                emptyFeeds.push(n.id);
+                            }
+                        } else if (n.type === 'folder' && n.children) {
+                            findEmptyFeeds(n.children);
+                        }
+                    }
+                }
+                findEmptyFeeds(feedTree);
+                if (emptyFeeds.length > 0) {
+                    console.log(`[PureTidings Desktop] Auto-recovering ${emptyFeeds.length} empty RSS/YouTube feeds...`);
+                    emptyFeeds.forEach((fId, idx) => {
+                        setTimeout(() => {
+                            refreshSingleFeedNative(fId);
+                        }, (idx + 1) * 350);
+                    });
                 }
             } catch (recoveryErr) {
                 console.warn('[PureTidings Desktop] Auto-recovery check error:', recoveryErr);

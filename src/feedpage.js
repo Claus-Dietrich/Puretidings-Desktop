@@ -1155,12 +1155,10 @@ function handleTreeToggle(event) {
         if (isNowHidden) expandedFeeds.delete(nodeId);
         else {
             expandedFeeds.add(nodeId);
-            // If this is an email feed and currently has no posts loaded, trigger single feed refresh
-            if (nodeId.startsWith('email_')) {
-                if ((!allPostsData[nodeId] || allPostsData[nodeId].length === 0) && window.refreshSingleFeedNative) {
-                    window.refreshSingleFeedNative(nodeId);
-                }
-            } else {
+            // If any feed currently has no posts loaded, trigger single feed refresh
+            if ((!allPostsData[nodeId] || allPostsData[nodeId].length === 0) && window.refreshSingleFeedNative) {
+                window.refreshSingleFeedNative(nodeId);
+            } else if (!nodeId.startsWith('email_')) {
                 // Trigger background refetch of missing OG images when feed is expanded (RSS only)
                 chrome.runtime.sendMessage({ action: "refetchOgImages", feedId: nodeId }).catch(() => {});
             }

@@ -1199,8 +1199,8 @@ async function fetchAllFeedsAndUpdate(isForce = false, targetFeedId = null) {
 
     let newTotalUnreadCount = 0;
     let newNotificationMatchCount = 0;
-    let individualUnreadCounts = targetFeedId ? { ...existingUnreadCounts } : {};
-    let allPostsData = targetFeedId ? { ...existingAllPosts } : {};
+    let individualUnreadCounts = { ...existingUnreadCounts };
+    let allPostsData = { ...existingAllPosts };
 
     await ensureOffscreenDocument();
 
@@ -1273,10 +1273,19 @@ async function fetchAllFeedsAndUpdate(isForce = false, targetFeedId = null) {
             }
             // Standard feed logic
             const isYouTube = feed.url.includes('youtube.com');
-            const response = await fetch(feed.url, { 
+            let response = await fetch(feed.url, { 
               cache: 'no-store',
               credentials: isYouTube ? 'omit' : 'include' 
             });
+            if (!response.ok && isYouTube && feed.url.includes('channel_id=UC')) {
+              try {
+                const playlistUrl = feed.url.replace('channel_id=UC', 'playlist_id=UU');
+                const altRes = await fetch(playlistUrl, { cache: 'no-store', credentials: 'omit' });
+                if (altRes.ok) {
+                  response = altRes;
+                }
+              } catch (_) {}
+            }
             if (!response.ok) { continue; }        
             const xmlString = await response.text();
             const result = await callOffscreenParser(xmlString, feed.fetchOgImage !== false);
@@ -1351,8 +1360,18 @@ async function fetchAllFeedsAndUpdate(isForce = false, targetFeedId = null) {
       } catch (error) {
         console.log(`Error processing feed ${feed.name}:`, error.message || error);
       } finally {
-        individualUnreadCounts[feed.id] = feedUnreadCount;
-        if (!allPostsData[feed.id]) allPostsData[feed.id] = [];
+        if (parsedPosts && parsedPosts.length > 0) {
+          individualUnreadCounts[feed.id] = feedUnreadCount;
+        } else if (existingAllPosts[feed.id] && existingAllPosts[feed.id].length > 0) {
+          // Preserve existing cached posts and unread count on fetch failure
+          allPostsData[feed.id] = existingAllPosts[feed.id];
+          if (existingUnreadCounts[feed.id] !== undefined) {
+            individualUnreadCounts[feed.id] = existingUnreadCounts[feed.id];
+          }
+        } else {
+          individualUnreadCounts[feed.id] = feedUnreadCount;
+          if (!allPostsData[feed.id]) allPostsData[feed.id] = [];
+        }
       }
     }
     
