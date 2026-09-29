@@ -703,10 +703,24 @@
                             try { fn(changes, 'local'); } catch (err) { console.error(err); }
                         });
 
-                        // Trigger debounced WebDAV sync if any synced content changed
+                        // Trigger debounced WebDAV sync if any synced content genuinely changed
                         const syncLocalKeys = ['readLinks', 'favoritedLinks', 'summaryLinks', 'feedTree', 'unreadArticleUrls'];
-                        const hasSyncKey = Object.keys(items).some(k => syncLocalKeys.includes(k));
-                        if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
+                        let hasGenuineSyncChange = false;
+                        for (const k of syncLocalKeys) {
+                            if (k in changes) {
+                                const ch = changes[k];
+                                try {
+                                    if (JSON.stringify(ch.oldValue) !== JSON.stringify(ch.newValue)) {
+                                        hasGenuineSyncChange = true;
+                                        break;
+                                    }
+                                } catch (_) {
+                                    hasGenuineSyncChange = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hasGenuineSyncChange && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
                             scheduleWebdavDebouncedSync();
                         }
 
@@ -837,10 +851,24 @@
                             try { fn(changes, 'sync'); } catch (err) { console.error(err); }
                         });
 
-                        // Trigger debounced WebDAV sync if any synced key changed
+                        // Trigger debounced WebDAV sync if any synced key genuinely changed
                         const syncSyncKeys = ['rules', 'emailAccounts', 'appLanguage', 'syncWebdavEnabled', 'syncWebdavUrl', 'syncWebdavUser', 'syncWebdavPass', 'syncWebdavPath', 'syncWebdavAuto'];
-                        const hasSyncKey = Object.keys(items).some(k => syncSyncKeys.includes(k));
-                        if (hasSyncKey && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
+                        let hasGenuineSyncChange = false;
+                        for (const k of syncSyncKeys) {
+                            if (k in changes) {
+                                const ch = changes[k];
+                                try {
+                                    if (JSON.stringify(ch.oldValue) !== JSON.stringify(ch.newValue)) {
+                                        hasGenuineSyncChange = true;
+                                        break;
+                                    }
+                                } catch (_) {
+                                    hasGenuineSyncChange = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (hasGenuineSyncChange && !isWebdavSyncing && !window.isWebdavSyncing && typeof scheduleWebdavDebouncedSync === 'function') {
                             scheduleWebdavDebouncedSync();
                         }
 
@@ -1903,11 +1931,15 @@
                 const { unreadCounts = {} } = await chrome.storage.local.get(['unreadCounts']);
                 const newUnreadCounts = { ...unreadCounts, [targetFeedId]: count };
 
-                await chrome.storage.local.set({
+                const readLinksArr = Array.from(readLinksSet);
+                const storagePayload = {
                     allPosts: newAllPosts,
-                    unreadCounts: newUnreadCounts,
-                    readLinks: Array.from(readLinksSet)
-                });
+                    unreadCounts: newUnreadCounts
+                };
+                if (readLinksArr.length !== readLinks.length || readLinksArr.some((l, idx) => l !== readLinks[idx])) {
+                    storagePayload.readLinks = readLinksArr;
+                }
+                await chrome.storage.local.set(storagePayload);
                 return;
             }
 
@@ -3010,20 +3042,24 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     let lastResumeSyncTime = 0;
     async function handleAppResumeSync() {
+        const isAppAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+        // Only run automatic resume sync on mobile Android when returning from background
+        if (!isAppAndroid) return;
+
         const now = Date.now();
-        // Throttle to at most once every 15 seconds to avoid repeated calls
-        if (now - lastResumeSyncTime < 15000) return;
+        // Throttle to at most once every 5 minutes (300,000 ms) to preserve device performance and battery
+        if (now - lastResumeSyncTime < 300000) return;
         lastResumeSyncTime = now;
 
-        console.log('[PureTidings Desktop] App foregrounded/resumed. Synchronizing state...');
+        console.log('[PureTidings Mobile] App resumed on Android. Synchronizing state...');
         try {
-            // 1. If WebDAV is enabled and auto-sync is on, pull any updates from other devices
+            // 1. If WebDAV is enabled and auto-sync is on, pull any updates from other devices (flags, favorites)
             const { syncWebdavEnabled, syncWebdavAuto } = await chrome.storage.sync.get(['syncWebdavEnabled', 'syncWebdavAuto']);
             if (syncWebdavEnabled && syncWebdavAuto !== false && typeof window.executeWebdavSync === 'function') {
-                await window.executeWebdavSync({ manual: false, forcePull: true });
+                await window.executeWebdavSync({ manual: false, forcePull: false });
             }
 
-            // 2. Refresh active IMAP email inboxes so emails read or received in other apps sync immediately
+            // 2. Refresh active IMAP email inboxes so emails read or received in other apps sync
             const { emailAccounts = [] } = await chrome.storage.sync.get('emailAccounts');
             const activeEmailAccounts = (Array.isArray(emailAccounts) ? emailAccounts : []).filter(a => a && a.enabled !== false);
             if (activeEmailAccounts.length > 0 && typeof refreshSingleFeedNative === 'function') {
@@ -3037,7 +3073,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 await recalculateUnreadCounts();
             }
         } catch (err) {
-            console.warn('[PureTidings Desktop] Error during app resume sync:', err);
+            console.warn('[PureTidings Mobile] Error during app resume sync:', err);
         }
     }
     window.handleAppResumeSync = handleAppResumeSync;
@@ -3104,18 +3140,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 const { keepScreenAwake } = await chrome.storage.sync.get(['keepScreenAwake']);
                 if (keepScreenAwake) applyWakeLock(true);
             } catch (_) {}
-            handleAppResumeSync();
+            const isAppAndroid = document.documentElement.classList.contains('is-android') || /Android/i.test(navigator.userAgent);
+            if (isAppAndroid) {
+                handleAppResumeSync();
+            }
         }
     });
 
-    window.addEventListener('focus', () => {
-        handleAppResumeSync();
-    });
-
     if (window.__TAURI__?.event?.listen) {
-        window.__TAURI__.event.listen('tauri://focus', () => {
-            handleAppResumeSync();
-        });
         window.__TAURI__.event.listen('tauri://resume', () => {
             handleAppResumeSync();
         });
@@ -9389,13 +9421,40 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                                                   (localLastEdited > remoteTreeUpdatedAt) ||
                                                   (finalTreeUpdatedAt > remoteTreeUpdatedAt);
 
+                    // Helper to collect existing feed URLs already known locally
+                    const existingLocalUrls = new Set();
+                    function collectExistingLocalUrls(nodes) {
+                        if (!Array.isArray(nodes)) return;
+                        for (const n of nodes) {
+                            if (n.type === 'feed' && n.url) existingLocalUrls.add(normUrl(n.url));
+                            if (n.type === 'folder' && Array.isArray(n.children)) collectExistingLocalUrls(n.children);
+                        }
+                    }
+                    collectExistingLocalUrls(localData.feedTree || []);
+
+                    function extractBrandNewFeeds(nodes) {
+                        const res = [];
+                        if (!Array.isArray(nodes)) return res;
+                        for (const n of nodes) {
+                            if (n.type === 'feed' && n.url && !n.isEmail && !String(n.id).startsWith('email_')) {
+                                if (!existingLocalUrls.has(normUrl(n.url))) {
+                                    res.push(n);
+                                }
+                            }
+                            if (n.type === 'folder' && Array.isArray(n.children)) {
+                                res.push(...extractBrandNewFeeds(n.children));
+                            }
+                        }
+                        return res;
+                    }
+
                     if (options.forcePull) {
                         console.log('[PureTidings WebDAV] Force Pull: Overwriting local tree with cloud tree.');
                         finalTree = remoteTree;
                         finalTreeUpdatedAt = remoteTreeUpdatedAt;
                         localNeedsSave = true;
                         remoteNeedsUpload = false;
-                        newlyAddedFeeds = remoteTree;
+                        newlyAddedFeeds = extractBrandNewFeeds(remoteTree);
                     }
                     // Case 1: Fresh install: Local is default, Remote has user's cloud feeds
                     else if (!localHasUnsyncedEdits && isLocalDefault && !isRemoteDefault && remoteTree.length > 0) {
@@ -9404,7 +9463,7 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                         finalTreeUpdatedAt = remoteTreeUpdatedAt;
                         localNeedsSave = true;
                         remoteNeedsUpload = false;
-                        newlyAddedFeeds = remoteTree;
+                        newlyAddedFeeds = extractBrandNewFeeds(remoteTree);
                     }
                     // Case 2: Remote is default or empty, Local has custom feeds
                     else if ((!remoteObj || isRemoteDefault) && !isLocalDefault && finalTree.length > 0) {
@@ -9632,12 +9691,14 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                     if (typeof syncEmailAccountsToFeedTree === 'function') await syncEmailAccountsToFeedTree();
                     if (typeof switchView === 'function') switchView(currentViewMode, true);
 
-                    // Auto-fetch newly added feeds
+                    // Auto-fetch genuinely new feeds with staggered delays to prevent thread pool exhaustion
                     if (newlyAddedFeeds.length > 0) {
                         console.log(`[PureTidings WebDAV] Automatically fetching ${newlyAddedFeeds.length} new feeds from cloud sync...`);
-                        newlyAddedFeeds.forEach(feed => {
+                        newlyAddedFeeds.forEach((feed, idx) => {
                             if (feed.id && !feed.isEmail && typeof refreshSingleFeedNative === 'function') {
-                                refreshSingleFeedNative(feed.id).catch(() => {});
+                                setTimeout(() => {
+                                    refreshSingleFeedNative(feed.id).catch(() => {});
+                                }, idx * 500);
                             }
                         });
                     }
