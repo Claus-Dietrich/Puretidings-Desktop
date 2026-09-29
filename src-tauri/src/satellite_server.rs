@@ -393,7 +393,7 @@ mod desktop_impl {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="referrer" content="no-referrer">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>YouTube Player</title>
   <style>
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -407,6 +407,7 @@ mod desktop_impl {
     title="YouTube video player"
     frameborder="0"
     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerpolicy="strict-origin-when-cross-origin"
     allowfullscreen>
   </iframe>
   <script>

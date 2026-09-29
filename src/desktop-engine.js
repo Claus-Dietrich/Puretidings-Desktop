@@ -5105,12 +5105,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
                 return;
             }
 
-            const embedSrc = (window.isDesktop && !window.isAndroid)
-                ? `http://127.0.0.1:41789/youtube-embed?v=${encodeURIComponent(videoId)}`
-                : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?enablejsapi=1`;
             videoEl.innerHTML = `
                 <div class="reader-video-wrapper">
-                    <iframe src="${embedSrc}" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+                    <iframe id="reader-youtube-iframe" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?enablejsapi=1&rel=0&modestbranding=1" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin"></iframe>
                 </div>
             `;
         } else {
