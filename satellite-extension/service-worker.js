@@ -1212,9 +1212,9 @@ async function fetchAllFeedsAndUpdate(isForce = false, targetFeedId = null) {
       }
       
       let feedUnreadCount = 0;
+      let parsedPosts = [];
+      let feedTitle = null;
       try {
-        let parsedPosts = [];
-        let feedTitle = null;
 
         const isGmailFeed = feed.url.includes('mail.google.com/mail/') && (feed.url.includes('/atom') || feed.url.includes('/feed'));
         let gmailToken = null;
