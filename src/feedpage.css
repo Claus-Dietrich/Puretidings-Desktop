@@ -792,15 +792,48 @@ main {
     opacity: 1 !important;
   }
 
+  .mobile-app-title-wrapper {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-width: 0;
+    max-width: 55%;
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
   .mobile-app-title {
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--text-color);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 50%;
+    width: 100%;
     text-align: center;
+    line-height: 1.2;
+  }
+
+  .mobile-app-subtitle {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--secondary-text-color, #888888);
+    opacity: 0.75;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+    text-align: center;
+    line-height: 1.2;
+    margin-top: 2px;
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.2s;
+  }
+
+  .mobile-app-subtitle:active {
+    opacity: 1;
   }
 
   .mobile-app-actions {

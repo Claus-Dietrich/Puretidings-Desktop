@@ -200,6 +200,69 @@ function timeAgo(isoDate) {
 }
 
 /**
+ * Formats feed fetch countdown or current status into a human-readable string.
+ * @param {Object} info - { nextFetchTimestamp, isFetching, isAutoFetchOff, isSleeping, sleepingUntil }
+ * @param {string} lang - 'en' | 'de' | 'es' | 'fr'
+ * @returns {string}
+ */
+function formatCountdownStatus(info, lang = 'en') {
+  if (!info) return '';
+  const l = (lang || 'en').toLowerCase().substring(0, 2);
+
+  if (info.isFetching) {
+    if (l === 'de') return "Feeds werden abgerufen...";
+    if (l === 'es') return "Actualizando feeds...";
+    if (l === 'fr') return "Vérification des flux...";
+    return "Checking feeds...";
+  }
+
+  if (info.isAutoFetchOff) {
+    if (l === 'de') return "Autom. Abruf: Aus";
+    if (l === 'es') return "Actualización autom.: Desactivada";
+    if (l === 'fr') return "Récupération auto : Désactivée";
+    return "Auto-fetch: OFF";
+  }
+
+  if (info.isSleeping) {
+    const time = info.sleepingUntil || '';
+    if (l === 'de') return time ? `Ruht bis ${time}` : "Ruht außerhalb Zeitplan";
+    if (l === 'es') return time ? `Pausa hasta ${time}` : "Pausa fuera de horario";
+    if (l === 'fr') return time ? `En pause jusqu'à ${time}` : "En pause";
+    return time ? `Sleeping until ${time}` : "Sleeping (off schedule)";
+  }
+
+  const targetTs = Number(info.nextFetchTimestamp);
+  if (!targetTs || isNaN(targetTs) || targetTs <= 0) {
+    if (l === 'de') return "Autom. Abruf: Aus";
+    if (l === 'es') return "Actualización autom.: Desactivada";
+    if (l === 'fr') return "Récupération auto : Désactivée";
+    return "Auto-fetch: OFF";
+  }
+
+  const remainingSeconds = Math.round((targetTs - Date.now()) / 1000);
+
+  if (remainingSeconds <= 1) {
+    if (l === 'de') return "Nächster Abruf: Gleich...";
+    if (l === 'es') return "Próxima actualización: Pronto...";
+    if (l === 'fr') return "Prochaine vérification : Bientôt...";
+    return "Next check: Soon...";
+  }
+
+  if (remainingSeconds < 60) {
+    if (l === 'de') return `Nächster Abruf: in ${remainingSeconds}s`;
+    if (l === 'es') return `Próxima actualización: en ${remainingSeconds}s`;
+    if (l === 'fr') return `Prochaine vérification : dans ${remainingSeconds}s`;
+    return `Next check: in ${remainingSeconds}s`;
+  }
+
+  const remainingMinutes = Math.round(remainingSeconds / 60);
+  if (l === 'de') return `Nächster Abruf: in ca. ${remainingMinutes} Min.`;
+  if (l === 'es') return `Próxima actualización: en aprox. ${remainingMinutes} min`;
+  if (l === 'fr') return `Prochaine vérification : dans env. ${remainingMinutes} min`;
+  return `Next check: in approx. ${remainingMinutes} min`;
+}
+
+/**
  * Parses multi-language relative date strings (EN, DE, ES, FR) into ISO timestamps.
  */
 function parseRelativeDate(text) {

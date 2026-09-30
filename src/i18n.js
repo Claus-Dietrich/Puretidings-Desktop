@@ -282,7 +282,15 @@
             no_unread_posts: "No unread posts.",
             empty_favorites: "You haven't favorited any posts yet.",
             empty_summary: "Your summary cart is empty. Add posts using the clipboard icon.",
-            loading_posts: "Loading posts..."
+            loading_posts: "Loading posts...",
+
+            // Feed Fetch Status & Countdown
+            status_checking_feeds: "Checking feeds...",
+            status_next_check_soon: "Next check: Soon...",
+            status_next_check_sec: "Next check: in {sec}s",
+            status_next_check_min: "Next check: in approx. {min} min",
+            status_autofetch_off: "Auto-fetch: OFF",
+            status_sleeping_until: "Sleeping until {time}"
         },
 
         de: {
@@ -563,7 +571,15 @@
             no_unread_posts: "Keine ungelesenen Artikel.",
             empty_favorites: "Sie haben noch keine Favoriten markiert.",
             empty_summary: "Ihr Zusammenfassungs-Korb ist leer. Fügen Sie Artikel über das Zwischenablage-Symbol hinzu.",
-            loading_posts: "Artikel werden geladen..."
+            loading_posts: "Artikel werden geladen...",
+
+            // Feed Fetch Status & Countdown
+            status_checking_feeds: "Feeds werden abgerufen...",
+            status_next_check_soon: "Nächster Abruf: Gleich...",
+            status_next_check_sec: "Nächster Abruf: in {sec}s",
+            status_next_check_min: "Nächster Abruf: in ca. {min} Min.",
+            status_autofetch_off: "Autom. Abruf: Aus",
+            status_sleeping_until: "Ruht bis {time}"
         },
 
         es: {
@@ -844,7 +860,15 @@
             no_unread_posts: "No hay artículos no leídos.",
             empty_favorites: "Aún no ha marcado ningún artículo como favorito.",
             empty_summary: "Su cesta de resumen está vacía. Añada artículos usando el icono del portapapeles.",
-            loading_posts: "Cargando artículos..."
+            loading_posts: "Cargando artículos...",
+
+            // Feed Fetch Status & Countdown
+            status_checking_feeds: "Actualizando feeds...",
+            status_next_check_soon: "Próxima actualización: Pronto...",
+            status_next_check_sec: "Próxima actualización: en {sec}s",
+            status_next_check_min: "Próxima actualización: en aprox. {min} min",
+            status_autofetch_off: "Actualización autom.: Desactivada",
+            status_sleeping_until: "Pausa hasta {time}"
         },
 
         fr: {
@@ -1125,7 +1149,15 @@
             no_unread_posts: "Aucun article non lu.",
             empty_favorites: "Vous n'avez pas encore d'articles favoris.",
             empty_summary: "Votre panier de résumé est vide. Ajoutez des articles à l'aide de l'icône de presse-papiers.",
-            loading_posts: "Chargement des articles..."
+            loading_posts: "Chargement des articles...",
+
+            // Feed Fetch Status & Countdown
+            status_checking_feeds: "Vérification des flux...",
+            status_next_check_soon: "Prochaine vérification : Bientôt...",
+            status_next_check_sec: "Prochaine vérification : dans {sec}s",
+            status_next_check_min: "Prochaine vérification : dans env. {min} min",
+            status_autofetch_off: "Récupération auto : Désactivée",
+            status_sleeping_until: "En pause jusqu'à {time}"
         }
     };
 

@@ -10,22 +10,58 @@ const SUMMARY_ALARM_NAME = 'unreadSummaryAlarm';
 const AUTO_BACKUP_ALARM_NAME = 'autoBackupAlarm';
 const SATELLITE_ALARM_NAME = 'satelliteSyncAlarm';
 
-let lastKnownUnread = null;
 async function syncBadgeFromDesktop() {
   try {
     const status = await SatelliteBridge.checkStatus(400);
+    const { appLanguage = 'en' } = await chrome.storage.sync.get('appLanguage');
     if (status.connected) {
       const count = status.totalUnread || 0;
       lastKnownUnread = count;
       const text = count > 0 ? String(count) : '';
       await chrome.action.setBadgeText({ text });
       await chrome.action.setBadgeBackgroundColor({ color: '#2563eb' });
-      await chrome.action.setTitle({ title: `PureTidings Desktop - Connected (${count} unread)` });
+
+      let title = '';
+      if (typeof formatCountdownStatus === 'function') {
+        const info = {
+          nextFetchTimestamp: status.nextFetchTimestamp || 0,
+          isFetching: !!status.isFetching,
+          isAutoFetchOff: status.statusReason === 'off',
+          isSleeping: status.statusReason === 'sleeping',
+          sleepingUntil: status.sleepingUntil
+        };
+        title = formatCountdownStatus(info, appLanguage);
+      }
+      if (!title) {
+        title = `PureTidings Desktop - Connected (${count} unread)`;
+      }
+
+      await chrome.action.setTitle({ title });
       await chrome.storage.local.set({ lastTotalUnreadCount: count });
       return true;
     } else {
       lastKnownUnread = null;
-      await chrome.action.setTitle({ title: 'PureTidings Desktop - Offline (Click to open)' });
+      const fetchAlarm = await chrome.alarms.get(FETCH_ALARM_NAME);
+      if (fetchAlarm) {
+        const info = {
+          nextFetchTimestamp: fetchAlarm.scheduledTime,
+          isFetching: false,
+          isAutoFetchOff: false,
+          isSleeping: false
+        };
+        const countdown = typeof formatCountdownStatus === 'function' ? formatCountdownStatus(info, appLanguage) : '';
+        await chrome.action.setTitle({ title: countdown || 'PureTidings' });
+      } else {
+        const l = (appLanguage || 'en').toLowerCase().substring(0, 2);
+        const offlineTitle = l === 'de' 
+          ? 'PureTidings Desktop - Offline (Klicken zum Öffnen)'
+          : l === 'es'
+          ? 'PureTidings Desktop - Desconectado (Clic para abrir)'
+          : l === 'fr'
+          ? 'PureTidings Desktop - Hors ligne (Cliquer pour ouvrir)'
+          : 'PureTidings Desktop - Offline (Click to open)';
+        await chrome.action.setTitle({ title: offlineTitle });
+      }
       return false;
     }
   } catch (_) {

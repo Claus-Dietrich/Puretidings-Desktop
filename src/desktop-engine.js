@@ -534,7 +534,11 @@
 
             tauriInvoke('update_satellite_state', {
                 stateJson: JSON.stringify(snapshot),
-                totalUnread: totalUnread
+                totalUnread: totalUnread,
+                nextFetchTimestamp: window.nextFetchTimestamp || 0,
+                isFetching: !!(window.isFetchingFeeds || window.isRefreshingAllFeeds),
+                statusReason: window.fetchStatusReason || 'active',
+                sleepingUntil: window.fetchSleepingUntil || null
             }).catch(() => {});
         } catch (err) {
             console.warn('[PureTidings Desktop] Satellite sync error:', err);
@@ -1788,6 +1792,7 @@
 
     async function refreshAllFeedsNative() {
         window.isRefreshingAllFeeds = true;
+        updateFetchCountdownUI();
         if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
         const refreshBtn = document.getElementById('sidebar-refresh-btn');
         if (refreshBtn) refreshBtn.classList.add('spinning');
@@ -2009,6 +2014,7 @@
             console.error("Failed to refresh feeds:", e);
         } finally {
             window.isRefreshingAllFeeds = false;
+            updateFetchCountdownUI();
             if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
             if (loading) loading.classList.add('hidden');
             if (refreshBtn) refreshBtn.classList.remove('spinning');
@@ -3396,17 +3402,63 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     }
 
     function isScheduleActiveNow(fetchSchedule) {
-        if (!fetchSchedule) return true;
+        return getScheduleState(fetchSchedule).active;
+    }
+
+    function getScheduleState(fetchSchedule) {
+        if (!fetchSchedule) return { active: true, reason: 'active', sleepingUntil: null };
         const now = new Date();
         const day = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
         const config = fetchSchedule[day];
-        if (!config) return true;
-        if (config.active === false) return false;
+        if (!config) return { active: true, reason: 'active', sleepingUntil: null };
+        if (config.active === false) return { active: false, reason: 'sleeping', sleepingUntil: null };
         const nowTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-        if (config.from && nowTime < config.from) return false;
-        if (config.to && nowTime > config.to) return false;
-        return true;
+        if (config.from && nowTime < config.from) return { active: false, reason: 'sleeping', sleepingUntil: config.from };
+        if (config.to && nowTime > config.to) return { active: false, reason: 'sleeping', sleepingUntil: null };
+        return { active: true, reason: 'active', sleepingUntil: null };
     }
+
+    function updateFetchCountdownUI() {
+        try {
+            const lang = (window.i18n && typeof window.i18n.getCurrentLanguage === 'function') 
+                ? window.i18n.getCurrentLanguage() 
+                : 'en';
+            const info = {
+                nextFetchTimestamp: window.nextFetchTimestamp || 0,
+                isFetching: !!(window.isFetchingFeeds || window.isRefreshingAllFeeds),
+                isAutoFetchOff: window.fetchStatusReason === 'off',
+                isSleeping: window.fetchStatusReason === 'sleeping',
+                sleepingUntil: window.fetchSleepingUntil || null
+            };
+
+            const countdownStr = typeof formatCountdownStatus === 'function'
+                ? formatCountdownStatus(info, lang)
+                : '';
+
+            // 1. Mobile Android Header Subtitle
+            const mobileSub = document.getElementById('mobile-next-fetch-info');
+            if (mobileSub) {
+                mobileSub.textContent = countdownStr;
+                mobileSub.style.display = countdownStr ? 'block' : 'none';
+            }
+
+            // 2. Desktop Refresh Button Hover Tooltip
+            const desktopRefresh = document.getElementById('sidebar-refresh-btn');
+            if (desktopRefresh) {
+                const baseTitle = (window.i18n && typeof window.i18n.t === 'function')
+                    ? window.i18n.t('tooltip_refresh') 
+                    : 'Refresh Feeds (F5)';
+                if (countdownStr) {
+                    desktopRefresh.setAttribute('title', `${baseTitle} • ${countdownStr}`);
+                } else {
+                    desktopRefresh.setAttribute('title', baseTitle);
+                }
+            }
+        } catch (e) {
+            console.warn('[PureTidings] Error updating countdown UI:', e);
+        }
+    }
+    window.updateFetchCountdownUI = updateFetchCountdownUI;
 
     let bgFetchTimeout = null;
     let bgSummaryTimeout = null;
@@ -3414,10 +3466,28 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
     async function scheduleNextBackgroundFetch() {
         if (bgFetchTimeout) clearTimeout(bgFetchTimeout);
 
-        const { checkInterval = 30, randomizeFetch = false } = await chrome.storage.sync.get(['checkInterval', 'randomizeFetch']);
+        const { checkInterval = 30, randomizeFetch = false, fetchSchedule } = await chrome.storage.sync.get(['checkInterval', 'randomizeFetch', 'fetchSchedule']);
         const intervalMinutes = parseInt(checkInterval, 10);
         if (isNaN(intervalMinutes) || intervalMinutes <= 0) {
             console.log("[PureTidings Desktop] Auto-fetch is OFF (checkInterval = 0).");
+            window.nextFetchTimestamp = 0;
+            window.fetchStatusReason = 'off';
+            window.fetchSleepingUntil = null;
+            updateFetchCountdownUI();
+            if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
+            return;
+        }
+
+        const sched = getScheduleState(fetchSchedule);
+        if (!sched.active) {
+            console.log("[PureTidings Desktop] Outside active fetch schedule hours. Pausing background check.");
+            window.nextFetchTimestamp = 0;
+            window.fetchStatusReason = 'sleeping';
+            window.fetchSleepingUntil = sched.sleepingUntil;
+            updateFetchCountdownUI();
+            if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
+            // Re-evaluate in 60 seconds
+            bgFetchTimeout = setTimeout(scheduleNextBackgroundFetch, 60 * 1000);
             return;
         }
 
@@ -3428,7 +3498,13 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         }
 
         const ms = Math.round(effectiveMinutes * 60 * 1000);
+        window.nextFetchTimestamp = Date.now() + ms;
+        window.fetchStatusReason = 'active';
+        window.fetchSleepingUntil = null;
         console.log(`[PureTidings Desktop] Next background check scheduled in ${effectiveMinutes.toFixed(1)} minute(s).`);
+
+        updateFetchCountdownUI();
+        if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
 
         bgFetchTimeout = setTimeout(async () => {
             await runBackgroundFetchCycle();
@@ -3438,10 +3514,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
     async function runBackgroundFetchCycle() {
         try {
+            window.isFetchingFeeds = true;
+            updateFetchCountdownUI();
+            if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
+
             const { fetchSchedule, showNotification = true, rules = [] } = await chrome.storage.sync.get(['fetchSchedule', 'showNotification', 'rules']);
 
             if (!isScheduleActiveNow(fetchSchedule)) {
                 console.log("[PureTidings Desktop] Outside active fetch schedule hours. Skipping auto-check.");
+                const sched = getScheduleState(fetchSchedule);
+                window.fetchStatusReason = 'sleeping';
+                window.fetchSleepingUntil = sched.sleepingUntil;
                 return;
             }
 
@@ -3498,6 +3581,10 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             }
         } catch (err) {
             console.warn("[PureTidings Desktop] Error during background fetch cycle:", err);
+        } finally {
+            window.isFetchingFeeds = false;
+            updateFetchCountdownUI();
+            if (typeof syncSatelliteStateToRust === 'function') syncSatelliteStateToRust();
         }
     }
 
@@ -3563,6 +3650,9 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         scheduleNextBackgroundFetch();
         scheduleNextSummaryNotification();
         scheduleNextAutoBackup();
+        updateFetchCountdownUI();
+        setInterval(updateFetchCountdownUI, 15 * 1000);
+        window.addEventListener('i18n:languageChanged', updateFetchCountdownUI);
     }
     window.startBackgroundScheduler = startBackgroundScheduler;
 
@@ -7350,6 +7440,17 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
             });
         }
 
+        // Delegate tap on mobile next fetch subtitle to refresh
+        const mobileFetchInfo = document.getElementById('mobile-next-fetch-info');
+        if (mobileFetchInfo) {
+            mobileFetchInfo.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const desktopRefresh = document.getElementById('sidebar-refresh-btn');
+                if (desktopRefresh) desktopRefresh.click();
+                else refreshAllFeedsNative();
+            });
+        }
+
         // Sync mobile header title with main page title
         if (pageTitle && mobileTitle) {
             const syncTitle = () => {
@@ -10156,7 +10257,11 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
 
                 tauriInvoke('update_satellite_state', {
                     stateJson: JSON.stringify(snapshot),
-                    totalUnread: totalUnread
+                    totalUnread: totalUnread,
+                    nextFetchTimestamp: window.nextFetchTimestamp || 0,
+                    isFetching: !!(window.isFetchingFeeds || window.isRefreshingAllFeeds),
+                    statusReason: window.fetchStatusReason || 'active',
+                    sleepingUntil: window.fetchSleepingUntil || null
                 }).catch(() => {});
             } catch (err) {
                 console.warn('[PureTidings Desktop] Satellite sync error:', err);

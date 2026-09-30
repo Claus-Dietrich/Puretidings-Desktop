@@ -2,7 +2,7 @@
 
 #[cfg(not(target_os = "android"))]
 mod desktop_impl {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicUsize, AtomicI64, AtomicBool, Ordering};
     use std::sync::RwLock;
     use std::thread;
     use tauri::{AppHandle, Manager, Emitter};
@@ -17,10 +17,33 @@ mod desktop_impl {
 
     static SATELLITE_STATE_DATA: RwLock<Option<String>> = RwLock::new(None);
     static SATELLITE_TOTAL_UNREAD: AtomicUsize = AtomicUsize::new(0);
+    static SATELLITE_NEXT_FETCH_TIMESTAMP: AtomicI64 = AtomicI64::new(0);
+    static SATELLITE_IS_FETCHING: AtomicBool = AtomicBool::new(false);
+    static SATELLITE_STATUS_REASON: RwLock<Option<String>> = RwLock::new(None);
+    static SATELLITE_SLEEPING_UNTIL: RwLock<Option<String>> = RwLock::new(None);
 
     #[tauri::command]
-    pub fn update_satellite_state(state_json: String, total_unread: usize) -> Result<(), String> {
+    pub fn update_satellite_state(
+        state_json: String,
+        total_unread: usize,
+        next_fetch_timestamp: Option<i64>,
+        is_fetching: Option<bool>,
+        status_reason: Option<String>,
+        sleeping_until: Option<String>,
+    ) -> Result<(), String> {
         SATELLITE_TOTAL_UNREAD.store(total_unread, Ordering::Relaxed);
+        if let Some(ts) = next_fetch_timestamp {
+            SATELLITE_NEXT_FETCH_TIMESTAMP.store(ts, Ordering::Relaxed);
+        }
+        if let Some(fetching) = is_fetching {
+            SATELLITE_IS_FETCHING.store(fetching, Ordering::Relaxed);
+        }
+        if let Ok(mut lock) = SATELLITE_STATUS_REASON.write() {
+            *lock = status_reason;
+        }
+        if let Ok(mut lock) = SATELLITE_SLEEPING_UNTIL.write() {
+            *lock = sleeping_until;
+        }
         if let Ok(mut lock) = SATELLITE_STATE_DATA.write() {
             *lock = Some(state_json);
         }
@@ -145,10 +168,19 @@ mod desktop_impl {
     #[tauri::command]
     pub fn get_satellite_status() -> Result<Value, String> {
         let unread = SATELLITE_TOTAL_UNREAD.load(Ordering::Relaxed);
+        let next_fetch = SATELLITE_NEXT_FETCH_TIMESTAMP.load(Ordering::Relaxed);
+        let is_fetching = SATELLITE_IS_FETCHING.load(Ordering::Relaxed);
+        let reason = SATELLITE_STATUS_REASON.read().ok().and_then(|l| l.clone());
+        let sleeping_until = SATELLITE_SLEEPING_UNTIL.read().ok().and_then(|l| l.clone());
+
         Ok(serde_json::json!({
             "running": true,
             "port": 41789,
-            "totalUnread": unread
+            "totalUnread": unread,
+            "nextFetchTimestamp": next_fetch,
+            "isFetching": is_fetching,
+            "statusReason": reason,
+            "sleepingUntil": sleeping_until
         }))
     }
 
@@ -432,11 +464,20 @@ mod desktop_impl {
 
                     (Method::Get, "/api/status") => {
                         let unread = SATELLITE_TOTAL_UNREAD.load(Ordering::Relaxed);
+                        let next_fetch = SATELLITE_NEXT_FETCH_TIMESTAMP.load(Ordering::Relaxed);
+                        let is_fetching = SATELLITE_IS_FETCHING.load(Ordering::Relaxed);
+                        let reason = SATELLITE_STATUS_REASON.read().ok().and_then(|l| l.clone());
+                        let sleeping_until = SATELLITE_SLEEPING_UNTIL.read().ok().and_then(|l| l.clone());
+
                         let body = serde_json::json!({
                             "ok": true,
                             "version": env!("CARGO_PKG_VERSION"),
                             "totalUnread": unread,
-                            "appRunning": true
+                            "appRunning": true,
+                            "nextFetchTimestamp": next_fetch,
+                            "isFetching": is_fetching,
+                            "statusReason": reason,
+                            "sleepingUntil": sleeping_until
                         }).to_string();
 
                         let mut resp = Response::from_string(body);
@@ -640,7 +681,14 @@ use serde_json::Value;
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-pub fn update_satellite_state(_state_json: String, _total_unread: usize) -> Result<(), String> {
+pub fn update_satellite_state(
+    _state_json: String,
+    _total_unread: usize,
+    _next_fetch_timestamp: Option<i64>,
+    _is_fetching: Option<bool>,
+    _status_reason: Option<String>,
+    _sleeping_until: Option<String>,
+) -> Result<(), String> {
     Ok(())
 }
 

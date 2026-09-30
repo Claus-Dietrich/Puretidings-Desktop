@@ -25,13 +25,17 @@ const SatelliteBridge = (function () {
                 return {
                     connected: true,
                     totalUnread: data.totalUnread || 0,
-                    version: data.version || '1.0'
+                    version: data.version || '1.0',
+                    nextFetchTimestamp: data.nextFetchTimestamp || 0,
+                    isFetching: !!data.isFetching,
+                    statusReason: data.statusReason || 'active',
+                    sleepingUntil: data.sleepingUntil || null
                 };
             }
         } catch (_) {
             clearTimeout(timer);
         }
-        return { connected: false, totalUnread: 0 };
+        return { connected: false, totalUnread: 0, nextFetchTimestamp: 0, isFetching: false, statusReason: 'offline', sleepingUntil: null };
     }
 
     /**
