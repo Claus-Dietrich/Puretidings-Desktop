@@ -182,6 +182,75 @@ function timeAgo(isoDate) {
 }
 
 /**
+ * Parses multi-language relative date strings (EN, DE, ES, FR) into ISO timestamps.
+ */
+function parseRelativeDate(text) {
+  if (!text || typeof text !== 'string') return null;
+  const clean = text.trim().toLowerCase();
+
+  let val = null;
+  const numMatch = clean.match(/(\d+)/);
+  if (numMatch) {
+    val = parseInt(numMatch[1], 10);
+  } else if (clean.includes('gestern') || clean.includes('yesterday') || clean.includes('hier') || clean.includes('ayer')) {
+    val = 1;
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString();
+  } else if (/\b(ein|eine|einer|einem|one|un|une)\b/.test(clean)) {
+    val = 1;
+  }
+
+  if (val === null || isNaN(val) || val <= 0) return null;
+
+  const d = new Date();
+
+  // Seconds: sek, sec
+  if (/sek|sec/.test(clean)) {
+    d.setSeconds(d.getSeconds() - val);
+    return d.toISOString();
+  }
+
+  // Minutes: min
+  if (/min/.test(clean)) {
+    d.setMinutes(d.getMinutes() - val);
+    return d.toISOString();
+  }
+
+  // Hours: std, stund, hour, hr, heur, hora, h
+  if (/std|stund|hour|hr|heur|hora|\b\d+\s*h\b/.test(clean)) {
+    d.setHours(d.getHours() - val);
+    return d.toISOString();
+  }
+
+  // Days: tag, day, jour, día, dia, d, j
+  if (/tag|day|\b\d+\s*d\b|jour|d[íi]a|\b\d+\s*j\b/.test(clean)) {
+    d.setDate(d.getDate() - val);
+    return d.toISOString();
+  }
+
+  // Weeks: woch, week, wk, semain, semana, w
+  if (/woch|week|wk|semain|semana|\b\d+\s*w\b/.test(clean)) {
+    d.setDate(d.getDate() - (val * 7));
+    return d.toISOString();
+  }
+
+  // Months: monat, month, mo, mois, mes
+  if (/monat|month|\b\d+\s*mo\b|mois|mes/.test(clean)) {
+    d.setMonth(d.getMonth() - val);
+    return d.toISOString();
+  }
+
+  // Years: jahr, year, yr, an, ans, année, año, y
+  if (/jahr|year|yr|ann|a[ñn]o|\b\d+\s*an\b|\b\d+\s*ans\b|\b\d+\s*y\b/.test(clean)) {
+    d.setFullYear(d.getFullYear() - val);
+    return d.toISOString();
+  }
+
+  return null;
+}
+
+/**
  * Decodes HTML entities in a string.
  * @param {string} str The string to decode.
  * @returns {string} The decoded string.

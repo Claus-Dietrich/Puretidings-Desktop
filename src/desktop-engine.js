@@ -1065,7 +1065,74 @@
     // ==========================================
     // 5. Native Feed Fetcher & Parser
     // ==========================================
-    function parseYoutubeChannelHtml(htmlString, feed) {
+    function parseRelativeDate(text) {
+        if (!text || typeof text !== 'string') return null;
+        const clean = text.trim().toLowerCase();
+
+        let val = null;
+        const numMatch = clean.match(/(\d+)/);
+        if (numMatch) {
+            val = parseInt(numMatch[1], 10);
+        } else if (clean.includes('gestern') || clean.includes('yesterday') || clean.includes('hier') || clean.includes('ayer')) {
+            val = 1;
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            return d.toISOString();
+        } else if (/\b(ein|eine|einer|einem|one|un|une)\b/.test(clean)) {
+            val = 1;
+        }
+
+        if (val === null || isNaN(val) || val <= 0) return null;
+
+        const d = new Date();
+
+        // Seconds: sek, sec
+        if (/sek|sec/.test(clean)) {
+            d.setSeconds(d.getSeconds() - val);
+            return d.toISOString();
+        }
+
+        // Minutes: min
+        if (/min/.test(clean)) {
+            d.setMinutes(d.getMinutes() - val);
+            return d.toISOString();
+        }
+
+        // Hours: std, stund, hour, hr, heur, hora, h
+        if (/std|stund|hour|hr|heur|hora|\b\d+\s*h\b/.test(clean)) {
+            d.setHours(d.getHours() - val);
+            return d.toISOString();
+        }
+
+        // Days: tag, day, jour, día, dia, d, j
+        if (/tag|day|\b\d+\s*d\b|jour|d[íi]a|\b\d+\s*j\b/.test(clean)) {
+            d.setDate(d.getDate() - val);
+            return d.toISOString();
+        }
+
+        // Weeks: woch, week, wk, semain, semana, w
+        if (/woch|week|wk|semain|semana|\b\d+\s*w\b/.test(clean)) {
+            d.setDate(d.getDate() - (val * 7));
+            return d.toISOString();
+        }
+
+        // Months: monat, month, mo, mois, mes
+        if (/monat|month|\b\d+\s*mo\b|mois|mes/.test(clean)) {
+            d.setMonth(d.getMonth() - val);
+            return d.toISOString();
+        }
+
+        // Years: jahr, year, yr, an, ans, année, año, y
+        if (/jahr|year|yr|ann|a[ñn]o|\b\d+\s*an\b|\b\d+\s*ans\b|\b\d+\s*y\b/.test(clean)) {
+            d.setFullYear(d.getFullYear() - val);
+            return d.toISOString();
+        }
+
+        return null;
+    }
+    window.parseRelativeDate = parseRelativeDate;
+
+    function parseYoutubeChannelHtml(htmlString, feed, existingDateMap = null) {
         if (!htmlString || typeof htmlString !== 'string') return [];
         const posts = [];
         let channelTitle = feed?.name || 'YouTube Channel';
@@ -1081,14 +1148,15 @@
                 const videosTab = tabs?.find(t => t?.tabRenderer?.content?.richGridRenderer);
                 const contents = videosTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
 
-                for (const c of contents) {
+                for (let i = 0; i < contents.length; i++) {
+                    const c = contents[i];
                     const lockup = c?.richItemRenderer?.content?.lockupViewModel;
                     const vRenderer = c?.richItemRenderer?.content?.videoRenderer;
 
                     let videoId = '';
                     let title = '';
                     let thumbnail = '';
-                    let relativeTime = '';
+                    let date = null;
 
                     if (lockup && lockup.contentId) {
                         videoId = lockup.contentId;
@@ -1102,8 +1170,14 @@
                             for (const row of metaRows) {
                                 for (const part of (row.metadataParts || [])) {
                                     const text = part?.text?.content || '';
-                                    if (text.includes('ago')) relativeTime = text;
+                                    const label = part?.accessibilityLabel || '';
+                                    const parsed = parseRelativeDate(label) || parseRelativeDate(text);
+                                    if (parsed) {
+                                        date = parsed;
+                                        break;
+                                    }
                                 }
+                                if (date) break;
                             }
                         }
                     } else if (vRenderer && vRenderer.videoId) {
@@ -1113,38 +1187,34 @@
                         if (thumbs && thumbs.length > 0) {
                             thumbnail = thumbs[thumbs.length - 1].url || thumbs[0].url;
                         }
-                        relativeTime = vRenderer.publishedTimeText?.simpleText || '';
+                        const vTime = vRenderer.publishedTimeText?.simpleText || '';
+                        if (vTime) {
+                            date = parseRelativeDate(vTime);
+                        }
                     }
 
                     if (videoId) {
                         if (!thumbnail) {
                             thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
                         }
+                        const videoLink = `https://www.youtube.com/watch?v=${videoId}`;
 
-                        let date = new Date().toISOString();
-                        if (relativeTime) {
-                            const numMatch = relativeTime.match(/(\d+)\s*(minute|hour|day|week|month|year)s?\s*ago/i);
-                            if (numMatch) {
-                                const val = parseInt(numMatch[1], 10);
-                                const unit = numMatch[2].toLowerCase();
-                                const d = new Date();
-                                if (unit === 'minute') d.setMinutes(d.getMinutes() - val);
-                                else if (unit === 'hour') d.setHours(d.getHours() - val);
-                                else if (unit === 'day') d.setDate(d.getDate() - val);
-                                else if (unit === 'week') d.setDate(d.getDate() - (val * 7));
-                                else if (unit === 'month') d.setMonth(d.getMonth() - val);
-                                else if (unit === 'year') d.setFullYear(d.getFullYear() - val);
-                                date = d.toISOString();
-                            }
+                        // Non-destructive date preservation:
+                        if (!date && existingDateMap && existingDateMap.has(videoLink)) {
+                            date = existingDateMap.get(videoLink);
+                        }
+                        if (!date) {
+                            // Stagger fallback dates by item index so items retain relative sequence and don't share identical timestamps
+                            date = new Date(Date.now() - (i * 3600000 * 6)).toISOString();
                         }
 
                         posts.push({
                             feedId: feed.id,
                             feedName: feed.name || channelTitle,
                             title: title.replace(/<[^>]+>/g, '').trim(),
-                            link: `https://www.youtube.com/watch?v=${videoId}`,
+                            link: videoLink,
                             date,
-                            description: `<p><a href="https://www.youtube.com/watch?v=${videoId}"><img src="${thumbnail}" alt="${title}"></a></p><p>${title}</p>`,
+                            description: `<p><a href="${videoLink}"><img src="${thumbnail}" alt="${title}"></a></p><p>${title}</p>`,
                             author: channelTitle,
                             featuredImage: thumbnail
                         });
@@ -1158,14 +1228,23 @@
         if (posts.length === 0 && htmlString.includes('videoId')) {
             const videoIdMatches = [...htmlString.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)];
             const uniqueIds = [...new Set(videoIdMatches.map(x => x[1]))].slice(0, 30);
-            for (const vid of uniqueIds) {
+            for (let i = 0; i < uniqueIds.length; i++) {
+                const vid = uniqueIds[i];
+                const videoLink = `https://www.youtube.com/watch?v=${vid}`;
+                let date = null;
+                if (existingDateMap && existingDateMap.has(videoLink)) {
+                    date = existingDateMap.get(videoLink);
+                }
+                if (!date) {
+                    date = new Date(Date.now() - (i * 86400000)).toISOString();
+                }
                 posts.push({
                     feedId: feed.id,
                     feedName: feed.name || channelTitle,
                     title: 'YouTube Video',
-                    link: `https://www.youtube.com/watch?v=${vid}`,
-                    date: new Date().toISOString(),
-                    description: `<p><a href="https://www.youtube.com/watch?v=${vid}"><img src="https://i.ytimg.com/vi/${vid}/hqdefault.jpg" alt="Video"></a></p>`,
+                    link: videoLink,
+                    date,
+                    description: `<p><a href="${videoLink}"><img src="https://i.ytimg.com/vi/${vid}/hqdefault.jpg" alt="Video"></a></p>`,
                     author: channelTitle,
                     featuredImage: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
                 });
@@ -1178,7 +1257,7 @@
         return posts;
     }
 
-    function parseFeedXml(xmlString, feed) {
+    function parseFeedXml(xmlString, feed, existingDateMap = null) {
         if (!xmlString || typeof xmlString !== 'string') return [];
         const parser = new DOMParser();
         let doc = parser.parseFromString(xmlString, "application/xml");
@@ -1201,7 +1280,7 @@
         }
 
         if (items.length === 0 && (xmlString.includes('ytInitialData') || (feed && feed.url && feed.url.includes('youtube.com')))) {
-            const ytPosts = parseYoutubeChannelHtml(xmlString, feed);
+            const ytPosts = parseYoutubeChannelHtml(xmlString, feed, existingDateMap);
             if (ytPosts && ytPosts.length > 0) return ytPosts;
         }
 
@@ -1244,12 +1323,21 @@
             }
 
             let dateRaw = getText("pubDate") || getText("pubdate") || getText("published") || getText("updated") || getText("dc:date");
-            let date = new Date().toISOString();
+            let date = null;
             if (dateRaw) {
                 try {
                     const parsed = new Date(dateRaw);
                     if (!isNaN(parsed.getTime())) date = parsed.toISOString();
                 } catch (_) {}
+                if (!date) {
+                    date = parseRelativeDate(dateRaw);
+                }
+            }
+            if (!date && existingDateMap && existingDateMap.has(link)) {
+                date = existingDateMap.get(link);
+            }
+            if (!date) {
+                date = new Date(Date.now() - (i * 3600000 * 2)).toISOString();
             }
 
             let description = "";
@@ -1351,29 +1439,49 @@
         return posts;
     }
 
-    async function fetchFeedWithFallback(feed) {
+    async function fetchFeedWithFallback(feed, existingDateMap = null) {
         if (!feed || !feed.url) return [];
         let posts = [];
         const isYouTube = feed.url.includes('youtube.com') || feed.url.includes('youtu.be');
 
-        // Tier 1: Primary feed URL
+        // Extract channelId if present in URL
+        let channelId = '';
+        const chanMatch = feed.url.match(/channel_id=(UC[a-zA-Z0-9_-]+)/) ||
+                          feed.url.match(/\/channel\/(UC[a-zA-Z0-9_-]+)/);
+        if (chanMatch) channelId = chanMatch[1];
+
+        // Tier 1: Primary feed URL (or canonical RSS feed if channel ID is known)
+        let primaryUrl = feed.url;
+        if (isYouTube && channelId && !feed.url.includes('feeds/videos.xml')) {
+            primaryUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
+        }
+
         try {
-            const xml = await tauriInvoke('fetch_url', { url: feed.url });
-            posts = parseFeedXml(xml, feed);
+            const xml = await tauriInvoke('fetch_url', { url: primaryUrl });
+            posts = parseFeedXml(xml, feed, existingDateMap);
         } catch (err) {
             console.warn(`[PureTidings Desktop] Tier 1 fetch failed for ${feed.name || feed.url}:`, err);
         }
 
         // Tier 2 (YouTube only): Uploads playlist UU fallback
         if (isYouTube && (!posts || posts.length === 0)) {
-            const chanMatch = feed.url.match(/channel_id=(UC[a-zA-Z0-9_-]+)/);
-            if (chanMatch) {
-                const channelId = chanMatch[1];
+            // If channelId not yet known, try extracting from channel page if feed.url was a channel handle
+            if (!channelId && (feed.url.includes('/@') || feed.url.includes('/c/') || feed.url.includes('/user/'))) {
+                try {
+                    const pageHtml = await tauriInvoke('fetch_url', { url: feed.url });
+                    const idMatch = pageHtml.match(/"channelId":"(UC[a-zA-Z0-9_-]+)"/) ||
+                                    pageHtml.match(/"externalId":"(UC[a-zA-Z0-9_-]+)"/) ||
+                                    pageHtml.match(/channel_id=(UC[a-zA-Z0-9_-]+)/);
+                    if (idMatch) channelId = idMatch[1];
+                } catch (_) {}
+            }
+
+            if (channelId) {
                 const playlistUrl = `https://www.youtube.com/feeds/videos.xml?playlist_id=UU${channelId.slice(2)}`;
                 try {
                     console.log(`[PureTidings Desktop] Tier 2: Trying YouTube uploads playlist fallback for ${feed.name || channelId}...`);
                     const xml = await tauriInvoke('fetch_url', { url: playlistUrl });
-                    posts = parseFeedXml(xml, feed);
+                    posts = parseFeedXml(xml, feed, existingDateMap);
                 } catch (err) {
                     console.warn(`[PureTidings Desktop] Tier 2 playlist fallback failed for ${feed.name || channelId}:`, err);
                 }
@@ -1384,7 +1492,7 @@
                     try {
                         console.log(`[PureTidings Desktop] Tier 3: Trying YouTube channel /videos HTML fallback for ${feed.name || channelId}...`);
                         const html = await tauriInvoke('fetch_url', { url: channelVideosUrl });
-                        posts = parseYoutubeChannelHtml(html, feed);
+                        posts = parseYoutubeChannelHtml(html, feed, existingDateMap);
                     } catch (err) {
                         console.warn(`[PureTidings Desktop] Tier 3 channel HTML fallback failed for ${feed.name || channelId}:`, err);
                     }
@@ -1727,13 +1835,15 @@
             const newAllPosts = { ...allPosts };
             const unreadCounts = { ...existingUnreadCounts };
 
-            // Cache previously fetched images to prevent flickering or losing thumbnails
+            // Cache previously fetched images and authentic dates to prevent flickering or losing timestamps
             const existingImageMap = new Map();
+            const existingDateMap = new Map();
             for (const fId in allPosts) {
                 if (Array.isArray(allPosts[fId])) {
                     allPosts[fId].forEach(p => {
-                        if (p.link && p.featuredImage) {
-                            existingImageMap.set(p.link, p.featuredImage);
+                        if (p.link) {
+                            if (p.featuredImage) existingImageMap.set(p.link, p.featuredImage);
+                            if (p.date) existingDateMap.set(p.link, p.date);
                         }
                     });
                 }
@@ -1753,7 +1863,7 @@
                                 await new Promise(r => setTimeout(r, delay));
                             }
                         }
-                        const posts = await fetchFeedWithFallback(feed);
+                        const posts = await fetchFeedWithFallback(feed, existingDateMap);
                         if (posts && posts.feedTitle) {
                             const nameLower = (feed.name || '').toLowerCase();
                             const isGeneric = !feed.name ||
@@ -1774,6 +1884,16 @@
                             posts.forEach(p => {
                                 if (!p.featuredImage && existingImageMap.has(p.link)) {
                                     p.featuredImage = existingImageMap.get(p.link);
+                                }
+                                if (existingDateMap.has(p.link)) {
+                                    const existingDate = existingDateMap.get(p.link);
+                                    const pTime = new Date(p.date).getTime();
+                                    const eTime = new Date(existingDate).getTime();
+                                    if (!isNaN(eTime)) {
+                                        if (isNaN(pTime) || (Math.abs(Date.now() - pTime) < 300000 && eTime < pTime - 600000)) {
+                                            p.date = existingDate;
+                                        }
+                                    }
                                 }
                                 if (typeof applyRulesToPost === 'function') {
                                     applyRulesToPost(p, rules, readLinksSet);
@@ -1961,17 +2081,19 @@
                 return;
             }
 
-            // Cache previously fetched images
+            // Cache previously fetched images and authentic dates
             const existingImageMap = new Map();
+            const existingDateMap = new Map();
             if (Array.isArray(allPosts[targetFeedId])) {
                 allPosts[targetFeedId].forEach(p => {
-                    if (p.link && p.featuredImage) {
-                        existingImageMap.set(p.link, p.featuredImage);
+                    if (p.link) {
+                        if (p.featuredImage) existingImageMap.set(p.link, p.featuredImage);
+                        if (p.date) existingDateMap.set(p.link, p.date);
                     }
                 });
             }
 
-            const posts = await fetchFeedWithFallback(targetFeed);
+            const posts = await fetchFeedWithFallback(targetFeed, existingDateMap);
             if (posts && posts.feedTitle) {
                 const targetNameLower = (targetFeed.name || '').toLowerCase();
                 const isGenericName = !targetFeed.name || 
@@ -2010,6 +2132,16 @@
                 posts.forEach(p => {
                     if (!p.featuredImage && existingImageMap.has(p.link)) {
                         p.featuredImage = existingImageMap.get(p.link);
+                    }
+                    if (existingDateMap.has(p.link)) {
+                        const existingDate = existingDateMap.get(p.link);
+                        const pTime = new Date(p.date).getTime();
+                        const eTime = new Date(existingDate).getTime();
+                        if (!isNaN(eTime)) {
+                            if (isNaN(pTime) || (Math.abs(Date.now() - pTime) < 300000 && eTime < pTime - 600000)) {
+                                p.date = existingDate;
+                            }
+                        }
                     }
                     if (typeof applyRulesToPost === 'function') {
                         applyRulesToPost(p, rules, readLinksSet);
@@ -2508,6 +2640,13 @@
                 const rssMatch = pageHtml.match(/https:\/\/www\.youtube\.com\/feeds\/videos\.xml\?channel_id=([a-zA-Z0-9_-]+)/);
                 if (rssMatch) {
                     feedUrl = rssMatch[0];
+                } else {
+                    const idMatch = pageHtml.match(/"channelId":"(UC[a-zA-Z0-9_-]+)"/) ||
+                                    pageHtml.match(/"externalId":"(UC[a-zA-Z0-9_-]+)"/) ||
+                                    pageHtml.match(/channel_id=(UC[a-zA-Z0-9_-]+)/);
+                    if (idMatch) {
+                        feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${idMatch[1]}`;
+                    }
                 }
                 if (!feedName) {
                     const titleMatch = pageHtml.match(/<title>([^<]+)<\/title>/i);
@@ -7930,7 +8069,26 @@ Use clean Markdown with standard bullet points (* or -). Avoid unnecessary fille
         // Add Feed Helper & Global API
         async function addNewFeedToTree(url, title, folderId) {
             if (!url || typeof url !== 'string' || !url.trim()) return null;
-            const finalUrl = url.trim();
+            let finalUrl = url.trim();
+
+            // Resolve YouTube channels, handles, and videos to standard Atom RSS URL
+            if ((finalUrl.includes('youtube.com') || finalUrl.includes('youtu.be')) && !finalUrl.includes('feeds/videos.xml')) {
+                const chanMatch = finalUrl.match(/channel_id=(UC[a-zA-Z0-9_-]+)/) || finalUrl.match(/\/channel\/(UC[a-zA-Z0-9_-]+)/);
+                if (chanMatch) {
+                    finalUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${chanMatch[1]}`;
+                } else if (finalUrl.includes('/@') || finalUrl.includes('/c/') || finalUrl.includes('/user/') || finalUrl.includes('watch') || finalUrl.includes('youtu.be')) {
+                    try {
+                        const pageHtml = await tauriInvoke('fetch_url', { url: finalUrl });
+                        const idMatch = pageHtml.match(/"channelId":"(UC[a-zA-Z0-9_-]+)"/) ||
+                                        pageHtml.match(/"externalId":"(UC[a-zA-Z0-9_-]+)"/) ||
+                                        pageHtml.match(/channel_id=(UC[a-zA-Z0-9_-]+)/);
+                        if (idMatch) {
+                            finalUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${idMatch[1]}`;
+                        }
+                    } catch (_) {}
+                }
+            }
+
             let feedName = (title && typeof title === 'string' && title.trim()) ? title.trim() : finalUrl;
             if (feedName === finalUrl || feedName === 'Current Page URL') {
                 try { feedName = new URL(finalUrl).hostname; } catch (_) { feedName = "New Feed"; }
